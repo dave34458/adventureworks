@@ -13,6 +13,12 @@
  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:1rem}
  .card{border:2px dashed #b8c2cf;border-radius:8px;padding:1rem;min-height:120px;background:#f8fafc}
  .card h3{margin:.1rem 0 .4rem}.muted{color:#6b7785}
+ .ac{position:relative;display:inline-block}
+ .ac:focus-within{z-index:10}
+ .ac-results{position:absolute;z-index:9;top:100%;left:0;margin:0;padding:0;list-style:none;background:#fff;border:1px solid #ccd3dc;max-height:14rem;overflow:auto;min-width:100%}
+ .ac-results:empty{display:none}
+ .ac-results li{padding:.2rem .6rem;cursor:pointer;white-space:nowrap}
+ .ac-results li:hover,.ac-results li.on{background:#e9eef5}
 </style></head><body>
 <nav class="top">
  {% for slug, label, url in nav %}<a href="{{ url }}" {% if slug == tab %}class="on"{% endif %}>{{ label }}</a>{% endfor %}

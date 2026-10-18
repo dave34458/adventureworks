@@ -1,18 +1,26 @@
 from django import forms
 from django.forms.utils import flatatt
-from django.utils.html import escape, format_html
-from django.utils.safestring import mark_safe
+from django.utils.html import format_html
 
 
-class FastSelect(forms.Select):
-    """A dropdown that writes its <option> tags directly. Django's stock widget takes ~8 s
-    to render 30,000 options; this one takes a fraction of a second."""
+class SearchSelect(forms.Select):
+    """A foreign-key box that fetches records on demand: the page carries one label (the
+    current value), not the whole table, and a matching query returns 20 rows at most.
+    TableEdit sets .queryset (for the label) and .url (the autocomplete view) per field."""
+
+    class Media:
+        js = ["core/autocomplete.js"]
+
+    queryset = None
+    url = ""
 
     def render(self, name, value, attrs=None, renderer=None):
-        chosen = "" if value in (None, "") else str(value)
-        options = []
-        for val, label in self.choices:
-            val = str(val)
-            options.append(f'<option value="{escape(val)}"{" selected" if val == chosen else ""}>{escape(label)}</option>')
-        return format_html('<select name="{}"{}>{}</select>', name,
-                           flatatt(self.build_attrs(self.attrs, attrs)), mark_safe("".join(options)))
+        value = "" if value in (None, "") else str(value)
+        obj = self.queryset.filter(pk=value).first() if value and self.queryset is not None else None
+        attrs = self.build_attrs(self.attrs, attrs)
+        attrs.pop("required", None)  # the visible box holds text, the hidden one the value
+        return format_html(
+            '<span class="ac"><input type="text"{} value="{}" data-url="{}" autocomplete="off"'
+            ' placeholder="search..."><input type="hidden" name="{}" value="{}"></span>',
+            flatatt(attrs), str(obj) if obj is not None else value, self.url, name, value,
+        )

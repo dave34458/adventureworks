@@ -8,14 +8,15 @@ from django.core.exceptions import FieldDoesNotExist
 from django.db import connection
 from django.db.models import ProtectedError, Q, TextField
 from django.db.models.functions import Cast
-from django.http import Http404
+from django.http import Http404, JsonResponse
 from django.shortcuts import redirect
 from django.urls import reverse
 from django.utils import timezone
+from django.views import View
 from django.views.generic import DeleteView, DetailView, ListView, UpdateView
 
 from .tabs import LABELS, TAB_OF, TABS, visible_tables
-from .widgets import FastSelect
+from .widgets import SearchSelect
 
 
 def shown(model):
@@ -180,17 +181,19 @@ class TableEdit(TableMixin, UpdateView):
 
     def get_form(self, *a, **kw):
         form = super().get_form(*a, **kw)
-        for field in form.fields.values():
+        for name, field in form.fields.items():
             if isinstance(field, forms.ModelChoiceField):
                 # dropdowns show each record's name; join what its name is built from in one query
                 rel = field.queryset.model
                 fks = [f.name for f in rel._meta.fields if f.is_relation] if name_needs_joins(rel) else []
-                has_name = any(f.name == "name" for f in rel._meta.fields)
-                field.widget = FastSelect(attrs=field.widget.attrs)
-                field.widget.is_required = field.required
-                qs = field.queryset.select_related(*fks).order_by("name" if has_name else "pk")
+                qs = field.queryset.select_related(*fks)
                 if rel.__name__ in LABEL_COLUMNS:
                     qs = qs.only(*LABEL_COLUMNS[rel.__name__])
+                widget = SearchSelect(attrs=field.widget.attrs)
+                widget.is_required = field.required
+                widget.queryset = qs
+                widget.url = reverse("table_autocomplete", args=[self.tab, self.model.__name__, name])
+                field.widget = widget
                 field.queryset = qs
         return form
 
@@ -199,6 +202,39 @@ class TableEdit(TableMixin, UpdateView):
             form.instance.modified_date = timezone.now()
         messages.success(self.request, f"Saved {form.instance}.")
         return super().form_valid(form)
+
+
+class TableAutocomplete(TableMixin, View):
+    """JSON search for one foreign-key field: the name fields of the target record (plus the
+    person behind it, and the pk for labels like "PersonBusinessEntity 42"), 20 rows at most.
+    Works for every table because it is driven by the model metadata."""
+    perm = "view"
+
+    def get(self, request, *args, **kwargs):
+        try:
+            f = self.model._meta.get_field(kwargs["field"])
+        except FieldDoesNotExist:
+            raise Http404
+        if not f.is_relation or not f.editable:
+            raise Http404
+        rel, q = f.related_model, request.GET.get("q", "").strip()
+        qs = rel._default_manager.all()
+        if q:
+            conds = [Q(**{c.name + "__icontains": q}) for c in rel._meta.fields
+                     if c.get_internal_type() == "CharField"]
+            if rel._meta.pk.get_internal_type() in ("AutoField", "BigAutoField", "SmallAutoField", "CharField"):
+                # labels like "PersonBusinessEntity 42" only hold the pk (skipped when the pk is a relation)
+                conds.append(Q(pk__icontains=q))
+            pf = next((r.name for r in rel._meta.fields
+                       if r.is_relation and r.related_model.__name__ == "Person"), None)
+            if pf:
+                conds += [Q(**{f"{pf}__{n}__icontains": q}) for n in ("first_name", "last_name")]
+            qs = qs.filter(Q(*conds, _connector=Q.OR))
+        if name_needs_joins(rel):
+            qs = qs.select_related(*[fk.name for fk in rel._meta.fields if fk.is_relation])
+        if rel.__name__ in LABEL_COLUMNS:
+            qs = qs.only(*LABEL_COLUMNS[rel.__name__])
+        return JsonResponse({"results": [{"id": o.pk, "text": str(o)} for o in qs.order_by("pk")[:20]]})
 
 
 class TableDelete(TableMixin, DeleteView):

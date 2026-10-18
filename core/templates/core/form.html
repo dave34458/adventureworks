@@ -1,4 +1,5 @@
 {% extends "core/base.html" %}{% block content %}
+{{ form.media }}
 <h2>Edit {{ title|lower }}: {{ object }}</h2>
 <form method="post">{% csrf_token %}{{ form.as_p }}<button>Save</button> <a href="{% url 'table_detail' tab name object.pk %}">cancel</a></form>
 {% endblock %}

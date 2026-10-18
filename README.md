@@ -5,15 +5,10 @@ https://github.com/Microsoft/sql-server-samples/releases/tag/adventureworks
 
 ## Run it (prebuilt database)
 1. `pip install "Django>=5.2,<5.3"`
-2. Unzip `adventureworks.sqlite3.zip` and put `adventureworks.sqlite3` next to `manage.py`.
+2. Clone the repo with Git LFS installed (`git lfs install`). `adventureworks.sqlite3` (~115 MB) ships
+   with the repo; if it arrived as a small text pointer instead, run `git lfs pull`.
 3. `python manage.py createsuperuser`   (this is the Superadmin; it has no other users yet)
 4. `python manage.py runserver`, then open http://127.0.0.1:8000/ and log in.
-
-## Rebuild the database
-1. Delete `adventureworks.sqlite3` and restore it from your backup, or
-   recreate it from Microsoft's CSV export if you have one.
-2. `python manage.py migrate`
-3. `python manage.py createsuperuser`
 
 ## Layout
     aw_project/         settings.py, urls.py (project configuration, not an app)
@@ -24,8 +19,10 @@ https://github.com/Microsoft/sql-server-samples/releases/tag/adventureworks
                         (title, list of tables, and context() for the dashboard data)
       views.py          home redirect + the bare dashboard page for each tab
       crud_views.py     shared list / detail / edit / delete views used by every table
+                        (also the JSON autocomplete view behind the edit page's big dropdowns)
       roles.py          ROLES (superadmin only; other roles are commented-out placeholders)
-      widgets.py        FastSelect, a quick dropdown for foreign keys with thousands of options
+      widgets.py        SearchSelect, the on-demand foreign-key box for the edit pages
+      static/core/      autocomplete.js, the tiny script behind the edit page's foreign-key boxes
       templates/        base, dashboard, list, detail, form, confirm_delete, login, no-access, 403
 
 ## Pages
