@@ -1,0 +1,22 @@
+{% extends "core/base.html" %}
+{% block content %}
+<h2>{{ title }}</h2>
+<p class="muted">This page is a bare placeholder. The dashboard, infographic and charts for this tab will appear here.</p>
+<div class="grid">
+ <div class="card"><h3>Dashboard</h3><p class="muted">KPI numbers and a summary table (coming soon).</p></div>
+ <div class="card"><h3>Infographic</h3><p class="muted">Visual highlights (coming soon).</p></div>
+ <div class="card"><h3>Charts</h3><p class="muted">Trend and comparison charts (coming soon).</p></div>
+</div>
+<h3>Records in this tab</h3>
+<ul>
+ {% if perms.core.view_salescustomer %}<li><a href="{% url 'table_list' 'customers' 'SalesCustomer' %}">Sales customer</a></li>{% endif %}
+ {% if perms.core.view_person %}<li><a href="{% url 'table_list' 'customers' 'Person' %}">Person</a></li>{% endif %}
+ {% if perms.core.view_personemailaddress %}<li><a href="{% url 'table_list' 'customers' 'PersonEmailAddress' %}">Person email address</a></li>{% endif %}
+ {% if perms.core.view_personphone %}<li><a href="{% url 'table_list' 'customers' 'PersonPhone' %}">Person phone</a></li>{% endif %}
+ {% if perms.core.view_personaddress %}<li><a href="{% url 'table_list' 'customers' 'PersonAddress' %}">Person address</a></li>{% endif %}
+ {% if perms.core.view_personbusinessentityaddress %}<li><a href="{% url 'table_list' 'customers' 'PersonBusinessEntityAddress' %}">Person business entity address</a></li>{% endif %}
+ {% if perms.core.view_salesstore %}<li><a href="{% url 'table_list' 'customers' 'SalesStore' %}">Sales store</a></li>{% endif %}
+ {% if perms.core.view_personstateprovince %}<li><a href="{% url 'table_list' 'customers' 'PersonStateProvince' %}">Person state province</a></li>{% endif %}
+ {% if perms.core.view_personcountryregion %}<li><a href="{% url 'table_list' 'customers' 'PersonCountryRegion' %}">Person country region</a></li>{% endif %}
+</ul>
+{% endblock %}

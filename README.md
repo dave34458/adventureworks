@@ -12,22 +12,21 @@ https://github.com/Microsoft/sql-server-samples/releases/tag/adventureworks
 ## Layout
     aw_project/         settings.py, urls.py (project configuration, not an app)
     core/               the one app
-      models/awdata.py  the 71 AdventureWorks models (generated; do not edit by hand)
-      models/access.py  one permission per tab (access_sales, access_customers, ...)
-      tabs/             one file per tab: sales.py, customers.py, costs.py, finance.py
-                        (title, list of tables, and context() for the dashboard data)
-      views.py          home redirect + the bare dashboard page for each tab
-      crud_views.py     shared list / detail / edit / delete views used by every table
-                        (also the JSON autocomplete view behind the edit page's big dropdowns)
+      models.py         the 71 AdventureWorks models (generated; do not edit by hand)
+                        + TabAccess, one permission per tab (access_sales, access_customers, ...)
+      views.py          all views: home, one dashboard view per tab (sales, customers,
+                        costs, finance) and the shared list / detail / edit / delete pages
+                        every table uses, plus the JSON autocomplete they call
       roles.py          ROLES (superadmin only; other roles are commented-out placeholders)
       widgets.py        SearchSelect, the on-demand foreign-key box for the edit pages
       static/core/      autocomplete.js, the tiny script behind the edit page's foreign-key boxes
-      templates/        base, dashboard, list, detail, form, confirm_delete, login, no-access, 403
+      templates/        base, list, detail, form, confirm_delete, no_access, per-tab dashboards,
+                        login, 403
 
 ## Pages
     /login/                                  login (the only public page)
     /                                        goes to the first tab the user may open
-    /<tab>/                                  bare dashboard page for the tab (sales, customers, costs, finance)
+    /sales/ /customers/ /costs/ /finance/    dashboard page per tab
     /<tab>/data/<Table>/                     list (search with ?q=)
     /<tab>/data/<Table>/<id>/                detail
     /<tab>/data/<Table>/<id>/edit/           edit
@@ -37,13 +36,14 @@ https://github.com/Microsoft/sql-server-samples/releases/tag/adventureworks
 ## Roles (RBAC)
 * **Superadmin** = a Django superuser (`createsuperuser`). It can open every tab and every table.
 * **Other roles** are Django groups defined in `core/roles.py`. They are commented-out placeholders:
-  uncomment one (adjust its tabs and tables), run `python manage.py setup_roles`, then add users to
-  the group at /manage/ -> Groups / Users. `setup_roles` is safe to run repeatedly.
+  uncomment one (adjust its tabs and tables), then apply them with
+  `python manage.py shell -c "from core.roles import ROLES, apply_roles; apply_roles(ROLES)"`,
+  and add users to the group at /manage/ -> Groups / Users. Applying is safe to repeat.
 * A user sees a tab only with its `access_<tab>` permission, and a table only with `view_<table>`.
   The edit and delete links appear only with `change_<table>` / `delete_<table>`. Nobody can create records.
 
 ## Notes
-* Tables with pages: 32 (listed in core/tabs/*.py). Add a class name there to add a table.
+* Tables with pages: 32 (each dashboard hardcodes its own links). Add a link there to add a table.
 * Composite-key tables use their identity column or a new `id` as primary key; the old key columns remain
   a unique constraint. All foreign keys use `on_delete=PROTECT`.
 * `LineTotal`, `TotalDue`, `StockedQty` are database-generated columns. `SubTotal` is a normal column:

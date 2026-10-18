@@ -1,0 +1,106 @@
+{% extends "core/base.html" %}
+{% block content %}
+<h2>{{ title }}</h2>
+<p class="muted d-sub">Rolling 12 months · {{ window_label }} · compared with {{ prev_label }} · USD · through {{ through|date:"M j, Y" }}</p>
+<div class="dash">
+ <section class="d-kpis">
+  {% for k in kpis %}
+  <div class="d-kpi">
+   <div class="lab">{{ k.label }}</div>
+   <div class="val">{{ k.value }}{% if k.delta %} <span class="d-chip {{ k.dir }}">{{ k.delta }}</span>{% endif %}</div>
+   <div class="cap">{{ k.cap }}</div>
+  </div>
+  {% endfor %}
+ </section>
+
+ <section class="d-cols">
+  <div class="d-panel">
+   <h3>Monthly revenue</h3>
+   <p class="sub">Hover a bar for that month's numbers</p>
+   <div class="d-bars">
+    {% for t in trend %}
+    <div class="d-bar" title="{{ t.full }} · {{ t.money }} · {{ t.orders }} orders">
+     <span class="bw"><i style="height:{{ t.height }}%"></i></span>
+     <b>{{ t.label }}</b>
+    </div>
+    {% endfor %}
+   </div>
+  </div>
+  <div class="d-panel">
+   <h3>Channel mix</h3>
+   <p class="sub">Revenue by order channel · last 12 months</p>
+   <div class="d-splitbar">
+    {% for c in channels %}<i class="{{ c.cls }}" style="width:{{ c.pct }}%"></i>{% endfor %}
+   </div>
+   {% for c in channels %}
+   <div class="d-legend">
+    <span class="dot {{ c.cls }}"></span>
+    <span class="nm">{{ c.name }}</span>
+    <span class="vl">{{ c.pct }}%</span>
+    <span class="mt">· {{ c.money }} · {{ c.orders }} orders · {{ c.aov }} avg</span>
+   </div>
+   {% endfor %}
+  </div>
+ </section>
+
+ <section class="d-tops">
+  <div class="d-panel">
+   <h3>Top territories</h3>
+   <p class="sub">Revenue · last 12 months</p>
+   <ul class="d-rank">
+    {% for r in territories %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div></li>{% endfor %}
+   </ul>
+  </div>
+  <div class="d-panel">
+   <h3>Top salespeople</h3>
+   <p class="sub">Revenue · last 12 months</p>
+   <ul class="d-rank">
+    {% for r in salespeople %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div></li>{% endfor %}
+   </ul>
+  </div>
+  <div class="d-panel">
+   <h3>Top products</h3>
+   <p class="sub">Revenue by product · last 12 months</p>
+   <ul class="d-rank">
+    {% for r in products %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div></li>{% endfor %}
+   </ul>
+  </div>
+  <div class="d-panel">
+   <h3>Promotions</h3>
+   <p class="sub">Revenue from discounted lines · last 12 months</p>
+   <ul class="d-rank">
+    {% for r in offers %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div></li>{% endfor %}
+   </ul>
+  </div>
+ </section>
+
+ <section class="d-panel">
+  <h3>Biggest orders</h3>
+  <p class="sub">Largest sales orders · last 12 months</p>
+  <table class="d-table">
+   <tr><th>Order</th><th class="d-hide-m">Date</th><th>Territory</th><th class="d-hide-m">Salesperson</th><th>Channel</th><th class="num">Revenue</th></tr>
+   {% for o in biggest %}
+   <tr>
+    <td><a href="{% url 'table_detail' tab 'SalesOrderHeader' o.id %}">{{ o.number }}</a></td>
+    <td class="d-hide-m">{{ o.date|date:"M j, Y" }}</td>
+    <td>{{ o.territory }}</td>
+    <td class="d-hide-m">{{ o.who }}</td>
+    <td><span class="d-tag {% if o.online %}online{% endif %}">{% if o.online %}Online{% else %}Assisted{% endif %}</span></td>
+    <td class="num">{{ o.total }}</td>
+   </tr>
+   {% endfor %}
+  </table>
+ </section>
+</div>
+<h3>Records in this tab</h3>
+<ul>
+ {% if perms.core.view_salesorderheader %}<li><a href="{% url 'table_list' 'sales' 'SalesOrderHeader' %}">Sales order header</a></li>{% endif %}
+ {% if perms.core.view_salesorderdetail %}<li><a href="{% url 'table_list' 'sales' 'SalesOrderDetail' %}">Sales order detail</a></li>{% endif %}
+ {% if perms.core.view_salesterritory %}<li><a href="{% url 'table_list' 'sales' 'SalesTerritory' %}">Sales territory</a></li>{% endif %}
+ {% if perms.core.view_salesperson %}<li><a href="{% url 'table_list' 'sales' 'SalesPerson' %}">Sales person</a></li>{% endif %}
+ {% if perms.core.view_salesspecialoffer %}<li><a href="{% url 'table_list' 'sales' 'SalesSpecialOffer' %}">Sales special offer</a></li>{% endif %}
+ {% if perms.core.view_salesspecialofferproduct %}<li><a href="{% url 'table_list' 'sales' 'SalesSpecialOfferProduct' %}">Sales special offer product</a></li>{% endif %}
+ {% if perms.core.view_salesreason %}<li><a href="{% url 'table_list' 'sales' 'SalesReason' %}">Sales reason</a></li>{% endif %}
+ {% if perms.core.view_salestaxrate %}<li><a href="{% url 'table_list' 'sales' 'SalesTaxRate' %}">Sales tax rate</a></li>{% endif %}
+</ul>
+{% endblock %}

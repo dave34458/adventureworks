@@ -1,0 +1,22 @@
+{% extends "core/base.html" %}
+{% block content %}
+<h2>{{ title }}</h2>
+<p class="muted">This page is a bare placeholder. The dashboard, infographic and charts for this tab will appear here.</p>
+<div class="grid">
+ <div class="card"><h3>Dashboard</h3><p class="muted">KPI numbers and a summary table (coming soon).</p></div>
+ <div class="card"><h3>Infographic</h3><p class="muted">Visual highlights (coming soon).</p></div>
+ <div class="card"><h3>Charts</h3><p class="muted">Trend and comparison charts (coming soon).</p></div>
+</div>
+<h3>Records in this tab</h3>
+<ul>
+ {% if perms.core.view_purchasingpurchaseorderheader %}<li><a href="{% url 'table_list' 'costs' 'PurchasingPurchaseOrderHeader' %}">Purchasing purchase order header</a></li>{% endif %}
+ {% if perms.core.view_purchasingpurchaseorderdetail %}<li><a href="{% url 'table_list' 'costs' 'PurchasingPurchaseOrderDetail' %}">Purchasing purchase order detail</a></li>{% endif %}
+ {% if perms.core.view_purchasingvendor %}<li><a href="{% url 'table_list' 'costs' 'PurchasingVendor' %}">Purchasing vendor</a></li>{% endif %}
+ {% if perms.core.view_purchasingproductvendor %}<li><a href="{% url 'table_list' 'costs' 'PurchasingProductVendor' %}">Purchasing product vendor</a></li>{% endif %}
+ {% if perms.core.view_productionworkorder %}<li><a href="{% url 'table_list' 'costs' 'ProductionWorkOrder' %}">Production work order</a></li>{% endif %}
+ {% if perms.core.view_productionlocation %}<li><a href="{% url 'table_list' 'costs' 'ProductionLocation' %}">Production location</a></li>{% endif %}
+ {% if perms.core.view_productionproductcosthistory %}<li><a href="{% url 'table_list' 'costs' 'ProductionProductCostHistory' %}">Production product cost history</a></li>{% endif %}
+ {% if perms.core.view_productionscrapreason %}<li><a href="{% url 'table_list' 'costs' 'ProductionScrapReason' %}">Production scrap reason</a></li>{% endif %}
+ {% if perms.core.view_purchasingshipmethod %}<li><a href="{% url 'table_list' 'costs' 'PurchasingShipMethod' %}">Purchasing ship method</a></li>{% endif %}
+</ul>
+{% endblock %}

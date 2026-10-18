@@ -3,7 +3,7 @@
 <title>{% block title %}{% if title %}{{ title }} · {% endif %}AdventureWorks{% endblock %}</title>
 <style>
  body{font-family:system-ui,sans-serif;margin:0;color:#1d2733}
- nav.top{background:#1f3a5f;padding:.55rem 1rem;display:flex;gap:1rem;align-items:center}
+ nav.top{background:#1f3a5f;padding:.55rem 1rem;display:flex;gap:.5rem 1rem;align-items:center;flex-wrap:wrap;color:#fff}
  nav.top a{color:#fff;text-decoration:none;padding:.2rem 0}nav.top a.on{font-weight:600;border-bottom:2px solid #fff}
  nav.top .sp{flex:1}nav.top form{margin:0}nav.top button{background:none;border:0;color:#fff;cursor:pointer;font:inherit;padding:0}
  nav.top .who{color:#c9d6e8;font-size:.9rem}
@@ -19,9 +19,64 @@
  .ac-results:empty{display:none}
  .ac-results li{padding:.2rem .6rem;cursor:pointer;white-space:nowrap}
  .ac-results li:hover,.ac-results li.on{background:#e9eef5}
-</style></head><body>
+ .d-sub{margin:-.4rem 0 0}
+ .dash{display:grid;gap:1rem;margin:1rem 0 1.6rem}
+ .dash>*{min-width:0}
+ .d-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:.75rem}
+ .d-kpi{background:#fff;border:1px solid #ccd3dc;border-radius:10px;padding:.8rem .95rem}
+ .d-kpi .lab{font-size:.7rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:#6b7785}
+ .d-kpi .val{font-size:1.5rem;font-weight:650;color:#1f3a5f;margin:.15rem 0 .1rem;white-space:nowrap}
+ .d-kpi .cap{font-size:.75rem;color:#6b7785}
+ .d-chip{display:inline-block;font-size:.72rem;font-weight:600;padding:.08rem .42rem;border-radius:999px;vertical-align:.18rem}
+ .d-chip.up{background:#e3f3e5;color:#1a7f37}
+ .d-chip.down{background:#fbe9e7;color:#b42318}
+ .d-chip.flat{background:#e9eef5;color:#4a5866}
+ .d-cols{display:grid;grid-template-columns:minmax(0,7fr) minmax(0,3fr);gap:1rem;align-items:start}
+ .d-tops{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:1rem}
+ .d-panel{background:#fff;border:1px solid #ccd3dc;border-radius:10px;padding:.9rem 1rem;min-width:0}
+ .d-panel h3{margin:0;font-size:.95rem;color:#1f3a5f}
+ .d-panel .sub{margin:.1rem 0 .8rem;font-size:.78rem;color:#6b7785}
+ .d-bars{display:flex;gap:4px;height:190px;align-items:stretch}
+ .d-bar{flex:1;display:flex;flex-direction:column;min-width:0}
+ .d-bar .bw{flex:1;display:flex;align-items:flex-end}
+ .d-bar i{width:100%;background:#35659e;border-radius:3px 3px 0 0;min-height:2px;transition:background .12s}
+ .d-bar:hover i{background:#1f3a5f}
+ .d-bar b{font-weight:500;font-size:.7rem;color:#6b7785;text-align:center;margin-top:.3rem;overflow:hidden;white-space:nowrap}
+ .d-splitbar{display:flex;height:16px;border-radius:8px;overflow:hidden;background:#e9eef5;margin:.2rem 0 .9rem}
+ .d-splitbar i{display:block;height:100%}
+ .d-splitbar i.online{background:#2f5b8f}
+ .d-splitbar i.store{background:#e0a63c}
+ .d-legend{display:flex;align-items:baseline;gap:.45rem;font-size:.85rem;margin:.45rem 0}
+ .d-legend .dot{width:.6rem;height:.6rem;border-radius:50%;flex:none;align-self:center}
+ .d-legend .dot.online{background:#2f5b8f}
+ .d-legend .dot.store{background:#e0a63c}
+ .d-legend .nm{font-weight:600;color:#1d2733}
+ .d-legend .vl{color:#1f3a5f;font-weight:650;font-variant-numeric:tabular-nums}
+ .d-legend .mt{color:#6b7785;font-size:.78rem}
+ .d-rank{list-style:none;margin:0;padding:0}
+ .d-rank li{margin:.6rem 0}
+ .d-rank .row{display:flex;justify-content:space-between;gap:.75rem;font-size:.85rem}
+ .d-rank .nm{display:flex;gap:.45rem;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ .d-rank .rk{color:#6b7785;font-variant-numeric:tabular-nums;flex:none}
+ .d-rank .vl{font-weight:600;color:#1f3a5f;font-variant-numeric:tabular-nums;flex:none}
+ .d-rank .tbar{height:5px;background:#e9eef5;border-radius:3px;margin-top:.3rem;overflow:hidden}
+ .d-rank .tbar i{display:block;height:100%;background:#7fa3c8;border-radius:3px;min-width:2px}
+ .d-table{width:100%;border-collapse:collapse;font-size:.85rem}
+ .d-table th{border:0;border-bottom:1px solid #ccd3dc;padding:.35rem .5rem;text-align:left;font-size:.7rem;text-transform:uppercase;letter-spacing:.05em;color:#6b7785}
+ .d-table td{border:0;border-bottom:1px solid #edf1f6;padding:.42rem .5rem}
+ .d-table tr:last-child td{border-bottom:0}
+ .d-table .num{text-align:right;font-variant-numeric:tabular-nums}
+ .d-tag{display:inline-block;font-size:.7rem;padding:.05rem .42rem;border-radius:999px;background:#e9eef5;color:#4a5866}
+ .d-tag.online{background:#e2ebf5;color:#1f3a5f}
+ @media(max-width:820px){.d-cols{grid-template-columns:1fr}}
+ @media(max-width:640px){.d-hide-m{display:none}}
+ @media(max-width:520px){.d-bars{gap:2px}.d-bar b{visibility:hidden}.d-bar:nth-child(odd) b{visibility:visible}}
+</style>{% block extra_head %}{% endblock %}</head><body>
 <nav class="top">
- {% for slug, label, url in nav %}<a href="{{ url }}" {% if slug == tab %}class="on"{% endif %}>{{ label }}</a>{% endfor %}
+ {% if perms.core.access_sales %}<a href="{% url 'sales' %}" {% if tab == 'sales' %}class="on"{% endif %}>Sales report</a>{% endif %}
+ {% if perms.core.access_customers %}<a href="{% url 'customers' %}" {% if tab == 'customers' %}class="on"{% endif %}>Customer profile</a>{% endif %}
+ {% if perms.core.access_costs %}<a href="{% url 'costs' %}" {% if tab == 'costs' %}class="on"{% endif %}>Cost report</a>{% endif %}
+ {% if perms.core.access_finance %}<a href="{% url 'finance' %}" {% if tab == 'finance' %}class="on"{% endif %}>Revenue and loss</a>{% endif %}
  <span class="sp"></span>
  {% if user.is_authenticated %}
   {% if user.is_superuser %}<a href="/manage/">Users and roles</a>{% endif %}
@@ -29,6 +84,5 @@
   <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button>Log out</button></form>
  {% endif %}
 </nav>
-{% if tables %}<div class="sub">{% for n, label in tables %}<a href="{% url 'table_list' tab n %}">{{ label }}</a>{% endfor %}</div>{% endif %}
 {% for m in messages %}<p class="msg {{ m.tags }}">{{ m }}</p>{% endfor %}
 <main>{% block content %}{% endblock %}</main></body></html>
