@@ -1,0 +1,7 @@
+{% extends "core/base.html" %}{% block content %}
+<h2>{{ title }}: {{ object }}</h2>
+<table>{% for label, c in fields %}<tr><th>{{ label }}</th><td>{% if c.url %}<a href="{{ c.url }}">{{ c.text }}</a>{% else %}{{ c.text }}{% endif %}</td></tr>{% endfor %}</table>
+<p>{% if can_change %}<a href="{% url 'table_edit' tab name object.pk %}">edit</a> {% endif %}
+{% if can_delete %}<a href="{% url 'table_delete' tab name object.pk %}">delete</a> {% endif %}
+<a href="{% url 'table_list' tab name %}">back to list</a></p>
+{% endblock %}

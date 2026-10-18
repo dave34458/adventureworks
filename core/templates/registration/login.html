@@ -1,0 +1,9 @@
+{% extends "core/base.html" %}{% block content %}
+<h2>Log in</h2>
+<form method="post" style="max-width:320px">{% csrf_token %}
+ {% if form.errors %}<p class="msg error">Wrong username or password.</p>{% endif %}
+ {{ form.as_p }}
+ <input type="hidden" name="next" value="{{ next }}">
+ <button>Log in</button>
+</form>
+{% endblock %}

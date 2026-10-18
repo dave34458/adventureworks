@@ -1,0 +1,59 @@
+# AdventureWorks (2025 build): Django + SQLite, four tabs, role-based access
+
+Source data: Microsoft's `AdventureWorks-oltp-install-script.zip`
+https://github.com/Microsoft/sql-server-samples/releases/tag/adventureworks
+
+## Run it (prebuilt database)
+1. `pip install "Django>=5.2,<5.3"`
+2. Unzip `adventureworks.sqlite3.zip` and put `adventureworks.sqlite3` next to `manage.py`.
+3. `python manage.py createsuperuser`   (this is the Superadmin; it has no other users yet)
+4. `python manage.py runserver`, then open http://127.0.0.1:8000/ and log in.
+
+## Rebuild the database
+1. Delete `adventureworks.sqlite3` and restore it from your backup, or
+   recreate it from Microsoft's CSV export if you have one.
+2. `python manage.py migrate`
+3. `python manage.py createsuperuser`
+
+## Layout
+    aw_project/         settings.py, urls.py (project configuration, not an app)
+    core/               the one app
+      models/awdata.py  the 71 AdventureWorks models (generated; do not edit by hand)
+      models/access.py  one permission per tab (access_sales, access_customers, ...)
+      tabs/             one file per tab: sales.py, customers.py, costs.py, finance.py
+                        (title, list of tables, and context() for the dashboard data)
+      views.py          home redirect + the bare dashboard page for each tab
+      crud_views.py     shared list / detail / edit / delete views used by every table
+      roles.py          ROLES (superadmin only; other roles are commented-out placeholders)
+      widgets.py        FastSelect, a quick dropdown for foreign keys with thousands of options
+      templates/        base, dashboard, list, detail, form, confirm_delete, login, no-access, 403
+
+## Pages
+    /login/                                  login (the only public page)
+    /                                        goes to the first tab the user may open
+    /<tab>/                                  bare dashboard page for the tab (sales, customers, costs, finance)
+    /<tab>/data/<Table>/                     list (search with ?q=)
+    /<tab>/data/<Table>/<id>/                detail
+    /<tab>/data/<Table>/<id>/edit/           edit
+    /<tab>/data/<Table>/<id>/delete/         delete
+    /manage/                                 Users and Groups (superadmin only)
+
+## Roles (RBAC)
+* **Superadmin** = a Django superuser (`createsuperuser`). It can open every tab and every table.
+* **Other roles** are Django groups defined in `core/roles.py`. They are commented-out placeholders:
+  uncomment one (adjust its tabs and tables), run `python manage.py setup_roles`, then add users to
+  the group at /manage/ -> Groups / Users. `setup_roles` is safe to run repeatedly.
+* A user sees a tab only with its `access_<tab>` permission, and a table only with `view_<table>`.
+  The edit and delete links appear only with `change_<table>` / `delete_<table>`. Nobody can create records.
+
+## Notes
+* Tables with pages: 32 (listed in core/tabs/*.py). Add a class name there to add a table.
+* Composite-key tables use their identity column or a new `id` as primary key; the old key columns remain
+  a unique constraint. All foreign keys use `on_delete=PROTECT`.
+* `LineTotal`, `TotalDue`, `StockedQty` are database-generated columns. `SubTotal` is a normal column:
+  recalculate it in your order edit page.
+* 85 of 88 CHECK constraints are enforced (not translated: Employee BirthDate/HireDate, ProductInventory Shelf).
+* `SalesOrderDetail.clean()` enforces SQL Server's composite FK to SpecialOfferProduct.
+* Order dates run 2022-05-30 to 2025-06-29: do not default date filters to "today".
+* Keep `PersonPassword` and `SalesCreditCard` out of your pages (they are not registered).
+* Before deploying anywhere public: set DJANGO_SECRET_KEY, DJANGO_DEBUG=0 and DJANGO_ALLOWED_HOSTS.
