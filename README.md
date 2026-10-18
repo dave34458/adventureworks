@@ -5,9 +5,8 @@ https://github.com/Microsoft/sql-server-samples/releases/tag/adventureworks
 
 ## Run it (prebuilt database)
 1. `pip install "Django>=5.2,<5.3"`
-2. Clone the repo with Git LFS installed (`git lfs install`). `adventureworks.sqlite3` (~115 MB) ships
-   with the repo; if it arrived as a small text pointer instead, run `git lfs pull`.
-3. `python manage.py createsuperuser`   (this is the Superadmin; it has no other users yet)
+2. `git clone` the repo. `adventureworks.sqlite3` (~78 MB) is a plain file in git; no Git LFS needed.
+3. The shipped database already has a superuser: `admin` / `admin` (change the password on /manage/).
 4. `python manage.py runserver`, then open http://127.0.0.1:8000/ and log in.
 
 ## Layout
