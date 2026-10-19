@@ -2,6 +2,7 @@
 {% block content %}
 <h2>{{ title }}</h2>
 <p class="muted d-sub">Rolling 12 months · {{ window_label }} · compared with {{ prev_label }} · USD · through {{ through|date:"M j, Y" }}</p>
+{% include "core/_range.html" %}
 <div class="dash">
  <section class="d-kpis">
   {% for k in kpis %}

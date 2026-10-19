@@ -1,0 +1,7 @@
+<form class="d-filter" method="get">
+ <label>From <input type="date" name="from" value="{{ w_from }}"></label>
+ <label>To <input type="date" name="to" value="{{ w_to }}"></label>
+ <button type="submit">Apply</button>
+ <a class="d-btn" href="?from={{ w_from }}&amp;to={{ w_to }}&amp;export=csv">Export CSV</a>
+ <a href="?">Reset</a>
+</form>

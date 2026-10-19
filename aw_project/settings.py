@@ -43,7 +43,7 @@ DATABASES = {"default": {
 DEFAULT_AUTO_FIELD = "django.db.models.AutoField"
 USE_TZ = False  # AdventureWorks dates are naive local times
 TIME_ZONE = "UTC"
-STATIC_URL = "static/"
+STATIC_URL = "/static/"
 
 LOGIN_URL = "login"
 LOGIN_REDIRECT_URL = "home"

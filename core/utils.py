@@ -5,11 +5,20 @@ order date instead of "today"; all four tabs use the same window so their number
 describe the same period.
 """
 import calendar
+import csv
+from datetime import datetime, time, timedelta
 from typing import NamedTuple
 
-from django.db.models import Max, Q
+from django.db.models import DecimalField, ExpressionWrapper, F, Max, Q
+from django.http import StreamingHttpResponse
 
 MONTHS = 12
+
+
+def line_cost():
+    """Quantity × the product's standard cost: the cost side of one order line."""
+    return ExpressionWrapper(F("order_qty") * F("product__standard_cost"),
+                             output_field=DecimalField(max_digits=19, decimal_places=4))
 
 
 def shift_months(dt, months):
@@ -51,6 +60,19 @@ def rank(rows, name_key, value_key, fmt):
     return ranked
 
 
+RING = 2 * 3.141592653589793 * 60  # circumference of the donut chart's r=60 ring
+
+
+def ring(rows):
+    """Rows with a "pct" get the circle dash length and offset for the SVG donut (r=60)."""
+    out, cum = [], 0.0
+    for row in rows:
+        out.append({**row, "dash": round(row["pct"] / 100 * RING, 2),
+                    "off": round(-cum / 100 * RING, 2)})
+        cum += row["pct"]
+    return out
+
+
 class Window(NamedTuple):
     last: object            # latest order date in the data
     trend_start: object     # first instant of the current 12-month window
@@ -78,3 +100,61 @@ def rolling_window(model, date_field="order_date"):
         label=f"{trend_start:%b %Y} – {last:%b %Y}",
         prev_label=f"{window_start:%b %Y} – {shift_months(trend_start, -1):%b %Y}",
     )
+
+
+def range_window(model, start, end, date_field="order_date"):
+    """Explicit [start, end] date range: cur = that range, prev = the same length before it."""
+    last = model.objects.aggregate(last=Max(date_field))["last"]
+    if last is None:
+        return None
+    lo = datetime.combine(start, time.min)
+    hi = min(datetime.combine(end, time.max), last)
+    if hi < lo:
+        return None
+    span = hi - lo
+    prev_lo = lo - span - timedelta(seconds=1)
+    prev_hi = lo - timedelta(seconds=1)
+    return Window(
+        last=hi,
+        trend_start=lo,
+        window_start=prev_lo,
+        cur=Q(**{f"{date_field}__gte": lo, f"{date_field}__lte": hi}),
+        prev=Q(**{f"{date_field}__gte": prev_lo, f"{date_field}__lt": lo}),
+        label=f"{lo:%b %d, %Y} – {hi:%b %d, %Y}",
+        prev_label=f"{prev_lo:%b %d, %Y} – {prev_hi:%b %d, %Y}",
+    )
+
+
+def window_for(request, model, date_field="order_date"):
+    """The rolling 12-month default, or the ?from=/?to= range when the user applied one."""
+    def pick(key):
+        try:
+            return datetime.strptime(request.GET.get(key, ""), "%Y-%m-%d").date()
+        except ValueError:
+            return None
+    start, end = pick("from"), pick("to")
+    if start and end and start <= end:
+        return range_window(model, start, end, date_field)
+    return rolling_window(model, date_field)
+
+
+class _Echo:
+    """csv.writer target that just hands each finished line back, so rows can stream out."""
+
+    def write(self, line):
+        return line
+
+
+def csv_response(filename, header, rows):
+    """A spreadsheet-ready CSV download: UTF-8 with BOM so Excel opens it cleanly.
+    Rows stream to the response one at a time, so exports of whole tables stay light."""
+    def emit():
+        yield "\ufeff"
+        writer = csv.writer(_Echo())
+        yield writer.writerow(header)
+        for row in rows:
+            yield writer.writerow(row)
+
+    response = StreamingHttpResponse(emit(), content_type="text/csv; charset=utf-8")
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response

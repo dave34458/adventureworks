@@ -1,11 +1,117 @@
 {% extends "core/base.html" %}
 {% block content %}
 <h2>{{ title }}</h2>
-<p class="muted">This page is a bare placeholder. The dashboard, infographic and charts for this tab will appear here.</p>
-<div class="grid">
- <div class="card"><h3>Dashboard</h3><p class="muted">KPI numbers and a summary table (coming soon).</p></div>
- <div class="card"><h3>Infographic</h3><p class="muted">Visual highlights (coming soon).</p></div>
- <div class="card"><h3>Charts</h3><p class="muted">Trend and comparison charts (coming soon).</p></div>
+<p class="muted d-sub">Rolling 12 months · {{ window_label }} · compared with {{ prev_label }} · USD · through {{ through|date:"M j, Y" }}</p>
+{% include "core/_range.html" %}
+<div class="dash">
+ <section class="d-kpis">
+  {% for k in kpis %}
+  <div class="d-kpi">
+   <div class="lab">{{ k.label }}</div>
+   <div class="val">{{ k.value }}{% if k.delta %} <span class="d-chip {{ k.dir }}">{{ k.delta }}</span>{% endif %}</div>
+   <div class="cap">{{ k.cap }}</div>
+  </div>
+  {% endfor %}
+  </section>
+
+  <section class="d-panel">
+   <h3>Cost pipeline</h3>
+   <p class="sub">From buying parts to selling stock · last 12 months</p>
+   <div class="d-flow">
+    {% for p in pipeline %}
+    {% if not forloop.first %}<div class="arrow" aria-hidden="true">→</div>{% endif %}
+    <div class="step">
+     <div class="k">{{ p.k }}</div>
+     <div class="big {{ p.cls }}">{{ p.big }}</div>
+     <div class="cap">{{ p.cap }}</div>
+    </div>
+    {% endfor %}
+   </div>
+  </section>
+
+  <section class="d-cols">
+   <div class="d-panel">
+    <h3>Monthly cost of goods sold</h3>
+   <p class="sub">Standard cost of merchandise sold · hover a bar for margin</p>
+   <div class="d-bars">
+    {% for t in trend %}
+    <div class="d-bar" title="{{ t.full }} · cost {{ t.money }} · {{ t.margin }}% margin">
+     <span class="bw"><i style="height:{{ t.height }}%"></i></span>
+     <b>{{ t.label }}</b>
+    </div>
+    {% endfor %}
+   </div>
+  </div>
+  <div class="d-panel">
+   <h3>Where costs sit</h3>
+   <p class="sub">Cost of goods sold by category · last 12 months</p>
+   <div class="d-donut">
+    <svg viewBox="0 0 160 160" role="img" aria-label="Share of cost of goods by category">
+     <g transform="rotate(-90 80 80)">
+      {% for s in donut %}<circle class="{{ s.cls }}" cx="80" cy="80" r="60" fill="none" stroke-width="30" stroke-dasharray="{{ s.dash }} 1000" stroke-dashoffset="{{ s.off }}"><title>{{ s.t }}</title></circle>{% endfor %}
+     </g>
+    </svg>
+    <div class="mid"><b>{{ donut_mid.big }}</b><span>{{ donut_mid.small }}</span></div>
+   </div>
+   {% for c in mix %}
+   <div class="d-legend">
+    <span class="dot {{ c.cls }}"></span>
+    <span class="nm">{{ c.name }}</span>
+    <span class="vl">{{ c.money }}</span>
+    <span class="mt">· {{ c.pct }}% of cost · {{ c.margin }}% margin</span>
+   </div>
+   {% endfor %}
+  </div>
+ </section>
+
+ <section class="d-tops">
+  <div class="d-panel">
+   <h3>Top vendors</h3>
+   <p class="sub">Purchase spend · last 12 months</p>
+   <ul class="d-rank">
+    {% for r in vendors %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
+   </ul>
+  </div>
+  <div class="d-panel">
+   <h3>Costliest products</h3>
+   <p class="sub">Cost of goods sold by product · last 12 months</p>
+   <ul class="d-rank">
+    {% for r in products %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
+   </ul>
+  </div>
+  <div class="d-panel">
+   <h3>Scrap reasons</h3>
+   <p class="sub">Units scrapped in manufacturing · last 12 months</p>
+   <ul class="d-rank">
+    {% for r in reasons %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
+   </ul>
+  </div>
+  <div class="d-panel">
+   <h3>Cost changes</h3>
+   <p class="sub">Repriced products · earliest recorded cost vs today</p>
+   <ul class="d-rank">
+    {% for r in changes %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
+   </ul>
+  </div>
+ </section>
+
+ <section class="d-panel">
+  <h3>Biggest purchase orders</h3>
+  <p class="sub">Largest PO totals · last 12 months</p>
+  <table class="d-table">
+   <tr><th>PO</th><th>Vendor</th><th class="d-hide-m">Ordered</th><th class="num">Lines</th><th>Status</th><th class="num">Total</th></tr>
+   {% for o in biggest %}
+   <tr>
+    <td><a href="{% url 'table_detail' tab 'PurchasingPurchaseOrderHeader' o.id %}">PO{{ o.id }}</a></td>
+    <td>{{ o.vendor }}</td>
+    <td class="d-hide-m">{{ o.date|date:"M j, Y" }}</td>
+    <td class="num">{{ o.lines }}</td>
+    <td><span class="d-tag {{ o.cls }}">{{ o.status }}</span></td>
+    <td class="num">{{ o.total }}</td>
+   </tr>
+   {% endfor %}
+  </table>
+ </section>
 </div>
 <h3>Records in this tab</h3>
 <ul>

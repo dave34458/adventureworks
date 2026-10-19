@@ -1,11 +1,119 @@
 {% extends "core/base.html" %}
+{% load static %}
+{% block extra_head %}<link rel="stylesheet" href="{% static 'core/leaflet/leaflet.css' %}">{% endblock %}
 {% block content %}
 <h2>{{ title }}</h2>
-<p class="muted">This page is a bare placeholder. The dashboard, infographic and charts for this tab will appear here.</p>
-<div class="grid">
- <div class="card"><h3>Dashboard</h3><p class="muted">KPI numbers and a summary table (coming soon).</p></div>
- <div class="card"><h3>Infographic</h3><p class="muted">Visual highlights (coming soon).</p></div>
- <div class="card"><h3>Charts</h3><p class="muted">Trend and comparison charts (coming soon).</p></div>
+<p class="muted d-sub">Rolling 12 months · {{ window_label }} · compared with {{ prev_label }} · USD · through {{ through|date:"M j, Y" }}</p>
+{% include "core/_range.html" %}
+<div class="dash">
+ <section class="d-kpis">
+  {% for k in kpis %}
+  <div class="d-kpi">
+   <div class="lab">{{ k.label }}</div>
+   <div class="val">{{ k.value }}{% if k.delta %} <span class="d-chip {{ k.dir }}">{{ k.delta }}</span>{% endif %}</div>
+   <div class="cap">{{ k.cap }}</div>
+  </div>
+  {% endfor %}
+ </section>
+
+ <section class="d-cols">
+  <div class="d-panel">
+   <h3>Customer growth</h3>
+   <p class="sub">New vs returning buyers per month · hover a bar for counts</p>
+   <div class="d-bars">
+    {% for g in growth %}
+    <div class="d-bar" title="{{ g.full }} · {{ g.act }} buyers · {{ g.nw }} new · {{ g.ret }} returning">
+     <span class="bw"><span class="d-stack"><i class="new" style="height:{{ g.new_h }}%"></i><i class="ret" style="height:{{ g.ret_h }}%"></i></span></span>
+     <b>{{ g.label }}</b>
+    </div>
+    {% endfor %}
+   </div>
+   <div class="d-legend">
+    <span class="dot ret"></span><span class="nm">Returning</span>
+    <span class="vl">{{ ret_legend.n }}</span><span class="mt">· {{ ret_legend.rev }} revenue</span>
+   </div>
+   <div class="d-legend">
+    <span class="dot new"></span><span class="nm">New</span>
+    <span class="vl">{{ new_legend.n }}</span><span class="mt">· {{ new_legend.rev }} revenue</span>
+   </div>
+  </div>
+  <div class="d-panel">
+   <h3>Who buys</h3>
+   <p class="sub">Revenue by customer type · last 12 months</p>
+   <div class="d-donut">
+    <svg viewBox="0 0 160 160" role="img" aria-label="Share of revenue by customer type">
+     <g transform="rotate(-90 80 80)">
+      {% for s in donut %}<circle class="{{ s.cls }}" cx="80" cy="80" r="60" fill="none" stroke-width="30" stroke-dasharray="{{ s.dash }} 1000" stroke-dashoffset="{{ s.off }}"><title>{{ s.t }}</title></circle>{% endfor %}
+     </g>
+    </svg>
+    <div class="mid"><b>{{ donut_mid.big }}</b><span>{{ donut_mid.small }}</span></div>
+   </div>
+   {% for c in channels %}
+   <div class="d-legend">
+    <span class="dot {{ c.cls }}"></span>
+    <span class="nm">{{ c.name }}</span>
+    <span class="vl">{{ c.pct }}%</span>
+    <span class="mt">· {{ c.money }} · {{ c.customers }} customers · {{ c.aov }} avg order</span>
+   </div>
+   {% endfor %}
+  </div>
+ </section>
+
+ <section class="d-panel">
+  <h3>Where customers are</h3>
+  <p class="sub">Revenue by country · bubble size is revenue · hover a bubble for details</p>
+  <div class="d-mapgrid">
+   <div class="d-map"><div id="cust-map" class="d-map-leaflet"></div>
+    <p class="sub">Simplified country outlines · Natural Earth</p></div>
+   <div>
+    <p class="sub">Revenue by country · last 12 months</p>
+    <ul class="d-rank">
+     {% for r in countries %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div></li>{% endfor %}
+    </ul>
+   </div>
+  </div>
+ </section>
+
+ <section class="d-tops">
+  <div class="d-panel">
+   <h3>Top cities</h3>
+   <p class="sub">Revenue by shipping city · last 12 months</p>
+   <ul class="d-rank">
+    {% for r in cities %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
+   </ul>
+  </div>
+  <div class="d-panel">
+   <h3>Store network</h3>
+   <p class="sub">The B2B side by business type · revenue last 12 months</p>
+   <ul class="d-rank">
+    {% for r in network %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
+   </ul>
+  </div>
+  <div class="d-panel">
+   <h3>Orders per customer</h3>
+   <p class="sub">Buyers by how many orders they placed · last 12 months</p>
+   <ul class="d-rank">
+    {% for r in frequency %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
+   </ul>
+  </div>
+ </section>
+
+ <section class="d-panel">
+  <h3>Top customers</h3>
+  <p class="sub">Biggest buyers · last 12 months</p>
+  <table class="d-table">
+   <tr><th>Customer</th><th>Type</th><th class="d-hide-m">Territory</th><th class="num">Orders</th><th class="num">Revenue</th></tr>
+   {% for c in biggest %}
+   <tr>
+    <td><a href="{% url 'table_detail' tab 'SalesCustomer' c.id %}">{{ c.name }}</a></td>
+    <td><span class="d-tag {% if c.store %}store{% else %}online{% endif %}">{% if c.store %}Store{% else %}Individual{% endif %}</span></td>
+    <td class="d-hide-m">{{ c.territory }}</td>
+    <td class="num">{{ c.orders }}</td>
+    <td class="num">{{ c.rev }}</td>
+   </tr>
+   {% endfor %}
+  </table>
+ </section>
 </div>
 <h3>Records in this tab</h3>
 <ul>
@@ -19,4 +127,27 @@
  {% if perms.core.view_personstateprovince %}<li><a href="{% url 'table_list' 'customers' 'PersonStateProvince' %}">Person state province</a></li>{% endif %}
  {% if perms.core.view_personcountryregion %}<li><a href="{% url 'table_list' 'customers' 'PersonCountryRegion' %}">Person country region</a></li>{% endif %}
 </ul>
+{{ bubbles|json_script:"cust-bubbles" }}
+<script src="{% static 'core/leaflet/leaflet.js' %}"></script>
+<script src="{% static 'core/leaflet/countries.js' %}"></script>
+<script>
+(function () {
+ var pts = JSON.parse(document.getElementById("cust-bubbles").textContent);
+ if (!pts.length || !window.L || !window.AW_COUNTRIES) return;
+ var mine = {USA: 1, CAN: 1, GBR: 1, FRA: 1, DEU: 1, AUS: 1};
+ var map = L.map("cust-map", {scrollWheelZoom: false, attributionControl: false}).setView([30, 10], 1);
+ L.geoJSON(window.AW_COUNTRIES, {
+  style: function (f) {
+   return mine[f.id]
+    ? {color: "#8fa9c9", weight: 1.1, fillColor: "#c9dcf0", fillOpacity: 1}
+    : {color: "#ccd7e3", weight: .6, fillColor: "#eef3f8", fillOpacity: 1};
+  }
+ }).addTo(map);
+ pts.forEach(function (p) {
+  L.circleMarker([p.lat, p.lon], {radius: p.r, weight: 2, color: "#fff",
+   fillColor: "#2f5b8f", fillOpacity: .8}).addTo(map).bindTooltip(p.title);
+ });
+ map.fitBounds(pts.map(function (p) { return [p.lat, p.lon]; }), {padding: [30, 30], maxZoom: 4});
+})();
+</script>
 {% endblock %}

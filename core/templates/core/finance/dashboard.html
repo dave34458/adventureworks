@@ -1,11 +1,108 @@
 {% extends "core/base.html" %}
 {% block content %}
 <h2>{{ title }}</h2>
-<p class="muted">This page is a bare placeholder. The dashboard, infographic and charts for this tab will appear here.</p>
-<div class="grid">
- <div class="card"><h3>Dashboard</h3><p class="muted">KPI numbers and a summary table (coming soon).</p></div>
- <div class="card"><h3>Infographic</h3><p class="muted">Visual highlights (coming soon).</p></div>
- <div class="card"><h3>Charts</h3><p class="muted">Trend and comparison charts (coming soon).</p></div>
+<p class="muted d-sub">Rolling 12 months · {{ window_label }} · compared with {{ prev_label }} · USD · through {{ through|date:"M j, Y" }}</p>
+{% include "core/_range.html" %}
+<div class="dash">
+ <section class="d-kpis">
+  {% for k in kpis %}
+  <div class="d-kpi">
+   <div class="lab">{{ k.label }}</div>
+   <div class="val">{{ k.value }}{% if k.delta %} <span class="d-chip {{ k.dir }}">{{ k.delta }}</span>{% endif %}</div>
+   <div class="cap">{{ k.cap }}</div>
+  </div>
+  {% endfor %}
+ </section>
+
+ <section class="d-panel d-line">
+  <h3>Profit and margin by month</h3>
+  <p class="sub">Bars: gross profit, dollars (left axis) · lines: gross margin % (right axis) · solid = this year, dashed = last year</p>
+  <svg viewBox="0 0 960 260" role="img" aria-label="Monthly gross profit and gross margin, this year versus last year">
+   {% for t in combo.lticks %}<line class="axis" x1="72" y1="{{ t.y }}" x2="920" y2="{{ t.y }}"/><text class="tick" x="46" y="{{ t.y }}" text-anchor="end" dominant-baseline="central">{{ t.lab }}</text>{% endfor %}
+   {% for t in combo.rticks %}<text class="tick" x="926" y="{{ t.y }}" text-anchor="start" dominant-baseline="central">{{ t.lab }}</text>{% endfor %}
+   {% for b in combo.bars %}<rect class="profitbar" x="{{ b.x }}" y="{{ b.y }}" width="{{ b.w }}" height="{{ b.h }}" rx="3"><title>{{ b.t }}</title></rect>{% endfor %}
+   <polyline class="prev" points="{{ combo.prev_pts }}"/>
+   <polyline class="cur" points="{{ combo.cur_pts }}"/>
+   {% for d in combo.dots %}<circle class="{{ d.cls }}" cx="{{ d.x }}" cy="{{ d.y }}" r="3"><title>{{ d.t }}</title></circle>{% endfor %}
+   {% for t in combo.xticks %}<text class="tick" x="{{ t.x }}" y="252" text-anchor="middle">{{ t.lab }}</text>{% endfor %}
+  </svg>
+  <div class="d-legend"><span class="sq"></span><span class="nm">Gross profit</span><span class="mt">· dollars, left axis</span></div>
+  <div class="d-legend"><span class="sw solid"></span><span class="nm">Margin this year</span><span class="mt">· percent, right axis</span></div>
+  <div class="d-legend"><span class="sw"></span><span class="nm">Margin last year</span><span class="mt">· the same months a year earlier</span></div>
+ </section>
+
+ <section class="d-panel">
+  <h3>Product mix</h3>
+  <p class="sub">Revenue by category · last 12 months</p>
+  <div class="d-donutrow">
+   <div class="d-donut">
+    <svg viewBox="0 0 160 160" role="img" aria-label="Share of revenue by category">
+     <g transform="rotate(-90 80 80)">
+      {% for s in donut %}<circle class="{{ s.cls }}" cx="80" cy="80" r="60" fill="none" stroke-width="30" stroke-dasharray="{{ s.dash }} 1000" stroke-dashoffset="{{ s.off }}"><title>{{ s.t }}</title></circle>{% endfor %}
+     </g>
+    </svg>
+    <div class="mid"><b>{{ donut_mid.big }}</b><span>{{ donut_mid.small }}</span></div>
+   </div>
+   <div>
+    {% for c in mix %}
+    <div class="d-legend">
+     <span class="dot {{ c.cls }}"></span>
+     <span class="nm">{{ c.name }}</span>
+     <span class="vl">{{ c.margin }}%</span>
+     <span class="mt">· {{ c.money }} revenue · {{ c.pct }}% of sales</span>
+    </div>
+    {% endfor %}
+   </div>
+  </div>
+ </section>
+
+ <section class="d-tops">
+  <div class="d-panel">
+   <h3>Profit by territory</h3>
+   <p class="sub">Gross profit · last 12 months</p>
+   <ul class="d-rank">
+    {% for r in territories %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
+   </ul>
+  </div>
+  <div class="d-panel">
+   <h3>Below-cost sales</h3>
+   <p class="sub">Products sold under standard cost · last 12 months</p>
+   <ul class="d-rank">
+    {% for r in leaks %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
+   </ul>
+  </div>
+  <div class="d-panel">
+   <h3>Discounts</h3>
+   <p class="sub">Money given away by promotion · last 12 months</p>
+   <ul class="d-rank">
+    {% for r in discounts %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
+   </ul>
+  </div>
+  <div class="d-panel">
+   <h3>Tax collected</h3>
+   <p class="sub">Sales tax by state or province · last 12 months</p>
+   <ul class="d-rank">
+    {% for r in taxes %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
+   </ul>
+  </div>
+ </section>
+
+ <section class="d-panel">
+  <h3>Most profitable products</h3>
+  <p class="sub">Gross profit by product · last 12 months</p>
+  <table class="d-table">
+   <tr><th>Product</th><th class="num">Revenue</th><th class="num">Cost</th><th class="num">Profit</th><th class="num">Margin</th></tr>
+   {% for p in products %}
+   <tr>
+    <td><a href="{% url 'table_detail' tab 'ProductionProduct' p.id %}">{{ p.name }}</a></td>
+    <td class="num">{{ p.rev }}</td>
+    <td class="num">{{ p.cost }}</td>
+    <td class="num">{{ p.profit }}</td>
+    <td class="num">{{ p.margin }}</td>
+   </tr>
+   {% endfor %}
+  </table>
+ </section>
 </div>
 <h3>Records in this tab</h3>
 <ul>
