@@ -5,9 +5,12 @@ https://github.com/Microsoft/sql-server-samples/releases/tag/adventureworks
 
 ## Run it (prebuilt database)
 1. `pip install "Django>=5.2,<5.3"`
-2. `git clone` the repo. `adventureworks.sqlite3` (~78 MB) is a plain file in git; no Git LFS needed.
-3. The shipped database already has a superuser: `admin` / `admin` (change the password on /manage/).
-4. `python manage.py runserver`, then open http://127.0.0.1:8000/ and log in.
+2. `git clone` the repo (`adventureworks.sqlite3`, ~78 MB, is a plain file in git; no Git LFS needed)
+3. `python manage.py runserver`
+4. Open http://127.0.0.1:8000/ and log in.
+
+The shipped database already has all the logins (see Roles below): superuser `admin` / `admin`
+plus the 17 demo role users. Change the passwords on /manage/ before real use.
 
 ## Layout
     aw_project/         settings.py, urls.py (project configuration, not an app)
@@ -17,7 +20,9 @@ https://github.com/Microsoft/sql-server-samples/releases/tag/adventureworks
       views.py          all views: home, one dashboard view per tab (sales, customer_profile,
                         revenue_and_loss, cost) and the shared list / detail / edit / delete pages
                         every table uses, plus the JSON autocomplete they call
-      roles.py          ROLES (superadmin only; other roles are commented-out placeholders)
+      roles.py          ROLES (the 17 department roles) and apply_roles; see core/tests.py
+      tests.py          RBAC tests: the department matrix, applied and checked over HTTP
+      management/       commands/seed_users.py: one demo login per role (username = password)
       widgets.py        SearchSelect, the on-demand foreign-key box for the edit pages
       static/core/      autocomplete.js, the tiny script behind the edit page's foreign-key boxes
       templates/        base, list, detail, form, confirm_delete, no_access, per-tab dashboards,
@@ -35,10 +40,16 @@ https://github.com/Microsoft/sql-server-samples/releases/tag/adventureworks
 
 ## Roles (RBAC)
 * **Superadmin** = a Django superuser (`createsuperuser`). It can open every tab and every table.
-* **Other roles** are Django groups defined in `core/roles.py`. They are commented-out placeholders:
-  uncomment one (adjust its tabs and tables), then apply them with
+* **Other roles** are 17 Django groups defined in `core/roles.py`, one per department (the same
+  matrix lives in `core/tests.py`). Apply them with
   `python manage.py shell -c "from core.roles import ROLES, apply_roles; apply_roles(ROLES)"`,
   and add users to the group at /manage/ -> Groups / Users. Applying is safe to repeat.
+* **Demo logins**: one user per role, username = password — `executive`, `finance.manager`,
+  `finance.staff`, `sales.manager`, `sales.staff`, `marketing`, `purchasing.manager`,
+  `purchasing.staff`, `shipping.receiving`, `production.manager`, `production.staff`,
+  `production.control`, `quality.assurance`, `engineering.manager`, `engineering.staff`,
+  `research.development`, `tool.design`. `python manage.py seed_users` creates or resets them
+  (`--reset` also resets passwords); safe to repeat.
 * A user sees a tab only with its `access_<tab>` permission, and a table only with `view_<table>`.
   The edit and delete links appear only with `change_<table>` / `delete_<table>`. Nobody can create records.
 

@@ -15,38 +15,151 @@ Each role has:
     "change": tables the role can edit      -> same
     "delete": tables the role can delete    -> same ([] = none)
 There is no "create" action.
+
+The 17 roles below are the department matrix; core/tests.py encodes the same matrix a
+second time, so any drift between the two fails the test suite.
 """
 from django.contrib.auth.models import Group, Permission
 
+ALL_TABS = ["sales", "customer-profile", "revenue-and-loss", "cost"]
+
+SALES_TABLES = [
+    "SalesOrderHeader", "SalesOrderDetail", "SalesTerritory", "SalesPerson",
+    "SalesSpecialOffer", "SalesSpecialOfferProduct", "SalesReason", "SalesTaxRate",
+]
+CUSTOMER_PROFILE_TABLES = [
+    "SalesCustomer", "Person", "PersonEmailAddress", "PersonPhone", "PersonAddress",
+    "PersonBusinessEntityAddress", "SalesStore", "PersonStateProvince", "PersonCountryRegion",
+]
+REVENUE_AND_LOSS_TABLES = [
+    "ProductionProduct", "ProductionProductListPriceHistory", "ProductionProductSubcategory",
+    "ProductionProductCategory", "SalesCurrency", "SalesCurrencyRate",
+]
+COST_TABLES = [
+    "PurchasingPurchaseOrderHeader", "PurchasingPurchaseOrderDetail", "PurchasingVendor",
+    "PurchasingProductVendor", "ProductionWorkOrder", "ProductionLocation",
+    "ProductionProductCostHistory", "ProductionScrapReason", "PurchasingShipMethod",
+]
+ALL_TABLES = SALES_TABLES + CUSTOMER_PROFILE_TABLES + REVENUE_AND_LOSS_TABLES + COST_TABLES
+
+SALES_MANAGER_TABLES = SALES_TABLES + CUSTOMER_PROFILE_TABLES
+SALES_STAFF_TABLES = [name for name in SALES_TABLES if name != "SalesPerson"] + CUSTOMER_PROFILE_TABLES
+ENGINEERING_TABLES = [
+    "ProductionProduct", "ProductionProductSubcategory", "ProductionProductCategory",
+    "ProductionProductCostHistory", "ProductionWorkOrder", "ProductionLocation",
+]
+PRODUCT_TABLES = ["ProductionProduct", "ProductionProductSubcategory", "ProductionProductCategory"]
+
 ROLES = {
-    # Superadmin = is_superuser, nothing to define here.
-
-    # --- Placeholders: uncomment a role (and adjust it), then apply the roles as above ---
-
-    # "Sales Manager": {
-    #     "tabs": ["sales"],
-    #     "view": ["SalesOrderHeader", "SalesOrderDetail", "SalesTerritory", "SalesPerson",
-    #              "SalesSpecialOffer", "SalesSpecialOfferProduct", "SalesReason", "SalesTaxRate"],
-    #     "change": ["SalesOrderHeader", "SalesOrderDetail"],
-    #     "delete": [],
-    # },
-    # "Customer Service": {
-    #     "tabs": ["customer-profile"],
-    #     "view": ["SalesCustomer", "Person", "PersonEmailAddress", "PersonPhone", "PersonAddress",
-    #              "PersonBusinessEntityAddress", "SalesStore", "PersonStateProvince",
-    #              "PersonCountryRegion"],
-    #     "change": ["Person", "PersonEmailAddress", "PersonPhone"],
-    #     "delete": [],
-    # },
-    # "Cost Analyst": {
-    #     "tabs": ["cost"],
-    #     "view": ["PurchasingPurchaseOrderHeader", "PurchasingPurchaseOrderDetail",
-    #              "PurchasingVendor", "PurchasingProductVendor", "ProductionWorkOrder",
-    #              "ProductionLocation", "ProductionProductCostHistory", "ProductionScrapReason",
-    #              "PurchasingShipMethod"],
-    #     "change": [],
-    #     "delete": [],
-    # },
+    "Executive": {
+        "tabs": ALL_TABS,
+        "view": ALL_TABLES,
+        "change": [],
+        "delete": [],
+    },
+    "Finance Manager": {
+        "tabs": ALL_TABS,
+        "view": ALL_TABLES,
+        "change": ["ProductionProduct", "ProductionProductListPriceHistory",
+                   "ProductionProductCostHistory", "SalesCurrencyRate"],
+        "delete": [],
+    },
+    "Finance Staff": {
+        "tabs": ALL_TABS,
+        "view": ALL_TABLES,
+        "change": ["SalesCurrencyRate"],
+        "delete": [],
+    },
+    "Sales Manager": {
+        "tabs": ["sales", "customer-profile"],
+        "view": SALES_MANAGER_TABLES,
+        "change": ["SalesOrderHeader", "SalesOrderDetail", "SalesCustomer", "SalesStore",
+                   "PersonEmailAddress", "PersonPhone", "PersonAddress",
+                   "PersonBusinessEntityAddress", "SalesSpecialOffer", "SalesSpecialOfferProduct"],
+        "delete": ["SalesSpecialOffer", "SalesSpecialOfferProduct"],
+    },
+    "Sales Staff": {
+        "tabs": ["sales", "customer-profile"],
+        "view": SALES_STAFF_TABLES,
+        "change": ["PersonEmailAddress", "PersonPhone", "PersonAddress",
+                   "PersonBusinessEntityAddress"],
+        "delete": [],
+    },
+    "Marketing": {
+        "tabs": ["sales", "customer-profile"],
+        "view": SALES_STAFF_TABLES,
+        "change": ["SalesSpecialOffer", "SalesSpecialOfferProduct"],
+        "delete": [],
+    },
+    "Purchasing Manager": {
+        "tabs": ["cost"],
+        "view": COST_TABLES,
+        "change": ["PurchasingPurchaseOrderHeader", "PurchasingPurchaseOrderDetail",
+                   "PurchasingVendor", "PurchasingProductVendor", "PurchasingShipMethod"],
+        "delete": ["PurchasingProductVendor"],
+    },
+    "Purchasing Staff": {
+        "tabs": ["cost"],
+        "view": COST_TABLES,
+        "change": ["PurchasingPurchaseOrderHeader", "PurchasingPurchaseOrderDetail",
+                   "PurchasingProductVendor"],
+        "delete": [],
+    },
+    "Shipping and Receiving": {
+        "tabs": ["cost"],
+        "view": ["PurchasingPurchaseOrderHeader", "PurchasingPurchaseOrderDetail",
+                 "PurchasingVendor", "PurchasingShipMethod", "ProductionLocation"],
+        "change": ["PurchasingPurchaseOrderDetail"],
+        "delete": [],
+    },
+    "Production Manager": {
+        "tabs": ["cost"],
+        "view": COST_TABLES,
+        "change": ["ProductionWorkOrder"],
+        "delete": [],
+    },
+    "Production Staff": {
+        "tabs": ["cost"],
+        "view": ["ProductionWorkOrder", "ProductionLocation"],
+        "change": [],
+        "delete": [],
+    },
+    "Production Control": {
+        "tabs": ["cost"],
+        "view": ["ProductionWorkOrder", "ProductionScrapReason", "ProductionLocation"],
+        "change": ["ProductionWorkOrder", "ProductionScrapReason", "ProductionLocation"],
+        "delete": [],
+    },
+    "Quality Assurance": {
+        "tabs": ["cost"],
+        "view": ["ProductionWorkOrder", "ProductionScrapReason", "ProductionLocation"],
+        "change": ["ProductionScrapReason"],
+        "delete": [],
+    },
+    "Engineering Manager": {
+        "tabs": ["revenue-and-loss", "cost"],
+        "view": ENGINEERING_TABLES,
+        "change": PRODUCT_TABLES,
+        "delete": [],
+    },
+    "Engineering Staff": {
+        "tabs": ["revenue-and-loss", "cost"],
+        "view": ENGINEERING_TABLES,
+        "change": ["ProductionProduct"],
+        "delete": [],
+    },
+    "Research and Development": {
+        "tabs": ["revenue-and-loss"],
+        "view": PRODUCT_TABLES,
+        "change": [],
+        "delete": [],
+    },
+    "Tool Design": {
+        "tabs": ["revenue-and-loss"],
+        "view": PRODUCT_TABLES,
+        "change": [],
+        "delete": [],
+    },
 }
 
 
