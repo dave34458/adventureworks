@@ -10,7 +10,7 @@ which creates or updates the groups (it is safe to run again). Assign users to g
 "Users and roles" page (/manage/) that only the superadmin can open.
 
 Each role has:
-    "tabs":   tabs the role can open        -> "sales", "customers", "costs", "finance"
+    "tabs":   tabs the role can open        -> "sales", "customer-profile", "revenue-and-loss", "cost"
     "view":   tables the role can see       -> model class names, e.g. "SalesOrderHeader"
     "change": tables the role can edit      -> same
     "delete": tables the role can delete    -> same ([] = none)
@@ -31,7 +31,7 @@ ROLES = {
     #     "delete": [],
     # },
     # "Customer Service": {
-    #     "tabs": ["customers"],
+    #     "tabs": ["customer-profile"],
     #     "view": ["SalesCustomer", "Person", "PersonEmailAddress", "PersonPhone", "PersonAddress",
     #              "PersonBusinessEntityAddress", "SalesStore", "PersonStateProvince",
     #              "PersonCountryRegion"],
@@ -39,7 +39,7 @@ ROLES = {
     #     "delete": [],
     # },
     # "Cost Analyst": {
-    #     "tabs": ["costs"],
+    #     "tabs": ["cost"],
     #     "view": ["PurchasingPurchaseOrderHeader", "PurchasingPurchaseOrderDetail",
     #              "PurchasingVendor", "PurchasingProductVendor", "ProductionWorkOrder",
     #              "ProductionLocation", "ProductionProductCostHistory", "ProductionScrapReason",
@@ -54,7 +54,7 @@ def apply_roles(roles):
     """Create or update one group per role. Returns the group names handled."""
     done = []
     for role, spec in roles.items():
-        codenames = [f"access_{tab}" for tab in spec.get("tabs", [])]
+        codenames = [f"access_{tab.replace('-', '_')}" for tab in spec.get("tabs", [])]
         for action in ("view", "change", "delete"):
             codenames += [f"{action}_{name.lower()}" for name in spec.get(action, [])]
         found = Permission.objects.filter(content_type__app_label="core", codename__in=codenames)

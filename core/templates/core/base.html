@@ -127,10 +127,10 @@
  @media(max-width:520px){.d-bars{gap:2px}.d-bar b{visibility:hidden}.d-bar:nth-child(odd) b{visibility:visible}}
 </style>{% block extra_head %}{% endblock %}</head><body>
 <nav class="top">
- {% if perms.core.access_sales %}<a href="{% url 'sales' %}" {% if tab == 'sales' %}class="on"{% endif %}>Sales report</a>{% endif %}
- {% if perms.core.access_customers %}<a href="{% url 'customers' %}" {% if tab == 'customers' %}class="on"{% endif %}>Customer profile</a>{% endif %}
- {% if perms.core.access_costs %}<a href="{% url 'costs' %}" {% if tab == 'costs' %}class="on"{% endif %}>Cost report</a>{% endif %}
- {% if perms.core.access_finance %}<a href="{% url 'finance' %}" {% if tab == 'finance' %}class="on"{% endif %}>Revenue and loss</a>{% endif %}
+ {% if perms.core.access_sales %}<a href="{% url 'sales' %}" {% if tab == 'sales' %}class="on"{% endif %}>Sales</a>{% endif %}
+ {% if perms.core.access_customer_profile %}<a href="{% url 'customer-profile' %}" {% if tab == 'customer-profile' %}class="on"{% endif %}>Customer profile</a>{% endif %}
+ {% if perms.core.access_revenue_and_loss %}<a href="{% url 'revenue-and-loss' %}" {% if tab == 'revenue-and-loss' %}class="on"{% endif %}>Revenue and loss</a>{% endif %}
+ {% if perms.core.access_cost %}<a href="{% url 'cost' %}" {% if tab == 'cost' %}class="on"{% endif %}>Cost</a>{% endif %}
  <span class="sp"></span>
  {% if user.is_authenticated %}
   {% if user.is_superuser %}<a href="/manage/">Users and roles</a>{% endif %}

@@ -40,20 +40,20 @@ from .widgets import SearchSelect
 
 def home(request):
     """Send the user to the first tab they may open, or explain that they have none."""
-    for slug in ("sales", "customers", "costs", "finance"):
-        if request.user.has_perm(f"core.access_{slug}"):
+    for slug in ("sales", "customer-profile", "revenue-and-loss", "cost"):
+        if request.user.has_perm(f"core.access_{slug.replace('-', '_')}"):
             return redirect(slug)
     return render(request, "core/no_access.html")
 
 
 @permission_required("core.access_sales", raise_exception=True)
 def sales(request):
-    """Sales report dashboard: one aggregate query per panel, all windows anchored to the
+    """Sales dashboard: one aggregate query per panel, all windows anchored to the
     data's own last order date (the sample data is historical, so "today" would be empty)."""
     w = window_for(request, SalesOrderHeader)
     if w is None:
         return render(request, "core/sales/dashboard.html",
-                      {"tab": "sales", "title": "Sales report"})
+                      {"tab": "sales", "title": "Sales"})
 
     cur, prev, trend_start = w.cur, w.prev, w.trend_start
 
@@ -183,11 +183,11 @@ def sales(request):
         rows += [["Offer", r["name"], r["value"], ""] for r in offers]
         rows += [["Top order", r["number"], r["total"], f"{r['date']:%Y-%m-%d} · {r['territory']} · {r['who']}"]
                  for r in biggest]
-        return csv_response("sales-report.csv", ["Section", "Item", "Value", "Detail"], rows)
+        return csv_response("sales.csv", ["Section", "Item", "Value", "Detail"], rows)
 
     return render(request, "core/sales/dashboard.html", {
         "tab": "sales",
-        "title": "Sales report",
+        "title": "Sales",
         "kpis": kpis,
         "trend": trend,
         "channels": channels,
@@ -204,14 +204,14 @@ def sales(request):
     })
 
 
-@permission_required("core.access_customers", raise_exception=True)
-def customers(request):
+@permission_required("core.access_customer_profile", raise_exception=True)
+def customer_profile(request):
     """Customer profile dashboard: who buys (individuals vs stores), how often they come
     back, where they are, and which stores make up the B2B side."""
     w = window_for(request, SalesOrderHeader)
     if w is None:
-        return render(request, "core/customers/dashboard.html",
-                      {"tab": "customers", "title": "Customer profile"})
+        return render(request, "core/customer-profile/dashboard.html",
+                      {"tab": "customer-profile", "title": "Customer profile"})
 
     cur, prev, trend_start = w.cur, w.prev, w.trend_start
     firsts = SalesCustomer.objects.annotate(first=Min("salesorderheader__order_date"))
@@ -396,8 +396,8 @@ def customers(request):
                   f"{r['orders']} orders · {'store' if r['store'] else 'individual'}"] for r in biggest]
         return csv_response("customer-profile.csv", ["Section", "Item", "Value", "Detail"], rows)
 
-    return render(request, "core/customers/dashboard.html", {
-        "tab": "customers",
+    return render(request, "core/customer-profile/dashboard.html", {
+        "tab": "customer-profile",
         "title": "Customer profile",
         "kpis": kpis,
         "growth": growth,
@@ -420,14 +420,14 @@ def customers(request):
     })
 
 
-@permission_required("core.access_costs", raise_exception=True)
-def costs(request):
-    """Cost report dashboard: what the merchandise cost us (standard cost), what we spent
+@permission_required("core.access_cost", raise_exception=True)
+def cost(request):
+    """Cost dashboard: what the merchandise cost us (standard cost), what we spent
     buying it (purchase orders), and what manufacturing wasted (work order scrap)."""
     w = window_for(request, SalesOrderHeader)
     if w is None:
-        return render(request, "core/costs/dashboard.html",
-                      {"tab": "costs", "title": "Cost report"})
+        return render(request, "core/cost/dashboard.html",
+                      {"tab": "cost", "title": "Cost"})
 
     cur, prev, trend_start = w.cur, w.prev, w.trend_start
     detail = SalesOrderDetail.objects.filter(sales_order__order_date__gte=w.window_start)
@@ -591,11 +591,11 @@ def costs(request):
         rows += [["Cost change", r["name"], r["value"], r["note"]] for r in changes]
         rows += [["Purchase order", f"PO{r['id']}", r["total"],
                   f"{r['date']:%Y-%m-%d} · {r['vendor']} · {r['status']}"] for r in biggest]
-        return csv_response("cost-report.csv", ["Section", "Item", "Value", "Detail"], rows)
+        return csv_response("cost.csv", ["Section", "Item", "Value", "Detail"], rows)
 
-    return render(request, "core/costs/dashboard.html", {
-        "tab": "costs",
-        "title": "Cost report",
+    return render(request, "core/cost/dashboard.html", {
+        "tab": "cost",
+        "title": "Cost",
         "kpis": kpis,
         "pipeline": pipeline,
         "trend": trend,
@@ -615,14 +615,14 @@ def costs(request):
     })
 
 
-@permission_required("core.access_finance", raise_exception=True)
-def finance(request):
+@permission_required("core.access_revenue_and_loss", raise_exception=True)
+def revenue_and_loss(request):
     """Revenue and loss dashboard: revenue, cost, gross profit and where the money leaks
     (below-cost wholesale lines, discounts, tax collected)."""
     w = window_for(request, SalesOrderHeader)
     if w is None:
-        return render(request, "core/finance/dashboard.html",
-                      {"tab": "finance", "title": "Revenue and loss"})
+        return render(request, "core/revenue-and-loss/dashboard.html",
+                      {"tab": "revenue-and-loss", "title": "Revenue and loss"})
 
     cur, prev, trend_start = w.cur, w.prev, w.trend_start
     detail = SalesOrderDetail.objects.filter(sales_order__order_date__gte=w.window_start)
@@ -813,8 +813,8 @@ def finance(request):
                  for r in products]
         return csv_response("revenue-and-loss.csv", ["Section", "Item", "Value", "Detail"], rows)
 
-    return render(request, "core/finance/dashboard.html", {
-        "tab": "finance",
+    return render(request, "core/revenue-and-loss/dashboard.html", {
+        "tab": "revenue-and-loss",
         "title": "Revenue and loss",
         "kpis": kpis,
         "combo": combo,
@@ -875,7 +875,7 @@ class TableMixin(PermissionRequiredMixin):
             raise Http404
 
     def get_permission_required(self):
-        return [f"core.access_{self.tab}", f"core.{self.perm}_{self.model._meta.model_name}"]
+        return [f"core.access_{self.tab.replace('-', '_')}", f"core.{self.perm}_{self.model._meta.model_name}"]
 
     def get_success_url(self):
         return reverse("table_list", args=[self.tab, self.model.__name__])

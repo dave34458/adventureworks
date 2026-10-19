@@ -1392,8 +1392,8 @@ class TabAccess(models.Model):
         managed = False
         default_permissions = ()
         permissions = [
-            ("access_sales", "Can open the Sales report tab"),
-            ("access_customers", "Can open the Customer profile tab"),
-            ("access_costs", "Can open the Cost report tab"),
-            ("access_finance", "Can open the Revenue and loss tab"),
+            ("access_sales", "Can open the Sales tab"),
+            ("access_customer_profile", "Can open the Customer profile tab"),
+            ("access_revenue_and_loss", "Can open the Revenue and loss tab"),
+            ("access_cost", "Can open the Cost tab"),
         ]

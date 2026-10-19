@@ -13,9 +13,9 @@ https://github.com/Microsoft/sql-server-samples/releases/tag/adventureworks
     aw_project/         settings.py, urls.py (project configuration, not an app)
     core/               the one app
       models.py         the 71 AdventureWorks models (generated; do not edit by hand)
-                        + TabAccess, one permission per tab (access_sales, access_customers, ...)
-      views.py          all views: home, one dashboard view per tab (sales, customers,
-                        costs, finance) and the shared list / detail / edit / delete pages
+                        + TabAccess, one permission per tab (access_sales, access_customer_profile, ...)
+      views.py          all views: home, one dashboard view per tab (sales, customer_profile,
+                        revenue_and_loss, cost) and the shared list / detail / edit / delete pages
                         every table uses, plus the JSON autocomplete they call
       roles.py          ROLES (superadmin only; other roles are commented-out placeholders)
       widgets.py        SearchSelect, the on-demand foreign-key box for the edit pages
@@ -26,7 +26,7 @@ https://github.com/Microsoft/sql-server-samples/releases/tag/adventureworks
 ## Pages
     /login/                                  login (the only public page)
     /                                        goes to the first tab the user may open
-    /sales/ /customers/ /costs/ /finance/    dashboard page per tab
+    /sales/ /customer-profile/ /revenue-and-loss/ /cost/    dashboard page per tab
     /<tab>/data/<Table>/                     list (search with ?q=)
     /<tab>/data/<Table>/<id>/                detail
     /<tab>/data/<Table>/<id>/edit/           edit
