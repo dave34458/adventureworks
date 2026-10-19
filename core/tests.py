@@ -7,11 +7,14 @@ gates. HTTP tests run against Django's empty test database; every page renders e
 fine, so no fixtures are needed.
 """
 from io import StringIO
+from datetime import timedelta
 
 from django.contrib.auth.models import Group, User
 from django.core.management import call_command
 from django.test import TestCase
+from django.utils import timezone
 
+from .models import PRIVACY_NOTICE_VERSION, PrivacyAcknowledgment
 from .roles import ROLES, apply_roles
 
 ALL_TABS = ["sales", "customer-profile", "revenue-and-loss", "cost"]
@@ -223,3 +226,59 @@ class SeedUsersCommandTests(TestCase):
         call_command("seed_users", "--reset", stdout=StringIO())
         self.assertEqual(User.objects.count(), len(MATRIX))
         self.assertTrue(User.objects.get(username="sales.manager").check_password("sales.manager"))
+
+
+class PrivacyTests(TestCase):
+    """The privacy notice is public; the login acknowledges it; the acknowledgment
+    is validated server-side and recorded with its version and time."""
+
+    CREDENTIALS = {"username": "u", "password": "p"}
+
+    def setUp(self):
+        User.objects.create_user(**self.CREDENTIALS)
+
+    def login(self, **extra):
+        return self.client.post("/login/", {**self.CREDENTIALS, **extra})
+
+    def test_notice_page_is_public_and_cites_the_law(self):
+        resp = self.client.get("/privacy/")
+        self.assertEqual(resp.status_code, 200)
+        for phrase in ("Data Privacy Act of 2012", "Republic Act No. 10173",
+                       "National Privacy Commission", "Data Protection Officer",
+                       f"version {PRIVACY_NOTICE_VERSION}"):
+            with self.subTest(phrase=phrase):
+                self.assertContains(resp, phrase)
+
+    def test_footer_and_login_link_to_the_notice(self):
+        self.assertContains(self.client.get("/login/"), 'href="/privacy/"')
+
+    def test_login_requires_the_acknowledgment(self):
+        resp = self.login()
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotIn("_auth_user_id", self.client.session)
+        self.assertFalse(PrivacyAcknowledgment.objects.exists())
+        self.assertContains(resp, "Acknowledge the Data Privacy Notice to log in")
+
+    def test_acknowledgment_is_recorded_on_login(self):
+        resp = self.login(privacy_accepted="on")
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn("_auth_user_id", self.client.session)
+        ack = PrivacyAcknowledgment.objects.get(user__username="u")
+        self.assertEqual(ack.version, PRIVACY_NOTICE_VERSION)
+        self.assertIsNotNone(ack.acknowledged_at)
+
+    def test_reacknowledging_refreshes_a_single_record(self):
+        self.login(privacy_accepted="on")
+        ack = PrivacyAcknowledgment.objects.get(user__username="u")
+        PrivacyAcknowledgment.objects.filter(pk=ack.pk).update(
+            version="0.9", acknowledged_at=timezone.now() - timedelta(days=30))
+        self.login(privacy_accepted="on")
+        self.assertEqual(PrivacyAcknowledgment.objects.count(), 1)
+        ack.refresh_from_db()
+        self.assertEqual(ack.version, PRIVACY_NOTICE_VERSION)
+
+    def test_failed_login_records_nothing(self):
+        resp = self.login(password="wrong", privacy_accepted="on")
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotIn("_auth_user_id", self.client.session)
+        self.assertFalse(PrivacyAcknowledgment.objects.exists())

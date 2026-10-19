@@ -1397,3 +1397,26 @@ class TabAccess(models.Model):
             ("access_revenue_and_loss", "Can open the Revenue and loss tab"),
             ("access_cost", "Can open the Cost tab"),
         ]
+
+
+# ---------------------------------------------------------------------------
+# Hand-written (not generated): data privacy governance.
+
+PRIVACY_NOTICE_VERSION = "1.0"
+
+
+class PrivacyAcknowledgment(models.Model):
+    """One row per user holding the latest recorded acknowledgment of the privacy
+    notice. Written on every successful login, so the row always shows the notice
+    version the user accepted and when. This is the audit evidence for consent."""
+
+    user = models.OneToOneField("auth.User", on_delete=models.CASCADE, related_name="privacy_acknowledgment")
+    version = models.CharField(max_length=10)
+    acknowledged_at = models.DateTimeField()
+
+    class Meta:
+        verbose_name = "privacy acknowledgment"
+        verbose_name_plural = "privacy acknowledgments"
+
+    def __str__(self):
+        return f"{self.user} acknowledged v{self.version}"

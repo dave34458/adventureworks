@@ -9,11 +9,11 @@
 <p class="muted">{{ page_obj.paginator.count }} record{{ page_obj.paginator.count|pluralize }} ·
 <a href="?q={{ request.GET.q }}&col={{ request.GET.col }}&sort={{ request.GET.sort }}&page={{ page_obj.number }}&export=page">Export page ({{ rows|length }})</a> ·
 <a href="?q={{ request.GET.q }}&col={{ request.GET.col }}&sort={{ request.GET.sort }}&export=all">Export all ({{ page_obj.paginator.count }})</a></p>
-<table><tr>{% for label, fname in headers %}<th><a href="?q={{ request.GET.q }}&col={{ request.GET.col }}&sort={% if sort == fname and not sort_desc %}-{% endif %}{{ fname }}">{{ label }}{% if sort == fname %} {% if sort_desc %}&#9660;{% else %}&#9650;{% endif %}{% endif %}</a></th>{% endfor %}<th></th></tr>
+<div class="scroll"><table><tr>{% for label, fname in headers %}<th><a href="?q={{ request.GET.q }}&col={{ request.GET.col }}&sort={% if sort == fname and not sort_desc %}-{% endif %}{{ fname }}">{{ label }}{% if sort == fname %} {% if sort_desc %}&#9660;{% else %}&#9650;{% endif %}{% endif %}</a></th>{% endfor %}<th></th></tr>
 {% for r in rows %}<tr>{% for c in r.cells %}<td>{% if c.url %}<a href="{{ c.url }}">{{ c.text }}</a>{% else %}{{ c.text }}{% endif %}</td>{% endfor %}
 <td><a href="{% url 'table_detail' tab name r.obj.pk %}">view</a>
 {% if can_change %} <a href="{% url 'table_edit' tab name r.obj.pk %}">edit</a>{% endif %}
-{% if can_delete %} <a href="{% url 'table_delete' tab name r.obj.pk %}">delete</a>{% endif %}</td></tr>{% endfor %}</table>
+{% if can_delete %} <a href="{% url 'table_delete' tab name r.obj.pk %}">delete</a>{% endif %}</td></tr>{% endfor %}</table></div>
 <p>{% if page_obj.has_previous %}<a href="?page={{ page_obj.previous_page_number }}&q={{ request.GET.q }}&col={{ request.GET.col }}&sort={{ request.GET.sort }}">prev</a>{% endif %}
 page {{ page_obj.number }} of {{ paginator.num_pages }}
 {% if page_obj.has_next %}<a href="?page={{ page_obj.next_page_number }}&q={{ request.GET.q }}&col={{ request.GET.col }}&sort={{ request.GET.sort }}">next</a>{% endif %}</p>

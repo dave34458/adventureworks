@@ -1,12 +1,13 @@
 from django.contrib.auth.decorators import login_not_required
-from django.contrib.auth.views import LoginView, LogoutView
+from django.contrib.auth.views import LogoutView
 from django.urls import path
 
 from . import views
 
 urlpatterns = [
     path("", views.home, name="home"),
-    path("login/", login_not_required(LoginView.as_view(template_name="registration/login.html")), name="login"),
+    path("privacy/", views.privacy, name="privacy"),
+    path("login/", login_not_required(views.PrivacyLogin.as_view()), name="login"),
     path("logout/", LogoutView.as_view(), name="logout"),
     path("sales/", views.sales, name="sales"),
     path("customer-profile/", views.customer_profile, name="customer-profile"),

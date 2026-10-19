@@ -104,13 +104,4 @@
   </table>
  </section>
 </div>
-<h3>Records in this tab</h3>
-<ul>
- {% if perms.core.view_productionproduct %}<li><a href="{% url 'table_list' 'revenue-and-loss' 'ProductionProduct' %}">Production product</a></li>{% endif %}
- {% if perms.core.view_productionproductlistpricehistory %}<li><a href="{% url 'table_list' 'revenue-and-loss' 'ProductionProductListPriceHistory' %}">Production product list price history</a></li>{% endif %}
- {% if perms.core.view_productionproductsubcategory %}<li><a href="{% url 'table_list' 'revenue-and-loss' 'ProductionProductSubcategory' %}">Production product subcategory</a></li>{% endif %}
- {% if perms.core.view_productionproductcategory %}<li><a href="{% url 'table_list' 'revenue-and-loss' 'ProductionProductCategory' %}">Production product category</a></li>{% endif %}
- {% if perms.core.view_salescurrency %}<li><a href="{% url 'table_list' 'revenue-and-loss' 'SalesCurrency' %}">Sales currency</a></li>{% endif %}
- {% if perms.core.view_salescurrencyrate %}<li><a href="{% url 'table_list' 'revenue-and-loss' 'SalesCurrencyRate' %}">Sales currency rate</a></li>{% endif %}
-</ul>
 {% endblock %}

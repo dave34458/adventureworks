@@ -1,14 +1,20 @@
-<!doctype html>
+{% load static %}<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}{% if title %}{{ title }} · {% endif %}AdventureWorks{% endblock %}</title>
+<link rel="icon" type="image/svg+xml" href="{% static 'core/favicon.svg' %}">
 <style>
  body{font-family:system-ui,sans-serif;margin:0;color:#1d2733}
  nav.top{background:#1f3a5f;padding:.55rem 1rem;display:flex;gap:.5rem 1rem;align-items:center;flex-wrap:wrap;color:#fff}
  nav.top a{color:#fff;text-decoration:none;padding:.2rem 0}nav.top a.on{font-weight:600;border-bottom:2px solid #fff}
  nav.top .sp{flex:1}nav.top form{margin:0}nav.top button{background:none;border:0;color:#fff;cursor:pointer;font:inherit;padding:0}
  nav.top .who{color:#c9d6e8;font-size:.9rem}
- .sub{background:#e9eef5;padding:.4rem 1rem;font-size:.9rem;display:flex;flex-wrap:wrap;gap:.2rem .9rem}.sub a{color:#1f3a5f}
- main{padding:1rem 1.25rem}table{border-collapse:collapse}td,th{border:1px solid #ccd3dc;padding:.3rem .6rem;text-align:left}
+ .sub{background:#e9eef5;padding:.4rem 1rem;font-size:.9rem;display:flex;flex-wrap:wrap;gap:.2rem .9rem}.sub a{color:#1f3a5f;text-decoration:none;border-bottom:2px solid transparent}.sub a:hover{border-bottom-color:#9fb3c8}.sub a.on{font-weight:650;border-bottom-color:#1f3a5f}
+ main{padding:.6rem 1.25rem 1rem}main>h1:first-child,main>h2:first-child{margin-top:0}.scroll{overflow-x:auto}table{border-collapse:collapse}td,th{border:1px solid #ccd3dc;padding:.3rem .6rem;text-align:left}
+ .lw{min-height:62vh;display:flex;align-items:center;justify-content:center}
+ .lcard{width:min(400px,100%);background:#fff;border:1px solid #ccd3dc;border-radius:12px;padding:1.4rem 1.6rem;box-shadow:0 1px 3px rgba(31,58,95,.08)}
+ .lcard h2{margin:0 0 .9rem}
+ .foot{border-top:1px solid #edf1f6;padding:.7rem 1.25rem 1.1rem;font-size:.75rem;color:#6b7785}
+ .foot a{color:#1f3a5f}
  .msg{padding:.5rem 1rem;margin:0}.success{background:#dff5df}.error{background:#fbdcdc}
  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:1rem}
  .card{border:2px dashed #b8c2cf;border-radius:8px;padding:1rem;min-height:120px;background:#f8fafc}
@@ -138,5 +144,45 @@
   <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button>Log out</button></form>
  {% endif %}
 </nav>
+{% if tab %}<nav class="sub">
+{% if tab == 'sales' %}
+ {% if perms.core.view_salesorderheader %}<a href="{% url 'table_list' 'sales' 'SalesOrderHeader' %}" {% if name == 'SalesOrderHeader' %}class="on"{% endif %}>Sales order header</a>{% endif %}
+ {% if perms.core.view_salesorderdetail %}<a href="{% url 'table_list' 'sales' 'SalesOrderDetail' %}" {% if name == 'SalesOrderDetail' %}class="on"{% endif %}>Sales order detail</a>{% endif %}
+ {% if perms.core.view_salesterritory %}<a href="{% url 'table_list' 'sales' 'SalesTerritory' %}" {% if name == 'SalesTerritory' %}class="on"{% endif %}>Sales territory</a>{% endif %}
+ {% if perms.core.view_salesperson %}<a href="{% url 'table_list' 'sales' 'SalesPerson' %}" {% if name == 'SalesPerson' %}class="on"{% endif %}>Sales person</a>{% endif %}
+ {% if perms.core.view_salesspecialoffer %}<a href="{% url 'table_list' 'sales' 'SalesSpecialOffer' %}" {% if name == 'SalesSpecialOffer' %}class="on"{% endif %}>Sales special offer</a>{% endif %}
+ {% if perms.core.view_salesspecialofferproduct %}<a href="{% url 'table_list' 'sales' 'SalesSpecialOfferProduct' %}" {% if name == 'SalesSpecialOfferProduct' %}class="on"{% endif %}>Sales special offer product</a>{% endif %}
+ {% if perms.core.view_salesreason %}<a href="{% url 'table_list' 'sales' 'SalesReason' %}" {% if name == 'SalesReason' %}class="on"{% endif %}>Sales reason</a>{% endif %}
+ {% if perms.core.view_salestaxrate %}<a href="{% url 'table_list' 'sales' 'SalesTaxRate' %}" {% if name == 'SalesTaxRate' %}class="on"{% endif %}>Sales tax rate</a>{% endif %}
+{% elif tab == 'customer-profile' %}
+ {% if perms.core.view_salescustomer %}<a href="{% url 'table_list' 'customer-profile' 'SalesCustomer' %}" {% if name == 'SalesCustomer' %}class="on"{% endif %}>Sales customer</a>{% endif %}
+ {% if perms.core.view_person %}<a href="{% url 'table_list' 'customer-profile' 'Person' %}" {% if name == 'Person' %}class="on"{% endif %}>Person</a>{% endif %}
+ {% if perms.core.view_personemailaddress %}<a href="{% url 'table_list' 'customer-profile' 'PersonEmailAddress' %}" {% if name == 'PersonEmailAddress' %}class="on"{% endif %}>Person email address</a>{% endif %}
+ {% if perms.core.view_personphone %}<a href="{% url 'table_list' 'customer-profile' 'PersonPhone' %}" {% if name == 'PersonPhone' %}class="on"{% endif %}>Person phone</a>{% endif %}
+ {% if perms.core.view_personaddress %}<a href="{% url 'table_list' 'customer-profile' 'PersonAddress' %}" {% if name == 'PersonAddress' %}class="on"{% endif %}>Person address</a>{% endif %}
+ {% if perms.core.view_personbusinessentityaddress %}<a href="{% url 'table_list' 'customer-profile' 'PersonBusinessEntityAddress' %}" {% if name == 'PersonBusinessEntityAddress' %}class="on"{% endif %}>Person business entity address</a>{% endif %}
+ {% if perms.core.view_salesstore %}<a href="{% url 'table_list' 'customer-profile' 'SalesStore' %}" {% if name == 'SalesStore' %}class="on"{% endif %}>Sales store</a>{% endif %}
+ {% if perms.core.view_personstateprovince %}<a href="{% url 'table_list' 'customer-profile' 'PersonStateProvince' %}" {% if name == 'PersonStateProvince' %}class="on"{% endif %}>Person state province</a>{% endif %}
+ {% if perms.core.view_personcountryregion %}<a href="{% url 'table_list' 'customer-profile' 'PersonCountryRegion' %}" {% if name == 'PersonCountryRegion' %}class="on"{% endif %}>Person country region</a>{% endif %}
+{% elif tab == 'revenue-and-loss' %}
+ {% if perms.core.view_productionproduct %}<a href="{% url 'table_list' 'revenue-and-loss' 'ProductionProduct' %}" {% if name == 'ProductionProduct' %}class="on"{% endif %}>Production product</a>{% endif %}
+ {% if perms.core.view_productionproductlistpricehistory %}<a href="{% url 'table_list' 'revenue-and-loss' 'ProductionProductListPriceHistory' %}" {% if name == 'ProductionProductListPriceHistory' %}class="on"{% endif %}>Production product list price history</a>{% endif %}
+ {% if perms.core.view_productionproductsubcategory %}<a href="{% url 'table_list' 'revenue-and-loss' 'ProductionProductSubcategory' %}" {% if name == 'ProductionProductSubcategory' %}class="on"{% endif %}>Production product subcategory</a>{% endif %}
+ {% if perms.core.view_productionproductcategory %}<a href="{% url 'table_list' 'revenue-and-loss' 'ProductionProductCategory' %}" {% if name == 'ProductionProductCategory' %}class="on"{% endif %}>Production product category</a>{% endif %}
+ {% if perms.core.view_salescurrency %}<a href="{% url 'table_list' 'revenue-and-loss' 'SalesCurrency' %}" {% if name == 'SalesCurrency' %}class="on"{% endif %}>Sales currency</a>{% endif %}
+ {% if perms.core.view_salescurrencyrate %}<a href="{% url 'table_list' 'revenue-and-loss' 'SalesCurrencyRate' %}" {% if name == 'SalesCurrencyRate' %}class="on"{% endif %}>Sales currency rate</a>{% endif %}
+{% elif tab == 'cost' %}
+ {% if perms.core.view_purchasingpurchaseorderheader %}<a href="{% url 'table_list' 'cost' 'PurchasingPurchaseOrderHeader' %}" {% if name == 'PurchasingPurchaseOrderHeader' %}class="on"{% endif %}>Purchasing purchase order header</a>{% endif %}
+ {% if perms.core.view_purchasingpurchaseorderdetail %}<a href="{% url 'table_list' 'cost' 'PurchasingPurchaseOrderDetail' %}" {% if name == 'PurchasingPurchaseOrderDetail' %}class="on"{% endif %}>Purchasing purchase order detail</a>{% endif %}
+ {% if perms.core.view_purchasingvendor %}<a href="{% url 'table_list' 'cost' 'PurchasingVendor' %}" {% if name == 'PurchasingVendor' %}class="on"{% endif %}>Purchasing vendor</a>{% endif %}
+ {% if perms.core.view_purchasingproductvendor %}<a href="{% url 'table_list' 'cost' 'PurchasingProductVendor' %}" {% if name == 'PurchasingProductVendor' %}class="on"{% endif %}>Purchasing product vendor</a>{% endif %}
+ {% if perms.core.view_productionworkorder %}<a href="{% url 'table_list' 'cost' 'ProductionWorkOrder' %}" {% if name == 'ProductionWorkOrder' %}class="on"{% endif %}>Production work order</a>{% endif %}
+ {% if perms.core.view_productionlocation %}<a href="{% url 'table_list' 'cost' 'ProductionLocation' %}" {% if name == 'ProductionLocation' %}class="on"{% endif %}>Production location</a>{% endif %}
+ {% if perms.core.view_productionproductcosthistory %}<a href="{% url 'table_list' 'cost' 'ProductionProductCostHistory' %}" {% if name == 'ProductionProductCostHistory' %}class="on"{% endif %}>Production product cost history</a>{% endif %}
+ {% if perms.core.view_productionscrapreason %}<a href="{% url 'table_list' 'cost' 'ProductionScrapReason' %}" {% if name == 'ProductionScrapReason' %}class="on"{% endif %}>Production scrap reason</a>{% endif %}
+ {% if perms.core.view_purchasingshipmethod %}<a href="{% url 'table_list' 'cost' 'PurchasingShipMethod' %}" {% if name == 'PurchasingShipMethod' %}class="on"{% endif %}>Purchasing ship method</a>{% endif %}
+{% endif %}
+</nav>{% endif %}
 {% for m in messages %}<p class="msg {{ m.tags }}">{{ m }}</p>{% endfor %}
-<main>{% block content %}{% endblock %}</main></body></html>
+<main>{% block content %}{% endblock %}</main>
+<footer class="foot">Personal data in this system is processed under the Data Privacy Act of 2012 (Republic Act No. 10173) &middot; AdventureWorks &middot; <a href="{% url 'privacy' %}">Data privacy notice</a></footer></body></html>

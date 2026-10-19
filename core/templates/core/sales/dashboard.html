@@ -93,15 +93,4 @@
   </table>
  </section>
 </div>
-<h3>Records in this tab</h3>
-<ul>
- {% if perms.core.view_salesorderheader %}<li><a href="{% url 'table_list' 'sales' 'SalesOrderHeader' %}">Sales order header</a></li>{% endif %}
- {% if perms.core.view_salesorderdetail %}<li><a href="{% url 'table_list' 'sales' 'SalesOrderDetail' %}">Sales order detail</a></li>{% endif %}
- {% if perms.core.view_salesterritory %}<li><a href="{% url 'table_list' 'sales' 'SalesTerritory' %}">Sales territory</a></li>{% endif %}
- {% if perms.core.view_salesperson %}<li><a href="{% url 'table_list' 'sales' 'SalesPerson' %}">Sales person</a></li>{% endif %}
- {% if perms.core.view_salesspecialoffer %}<li><a href="{% url 'table_list' 'sales' 'SalesSpecialOffer' %}">Sales special offer</a></li>{% endif %}
- {% if perms.core.view_salesspecialofferproduct %}<li><a href="{% url 'table_list' 'sales' 'SalesSpecialOfferProduct' %}">Sales special offer product</a></li>{% endif %}
- {% if perms.core.view_salesreason %}<li><a href="{% url 'table_list' 'sales' 'SalesReason' %}">Sales reason</a></li>{% endif %}
- {% if perms.core.view_salestaxrate %}<li><a href="{% url 'table_list' 'sales' 'SalesTaxRate' %}">Sales tax rate</a></li>{% endif %}
-</ul>
 {% endblock %}

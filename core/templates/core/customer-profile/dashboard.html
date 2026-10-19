@@ -115,18 +115,6 @@
   </table>
  </section>
 </div>
-<h3>Records in this tab</h3>
-<ul>
- {% if perms.core.view_salescustomer %}<li><a href="{% url 'table_list' 'customer-profile' 'SalesCustomer' %}">Sales customer</a></li>{% endif %}
- {% if perms.core.view_person %}<li><a href="{% url 'table_list' 'customer-profile' 'Person' %}">Person</a></li>{% endif %}
- {% if perms.core.view_personemailaddress %}<li><a href="{% url 'table_list' 'customer-profile' 'PersonEmailAddress' %}">Person email address</a></li>{% endif %}
- {% if perms.core.view_personphone %}<li><a href="{% url 'table_list' 'customer-profile' 'PersonPhone' %}">Person phone</a></li>{% endif %}
- {% if perms.core.view_personaddress %}<li><a href="{% url 'table_list' 'customer-profile' 'PersonAddress' %}">Person address</a></li>{% endif %}
- {% if perms.core.view_personbusinessentityaddress %}<li><a href="{% url 'table_list' 'customer-profile' 'PersonBusinessEntityAddress' %}">Person business entity address</a></li>{% endif %}
- {% if perms.core.view_salesstore %}<li><a href="{% url 'table_list' 'customer-profile' 'SalesStore' %}">Sales store</a></li>{% endif %}
- {% if perms.core.view_personstateprovince %}<li><a href="{% url 'table_list' 'customer-profile' 'PersonStateProvince' %}">Person state province</a></li>{% endif %}
- {% if perms.core.view_personcountryregion %}<li><a href="{% url 'table_list' 'customer-profile' 'PersonCountryRegion' %}">Person country region</a></li>{% endif %}
-</ul>
 {{ bubbles|json_script:"cust-bubbles" }}
 <script src="{% static 'core/leaflet/leaflet.js' %}"></script>
 <script src="{% static 'core/leaflet/countries.js' %}"></script>

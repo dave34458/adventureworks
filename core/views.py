@@ -6,8 +6,9 @@ from datetime import date, datetime, time
 from django import forms
 from django.apps import apps
 from django.contrib import messages
-from django.contrib.auth.decorators import permission_required
+from django.contrib.auth.decorators import login_not_required, permission_required
 from django.contrib.auth.mixins import PermissionRequiredMixin
+from django.contrib.auth.views import LoginView
 from django.core.exceptions import FieldDoesNotExist
 from django.db import connection
 from django.db.models import Count, DecimalField, ExpressionWrapper, F, Min, ProtectedError, Q, Sum, TextField
@@ -19,7 +20,10 @@ from django.utils import timezone
 from django.views import View
 from django.views.generic import DeleteView, DetailView, ListView, UpdateView
 
+from .forms import PrivacyAuthenticationForm
 from .models import (
+    PRIVACY_NOTICE_VERSION,
+    PrivacyAcknowledgment,
     ProductionProductCostHistory,
     ProductionWorkOrder,
     PurchasingPurchaseOrderDetail,
@@ -44,6 +48,28 @@ def home(request):
         if request.user.has_perm(f"core.access_{slug.replace('-', '_')}"):
             return redirect(slug)
     return render(request, "core/no_access.html")
+
+
+@login_not_required
+def privacy(request):
+    """The public data privacy notice (RA 10173), linked from the footer and the login form."""
+    return render(request, "core/privacy.html", {"title": "Data privacy notice"})
+
+
+class PrivacyLogin(LoginView):
+    """Login that requires acknowledging the privacy notice. Every successful login
+    records the acknowledgment (current notice version + time) for the account."""
+
+    template_name = "registration/login.html"
+    form_class = PrivacyAuthenticationForm
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        PrivacyAcknowledgment.objects.update_or_create(
+            user=self.request.user,
+            defaults={"version": PRIVACY_NOTICE_VERSION, "acknowledged_at": timezone.now()},
+        )
+        return response
 
 
 @permission_required("core.access_sales", raise_exception=True)

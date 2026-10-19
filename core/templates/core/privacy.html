@@ -1,0 +1,128 @@
+{% extends "core/base.html" %}{% block content %}
+<style>
+ .doc{max-width:47rem}
+ .doc h2{font-size:1.02rem;color:#1f3a5f;margin:1.5rem 0 .45rem}
+ .doc p,.doc li{line-height:1.62;color:#33414f;margin:.45rem 0}
+ .doc ul{margin:.4rem 0;padding-left:1.3rem}
+ .doc .meta{color:#6b7785;font-size:.85rem;border-bottom:1px solid #edf1f6;padding-bottom:.8rem}
+ .doc .lede{font-size:.95rem}
+ .doc .box{background:#f7f9fc;border:1px solid #ccd3dc;border-radius:10px;padding:.7rem 1rem;font-size:.9rem}
+</style>
+<div class="doc">
+ <h1>Data Privacy Notice</h1>
+ <p class="meta">AdventureWorks business system &middot; Notice version 1.0 &middot; Effective 19 October 2026</p>
+
+ <p class="lede">This notice explains, in line with the <strong>Data Privacy Act of 2012 (Republic Act No. 10173)</strong>,
+ its Implementing Rules and Regulations, and National Privacy Commission (NPC) issuances, what personal data this
+ system processes, why, how it is protected, how long it is kept, and how data subjects may exercise their rights.
+
+ <h2>I. Introduction and scope</h2>
+ <p>AdventureWorks is an internal business system used to browse and maintain sales, customer, product and
+ purchasing records. This notice covers every account and every personal data record stored in or displayed by
+ the system, regardless of the tab it appears under. It applies to employees and staff who are issued accounts, and
+ to the individuals whose contact details appear in the business records.</p>
+
+ <h2>II. Data controller and Data Protection Officer</h2>
+ <p>The system is operated as an academic data governance project. The <strong>Data Protection Officer (DPO)</strong>
+ for this system can be reached at <strong>joshua.vinson@benilde.edu.ph</strong> for any question, request, or
+ complaint about personal data. The DPO oversees this notice, the record of processing, and the handling of data
+ subject requests.</p>
+
+ <h2>III. What personal data this system processes</h2>
+ <ul>
+  <li><strong>Account data.</strong> Username, display name, assigned role group, sign-in events, and privacy
+  acknowledgment records (the notice version accepted and the date and time it was accepted).</li>
+  <li><strong>Contact data of individuals in the business records.</strong> Names, email addresses, telephone
+  numbers, and postal addresses of customer, store, and vendor contact persons. These appear in the Customer
+  profile, Sales, and Cost tabs.</li>
+  <li><strong>Operational records connected to those contacts.</strong> Orders, purchase orders, and related
+  transaction history that reference the individuals above.</li>
+ </ul>
+ <p>This system does not process sensitive personal information as defined in Section 3(l) of the DPA (such as
+ health, government-issued identification numbers, or religious or political affiliations). Should that ever
+ change, the processing will be justified under Section 13 of the DPA and this notice will be updated first.</p>
+ <p class="box">Transparency note: the demonstration database ships with Microsoft's fictional AdventureWorks
+ sample data. The records describe no real individuals. They are still handled under every control in this notice,
+ because the same rules apply the moment real data is loaded.</p>
+
+ <h2>IV. Why we process it, and the legal bases</h2>
+ <p>Processing relies on the criteria in Sections 12 and 13 of the DPA:</p>
+ <ul>
+  <li><strong>Legitimate interests.</strong> Operating, securing, and administering an internal business system,
+  and keeping proof of account acknowledgment of this notice.</li>
+  <li><strong>Contract and business operations.</strong> Maintaining the sales, customer, and purchasing records
+  that the organization uses to serve its customers and manage suppliers.</li>
+  <li><strong>Legal obligation.</strong> Retaining records where the law requires retention, and responding to
+  lawful requests of authorities.</li>
+ </ul>
+ <p>Personal data is never processed for automated profiling, and no data is sold.</p>
+
+ <h2>V. How access is controlled (least privilege)</h2>
+ <p>Access is role-based: each of the 17 department roles sees only the tabs and tables it needs, with separate
+ view, change, and delete rights per table. All gates are enforced on the server for every page, export, and
+ action, and are covered by automated tests. Account and role management is restricted to the system
+ administrator. No role can create records in this system.</p>
+
+ <h2>VI. How personal data is protected</h2>
+ <p>Technical and organizational measures include: passwords stored only as salted hashes; session-based
+ authentication; access revoked through role groups rather than shared accounts; transport encryption (TLS) in
+ production deployments; least-privilege access control as described above; and controlled, permission-gated
+ export of table data. Access to the database file itself is limited to the system administrator.</p>
+
+ <h2>VII. Sharing and disclosure</h2>
+ <p>Personal data is not shared with third parties. Within the organization, it is visible only to roles whose
+ work requires it. Data is disclosed to authorities only when the law requires it, and the disclosure is logged
+ and limited to what is required.</p>
+
+ <h2>VIII. Retention and disposal</h2>
+ <p>Records are kept only as long as they serve a declared purpose:</p>
+ <ul>
+  <li>Account data is kept while the account is active and is deactivated when access is no longer needed.</li>
+  <li>Privacy acknowledgment records are kept for accountability for as long as the account exists.</li>
+  <li>Business records are kept for the retention periods that apply to the sales and purchasing functions.</li>
+ </ul>
+ <p>When retention ends, data is disposed of by secure deletion or irreversible anonymization, and disposal is
+ reviewed periodically so that kept data still matches a live purpose.</p>
+
+ <h2>IX. Your rights under RA 10173</h2>
+ <p>Every data subject has the following rights, without discrimination:</p>
+ <ul>
+  <li><strong>Right to be informed</strong> whether personal data relating to you is being processed, and why.</li>
+  <li><strong>Right to object</strong> to processing based on consent or legitimate interests.</li>
+  <li><strong>Right to access</strong> a copy of your personal data held by the system.</li>
+  <li><strong>Right to rectification</strong> of inaccurate or incomplete personal data.</li>
+  <li><strong>Right to erasure or blocking</strong> of data whose retention is no longer lawful or necessary.</li>
+  <li><strong>Right to damages</strong> for violations of your privacy rights.</li>
+  <li><strong>Right to data portability</strong> to receive your data in a structured, commonly used electronic
+  format.</li>
+  <li><strong>Right to lodge a complaint</strong> with the National Privacy Commission.</li>
+ </ul>
+ <p>These rights are transmissible to your heirs and assigns as allowed by law, and are exercised free of charge,
+ except where a request is manifestly unfounded or excessive.</p>
+
+ <h2>X. How to exercise your rights</h2>
+ <p>Send a request to the DPO at <strong>joshua.vinson@benilde.edu.ph</strong>. Requests are verified, then acted
+ upon within fifteen (15) working days from receipt. If a request cannot be granted, the reason and the available
+ remedy will be explained in writing.</p>
+
+ <h2>XI. Security incidents and breach notification</h2>
+ <p>If a personal data breach occurs, the response follows NPC Circular No. 16-03 on personal data breach
+ management: the incident is contained and assessed, the NPC and affected data subjects are notified within
+ seventy-two (72) hours of knowledge when the breach meets the notification thresholds, and affected individuals
+ are told what happened and what they can do to protect themselves.</p>
+
+ <h2>XII. NPC registration and accountability</h2>
+ <p>This system is an academic project. Before any operational deployment with real data, the appropriate NPC
+ registration and a Privacy Impact Assessment will be completed. Records of processing activities are maintained
+ for the system, and this published, versioned notice is part of that accountability record.</p>
+
+ <h2>XIII. Changes and versioning</h2>
+ <p>This notice has a version number. Material changes are published as a new version. Your acknowledgment is
+ recorded with the version and time on every successful sign-in, so after a version change you acknowledge the
+ new text the next time you log in. Acknowledgment history is retained as evidence.</p>
+
+ <h2>XIV. Contact and complaints</h2>
+ <p>Questions or complaints go first to the DPO at <strong>joshua.vinson@benilde.edu.ph</strong>. You may also
+ lodge a complaint directly with the National Privacy Commission through <strong>privacy.gov.ph</strong>.</p>
+</div>
+{% endblock %}

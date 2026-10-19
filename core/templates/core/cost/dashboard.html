@@ -113,16 +113,4 @@
   </table>
  </section>
 </div>
-<h3>Records in this tab</h3>
-<ul>
- {% if perms.core.view_purchasingpurchaseorderheader %}<li><a href="{% url 'table_list' 'cost' 'PurchasingPurchaseOrderHeader' %}">Purchasing purchase order header</a></li>{% endif %}
- {% if perms.core.view_purchasingpurchaseorderdetail %}<li><a href="{% url 'table_list' 'cost' 'PurchasingPurchaseOrderDetail' %}">Purchasing purchase order detail</a></li>{% endif %}
- {% if perms.core.view_purchasingvendor %}<li><a href="{% url 'table_list' 'cost' 'PurchasingVendor' %}">Purchasing vendor</a></li>{% endif %}
- {% if perms.core.view_purchasingproductvendor %}<li><a href="{% url 'table_list' 'cost' 'PurchasingProductVendor' %}">Purchasing product vendor</a></li>{% endif %}
- {% if perms.core.view_productionworkorder %}<li><a href="{% url 'table_list' 'cost' 'ProductionWorkOrder' %}">Production work order</a></li>{% endif %}
- {% if perms.core.view_productionlocation %}<li><a href="{% url 'table_list' 'cost' 'ProductionLocation' %}">Production location</a></li>{% endif %}
- {% if perms.core.view_productionproductcosthistory %}<li><a href="{% url 'table_list' 'cost' 'ProductionProductCostHistory' %}">Production product cost history</a></li>{% endif %}
- {% if perms.core.view_productionscrapreason %}<li><a href="{% url 'table_list' 'cost' 'ProductionScrapReason' %}">Production scrap reason</a></li>{% endif %}
- {% if perms.core.view_purchasingshipmethod %}<li><a href="{% url 'table_list' 'cost' 'PurchasingShipMethod' %}">Purchasing ship method</a></li>{% endif %}
-</ul>
 {% endblock %}
