@@ -3,7 +3,7 @@
 {% block extra_head %}<link rel="stylesheet" href="{% static 'core/leaflet/leaflet.css' %}">{% endblock %}
 {% block content %}
 <h2>{{ title }}</h2>
-<p class="muted d-sub">Rolling 12 months · {{ window_label }} · compared with {{ prev_label }} · USD · through {{ through|date:"M j, Y" }}</p>
+<p class="muted d-sub">{% if custom %}Selected range{% else %}Rolling 12 months{% endif %} · {{ window_label }} · compared with {{ prev_label }} · USD · through {{ through|date:"M j, Y" }}</p>
 {% include "core/_range.html" %}
 <div class="dash">
  <section class="d-kpis">
@@ -39,21 +39,21 @@
   </div>
   <div class="d-panel">
    <h3>Who buys</h3>
-   <p class="sub">Revenue by customer type · last 12 months</p>
-   <div class="d-donut">
-    <svg viewBox="0 0 160 160" role="img" aria-label="Share of revenue by customer type">
-     <g transform="rotate(-90 80 80)">
-      {% for s in donut %}<circle class="{{ s.cls }}" cx="80" cy="80" r="60" fill="none" stroke-width="30" stroke-dasharray="{{ s.dash }} 1000" stroke-dashoffset="{{ s.off }}"><title>{{ s.t }}</title></circle>{% endfor %}
-     </g>
-    </svg>
-    <div class="mid"><b>{{ donut_mid.big }}</b><span>{{ donut_mid.small }}</span></div>
+   <p class="sub">Individuals vs stores · revenue and buyer shares · {{ period }}</p>
+   <p class="sub">Revenue share</p>
+   <div class="d-splitbar">
+    {% for c in channels %}<i class="{{ c.cls }}" style="width:{{ c.pct }}%"></i>{% endfor %}
+   </div>
+   <p class="sub">Buyers share</p>
+   <div class="d-splitbar">
+    {% for c in channels %}<i class="{{ c.cls }}" style="width:{{ c.cust_pct }}%"></i>{% endfor %}
    </div>
    {% for c in channels %}
    <div class="d-legend">
     <span class="dot {{ c.cls }}"></span>
     <span class="nm">{{ c.name }}</span>
     <span class="vl">{{ c.pct }}%</span>
-    <span class="mt">· {{ c.money }} · {{ c.customers }} customers · {{ c.aov }} avg order</span>
+    <span class="mt">· {{ c.money }} · {{ c.customers }} customers ({{ c.cust_pct }}% of buyers) · {{ c.aov }} avg order</span>
    </div>
    {% endfor %}
   </div>
@@ -66,7 +66,7 @@
    <div class="d-map"><div id="cust-map" class="d-map-leaflet"></div>
     <p class="sub">Simplified country outlines · Natural Earth</p></div>
    <div>
-    <p class="sub">Revenue by country · last 12 months</p>
+    <p class="sub">Revenue by country · {{ period }}</p>
     <ul class="d-rank">
      {% for r in countries %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div></li>{% endfor %}
     </ul>
@@ -77,21 +77,21 @@
  <section class="d-tops">
   <div class="d-panel">
    <h3>Top cities</h3>
-   <p class="sub">Revenue by shipping city · last 12 months</p>
+   <p class="sub">Revenue by shipping city · {{ period }}</p>
    <ul class="d-rank">
     {% for r in cities %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
    </ul>
   </div>
   <div class="d-panel">
    <h3>Store network</h3>
-   <p class="sub">The B2B side by business type · revenue last 12 months</p>
+   <p class="sub">The B2B side by business type · revenue {{ period }}</p>
    <ul class="d-rank">
     {% for r in network %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
    </ul>
   </div>
   <div class="d-panel">
    <h3>Orders per customer</h3>
-   <p class="sub">Buyers by how many orders they placed · last 12 months</p>
+   <p class="sub">Buyers by how many orders they placed · {{ period }}</p>
    <ul class="d-rank">
     {% for r in frequency %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
    </ul>
@@ -100,7 +100,7 @@
 
  <section class="d-panel">
   <h3>Top customers</h3>
-  <p class="sub">Biggest buyers · last 12 months</p>
+  <p class="sub">Biggest buyers · {{ period }}</p>
   <table class="d-table">
    <tr><th>Customer</th><th>Type</th><th class="d-hide-m">Territory</th><th class="num">Orders</th><th class="num">Revenue</th></tr>
    {% for c in biggest %}

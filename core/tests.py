@@ -9,12 +9,12 @@ fine, so no fixtures are needed.
 from io import StringIO
 from datetime import timedelta
 
-from django.contrib.auth.models import Group, User
+from django.contrib.auth.models import Group, Permission, User
 from django.core.management import call_command
 from django.test import TestCase
 from django.utils import timezone
 
-from .models import PRIVACY_NOTICE_VERSION, PrivacyAcknowledgment
+from .models import AuditLog, PRIVACY_NOTICE_VERSION, PrivacyAcknowledgment, SalesReason
 from .roles import ROLES, apply_roles
 
 ALL_TABS = ["sales", "customer-profile", "revenue-and-loss", "cost"]
@@ -282,3 +282,79 @@ class PrivacyTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertNotIn("_auth_user_id", self.client.session)
         self.assertFalse(PrivacyAcknowledgment.objects.exists())
+
+
+class AuditTests(TestCase):
+    """Edits and deletes made through the table pages are recorded in AuditLog: who,
+    when, which record, and the old and new values. Reads, denied requests, invalid
+    forms and no-op saves are not recorded."""
+
+    def setUp(self):
+        self.user = User.objects.create_user("auditor", password="x")
+        self.user.user_permissions.add(
+            Permission.objects.get(codename="access_sales"),
+            Permission.objects.get(codename="change_salesreason"),
+            Permission.objects.get(codename="delete_salesreason"),
+        )
+        self.client.force_login(self.user)
+
+    @staticmethod
+    def reason(name="Wrong part"):
+        return SalesReason.objects.create(name=name, reason_type="Other")
+
+    def edit(self, pk, **data):
+        return self.client.post(f"/sales/data/SalesReason/{pk}/edit/",
+                                {"name": "Wrong part", "reason_type": "Other", **data})
+
+    def test_edit_records_only_the_changed_fields(self):
+        r = self.reason()
+        resp = self.edit(r.pk, name="Damaged part")
+        self.assertEqual(resp.status_code, 302)
+        log = AuditLog.objects.get()
+        self.assertEqual((log.username, log.action, log.model, log.object_pk),
+                         ("auditor", "update", "SalesReason", str(r.pk)))
+        self.assertEqual(log.changes, {"name": ["Wrong part", "Damaged part"]})
+        self.assertEqual(log.ip_address, "127.0.0.1")
+
+    def test_edit_without_changes_records_nothing(self):
+        r = self.reason()
+        resp = self.edit(r.pk)  # the same values: the save succeeds, the log stays empty
+        self.assertEqual(resp.status_code, 302)
+        self.assertFalse(AuditLog.objects.exists())
+
+    def test_invalid_edit_records_nothing(self):
+        r = self.reason()
+        resp = self.edit(r.pk, name="")  # name is required
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(AuditLog.objects.exists())
+
+    def test_delete_records_the_removed_row(self):
+        r = self.reason()
+        resp = self.client.post(f"/sales/data/SalesReason/{r.pk}/delete/")
+        self.assertEqual(resp.status_code, 302)
+        self.assertFalse(SalesReason.objects.filter(pk=r.pk).exists())
+        log = AuditLog.objects.get()
+        self.assertEqual((log.action, log.object_repr), ("delete", "Wrong part"))
+        self.assertEqual(log.changes["name"], "Wrong part")
+
+    def test_denied_edit_records_nothing(self):
+        r = self.reason()
+        self.user.user_permissions.clear()
+        resp = self.edit(r.pk, name="Damaged part")
+        self.assertEqual(resp.status_code, 403)
+        self.assertFalse(AuditLog.objects.exists())
+
+    def test_record_survives_deleting_the_user(self):
+        r = self.reason()
+        self.edit(r.pk, name="Damaged part")
+        self.user.delete()
+        log = AuditLog.objects.get()
+        self.assertIsNone(log.user)
+        self.assertEqual(log.username, "auditor")
+
+    def test_audit_admin_is_read_only_and_superadmin_only(self):
+        self.assertEqual(self.client.get("/manage/core/auditlog/").status_code, 302)  # not staff
+        User.objects.create_superuser("root", password="x")
+        self.client.force_login(User.objects.get(username="root"))
+        self.assertEqual(self.client.get("/manage/core/auditlog/").status_code, 200)
+        self.assertEqual(self.client.get("/manage/core/auditlog/add/").status_code, 403)  # no adding

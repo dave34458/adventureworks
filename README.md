@@ -4,7 +4,7 @@ Source data: Microsoft's `AdventureWorks-oltp-install-script.zip`
 https://github.com/Microsoft/sql-server-samples/releases/tag/adventureworks
 
 ## Run it (prebuilt database)
-1. `pip install "Django>=5.2,<5.3"`
+1. `pip install -r requirements.txt` (Django 6.0.5, gunicorn, whitenoise)
 2. `git clone` the repo (`adventureworks.sqlite3`, ~78 MB, is a plain file in git; no Git LFS needed)
 3. `python manage.py runserver`
 4. Open http://127.0.0.1:8000/ and log in.
@@ -19,13 +19,14 @@ plus the 17 demo role users. The first sign-in asks you to acknowledge the Data 
       models.py         the 71 AdventureWorks models (generated; do not edit by hand)
                         + TabAccess, one permission per tab (access_sales, access_customer_profile, ...)
                         + PrivacyAcknowledgment and PRIVACY_NOTICE_VERSION (data privacy governance)
+                        + AuditLog, the append-only record of every table edit and deletion
       views.py          all views: home, one dashboard view per tab (sales, customer_profile,
                         revenue_and_loss, cost) and the shared list / detail / edit / delete pages
                         every table uses, plus the JSON autocomplete they call
       roles.py          ROLES (the 17 department roles) and apply_roles; see core/tests.py
       forms.py          the login form: credentials + the required privacy acknowledgment
       tests.py          RBAC + privacy tests: the department matrix, applied and checked over HTTP
-      admin.py          read-only privacy acknowledgment records (visible at /manage/)
+      admin.py          read-only privacy acknowledgment and audit records (visible at /manage/)
       management/       commands/seed_users.py: one demo login per role (username = password)
       widgets.py        SearchSelect, the on-demand foreign-key box for the edit pages
       static/core/      autocomplete.js, the tiny script behind the edit page's foreign-key boxes
@@ -41,7 +42,7 @@ plus the 17 demo role users. The first sign-in asks you to acknowledge the Data 
     /<tab>/data/<Table>/<id>/                detail
     /<tab>/data/<Table>/<id>/edit/           edit
     /<tab>/data/<Table>/<id>/delete/         delete
-    /manage/                                 Users, roles and privacy records (superadmin only)
+    /manage/                                 Users, roles, privacy and audit records (superadmin only)
 
 ## Roles (RBAC)
 * **Superadmin** = a Django superuser (`createsuperuser`). It can open every tab and every table.
@@ -70,6 +71,23 @@ plus the 17 demo role users. The first sign-in asks you to acknowledge the Data 
   `core/models.py` when the notice changes; users then re-acknowledge at their next login, which
   refreshes the record. The records are visible read-only at `/manage/`.
 * Exports obey the same role gates as the pages, and no role can create records.
+* Every edit or deletion made through the table pages is written to the **audit trail** (`AuditLog`):
+  the account, time, record, changed values (old and new), and IP address. Records are kept twelve
+  months per the notice, cannot be changed or deleted from the UI, and are visible read-only at `/manage/`.
+
+## Deploy (Railway)
+The repo is deploy-ready: `requirements.txt` (Django 6.0.5, gunicorn, whitenoise), `.python-version`
+(3.12) and `railway.json` — build runs `collectstatic`; the start command copies the shipped database
+onto the volume on first boot, migrates, then serves with gunicorn on `$PORT`. Whitenoise serves
+`/static/`, and `SECURE_PROXY_SSL_HEADER` lets Django trust Railway's HTTPS proxy (needed for the login
+CSRF check). Set these service variables:
+* `DJANGO_SECRET_KEY` — a long random value
+* `DJANGO_DEBUG=0`
+* `DJANGO_ALLOWED_HOSTS=.up.railway.app`
+* `AW_DB_PATH=/data/adventureworks.sqlite3` — mount a volume at `/data` so logins survive redeploys
+* `DJANGO_CSRF_TRUSTED_ORIGINS=https://<domain>` — after `railway domain`
+
+Then `railway up`.
 
 ## Notes
 * Tables with pages: 32. The second nav bar in `base.html` hardcodes one link per table; add a link there to add a table.

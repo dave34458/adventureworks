@@ -1420,3 +1420,32 @@ class PrivacyAcknowledgment(models.Model):
 
     def __str__(self):
         return f"{self.user} acknowledged v{self.version}"
+
+
+class AuditLog(models.Model):
+    """One row per edit or deletion made through the table pages: who changed which
+    record, when, and the old and new values. Written by the shared edit and delete
+    views; visible read-only at /manage/ and retained for twelve months per the
+    privacy notice."""
+
+    ACTIONS = [("create", "create"), ("update", "update"), ("delete", "delete")]
+
+    user = models.ForeignKey("auth.User", null=True, blank=True, on_delete=models.SET_NULL,
+                             related_name="audit_log")
+    username = models.CharField(max_length=150)  # snapshot: the record survives user deletion
+    action = models.CharField(max_length=8, choices=ACTIONS)
+    model = models.CharField(max_length=100)
+    object_pk = models.CharField(max_length=64)
+    object_repr = models.CharField(max_length=255)
+    changes = models.JSONField(default=dict, blank=True)  # {field: [old, new]}, or the row on delete
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["model", "object_pk"]), models.Index(fields=["created_at"])]
+        verbose_name = "audit record"
+        verbose_name_plural = "audit records"
+
+    def __str__(self):
+        return f"{self.username} {self.action} {self.model} {self.object_pk}"

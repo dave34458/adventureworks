@@ -1,7 +1,7 @@
 {% extends "core/base.html" %}
 {% block content %}
 <h2>{{ title }}</h2>
-<p class="muted d-sub">Rolling 12 months · {{ window_label }} · compared with {{ prev_label }} · USD · through {{ through|date:"M j, Y" }}</p>
+<p class="muted d-sub">{% if custom %}Selected range{% else %}Rolling 12 months{% endif %} · {{ window_label }} · compared with {{ prev_label }} · USD · through {{ through|date:"M j, Y" }}</p>
 {% include "core/_range.html" %}
 <div class="dash">
  <section class="d-kpis">
@@ -16,8 +16,8 @@
 
  <section class="d-panel d-line">
   <h3>Profit and margin by month</h3>
-  <p class="sub">Bars: gross profit, dollars (left axis) · lines: gross margin % (right axis) · solid = this year, dashed = last year</p>
-  <svg viewBox="0 0 960 260" role="img" aria-label="Monthly gross profit and gross margin, this year versus last year">
+  <p class="sub">Bars: gross profit, dollars (left axis) · lines: gross margin % (right axis) · solid = {{ period }}, dashed = one year earlier</p>
+  <svg viewBox="0 0 960 260" role="img" aria-label="Monthly gross profit and gross margin, selected period versus one year earlier">
    {% for t in combo.lticks %}<line class="axis" x1="72" y1="{{ t.y }}" x2="920" y2="{{ t.y }}"/><text class="tick" x="46" y="{{ t.y }}" text-anchor="end" dominant-baseline="central">{{ t.lab }}</text>{% endfor %}
    {% for t in combo.rticks %}<text class="tick" x="926" y="{{ t.y }}" text-anchor="start" dominant-baseline="central">{{ t.lab }}</text>{% endfor %}
    {% for b in combo.bars %}<rect class="profitbar" x="{{ b.x }}" y="{{ b.y }}" width="{{ b.w }}" height="{{ b.h }}" rx="3"><title>{{ b.t }}</title></rect>{% endfor %}
@@ -27,13 +27,13 @@
    {% for t in combo.xticks %}<text class="tick" x="{{ t.x }}" y="252" text-anchor="middle">{{ t.lab }}</text>{% endfor %}
   </svg>
   <div class="d-legend"><span class="sq"></span><span class="nm">Gross profit</span><span class="mt">· dollars, left axis</span></div>
-  <div class="d-legend"><span class="sw solid"></span><span class="nm">Margin this year</span><span class="mt">· percent, right axis</span></div>
-  <div class="d-legend"><span class="sw"></span><span class="nm">Margin last year</span><span class="mt">· the same months a year earlier</span></div>
+  <div class="d-legend"><span class="sw solid"></span><span class="nm">Margin · selected period</span><span class="mt">· percent, right axis</span></div>
+  <div class="d-legend"><span class="sw"></span><span class="nm">Margin · one year earlier</span><span class="mt">· the same months a year before</span></div>
  </section>
 
  <section class="d-panel">
   <h3>Product mix</h3>
-  <p class="sub">Revenue by category · last 12 months</p>
+  <p class="sub">Revenue by category · {{ period }}</p>
   <div class="d-donutrow">
    <div class="d-donut">
     <svg viewBox="0 0 160 160" role="img" aria-label="Share of revenue by category">
@@ -59,28 +59,28 @@
  <section class="d-tops">
   <div class="d-panel">
    <h3>Profit by territory</h3>
-   <p class="sub">Gross profit · last 12 months</p>
+   <p class="sub">Gross profit · {{ period }}</p>
    <ul class="d-rank">
     {% for r in territories %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
    </ul>
   </div>
   <div class="d-panel">
    <h3>Below-cost sales</h3>
-   <p class="sub">Products sold under standard cost · last 12 months</p>
+   <p class="sub">Products sold under standard cost · {{ period }}</p>
    <ul class="d-rank">
     {% for r in leaks %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
    </ul>
   </div>
   <div class="d-panel">
    <h3>Discounts</h3>
-   <p class="sub">Money given away by promotion · last 12 months</p>
+   <p class="sub">Money given away by promotion · {{ period }}</p>
    <ul class="d-rank">
     {% for r in discounts %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
    </ul>
   </div>
   <div class="d-panel">
    <h3>Tax collected</h3>
-   <p class="sub">Sales tax by state or province · last 12 months</p>
+   <p class="sub">Sales tax by state or province · {{ period }}</p>
    <ul class="d-rank">
     {% for r in taxes %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
    </ul>
@@ -89,7 +89,7 @@
 
  <section class="d-panel">
   <h3>Most profitable products</h3>
-  <p class="sub">Gross profit by product · last 12 months</p>
+  <p class="sub">Gross profit by product · {{ period }}</p>
   <table class="d-table">
    <tr><th>Product</th><th class="num">Revenue</th><th class="num">Cost</th><th class="num">Profit</th><th class="num">Margin</th></tr>
    {% for p in products %}

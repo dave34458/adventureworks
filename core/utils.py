@@ -9,16 +9,10 @@ import csv
 from datetime import datetime, time, timedelta
 from typing import NamedTuple
 
-from django.db.models import DecimalField, ExpressionWrapper, F, Max, Q
+from django.db.models import Max
 from django.http import StreamingHttpResponse
 
 MONTHS = 12
-
-
-def line_cost():
-    """Quantity × the product's standard cost: the cost side of one order line."""
-    return ExpressionWrapper(F("order_qty") * F("product__standard_cost"),
-                             output_field=DecimalField(max_digits=19, decimal_places=4))
 
 
 def shift_months(dt, months):
@@ -77,10 +71,9 @@ class Window(NamedTuple):
     last: object            # latest order date in the data
     trend_start: object     # first instant of the current 12-month window
     window_start: object    # 12 months before trend_start (start of the compare window)
-    cur: Q                  # filter for the current window
-    prev: Q                 # filter for the compare window
     label: str              # e.g. "Jul 2024 – Jun 2025"
     prev_label: str         # e.g. "Jul 2023 – Jun 2024"
+    custom: bool            # True when the user applied their own ?from=/?to= range
 
 
 def rolling_window(model, date_field="order_date"):
@@ -95,10 +88,9 @@ def rolling_window(model, date_field="order_date"):
         last=last,
         trend_start=trend_start,
         window_start=window_start,
-        cur=Q(**{f"{date_field}__gte": trend_start}),
-        prev=Q(**{f"{date_field}__lt": trend_start}),
         label=f"{trend_start:%b %Y} – {last:%b %Y}",
         prev_label=f"{window_start:%b %Y} – {shift_months(trend_start, -1):%b %Y}",
+        custom=False,
     )
 
 
@@ -112,16 +104,18 @@ def range_window(model, start, end, date_field="order_date"):
     if hi < lo:
         return None
     span = hi - lo
-    prev_lo = lo - span - timedelta(seconds=1)
-    prev_hi = lo - timedelta(seconds=1)
+    prev_hi = lo - timedelta(seconds=1) if lo > datetime.min else datetime.min
+    try:
+        prev_lo = lo - span - timedelta(seconds=1)
+    except OverflowError:  # a range that starts near year 1 has no room for a compare window
+        prev_lo = datetime.min
     return Window(
         last=hi,
         trend_start=lo,
         window_start=prev_lo,
-        cur=Q(**{f"{date_field}__gte": lo, f"{date_field}__lte": hi}),
-        prev=Q(**{f"{date_field}__gte": prev_lo, f"{date_field}__lt": lo}),
         label=f"{lo:%b %d, %Y} – {hi:%b %d, %Y}",
         prev_label=f"{prev_lo:%b %d, %Y} – {prev_hi:%b %d, %Y}",
+        custom=True,
     )
 
 

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "NIXPACKS",
+    "buildCommand": "python manage.py collectstatic --noinput"
+  },
+  "deploy": {
+    "startCommand": "sh -c 'if [ ! -f ${AW_DB_PATH:-/data/adventureworks.sqlite3} ]; then cp adventureworks.sqlite3 ${AW_DB_PATH:-/data/adventureworks.sqlite3}; fi; python manage.py migrate --noinput; exec gunicorn aw_project.wsgi --bind 0.0.0.0:${PORT:-8000}'",
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 10
+  }
+}

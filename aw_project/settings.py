@@ -17,6 +17,7 @@ INSTALLED_APPS = [
 ]
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",  # serves collectstatic files in production
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -44,6 +45,16 @@ DEFAULT_AUTO_FIELD = "django.db.models.AutoField"
 USE_TZ = False  # AdventureWorks dates are naive local times
 TIME_ZONE = "UTC"
 STATIC_URL = "/static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"  # collectstatic output; served by whitenoise
+
+# Behind a hosting proxy that terminates TLS (e.g. Railway): trust its header so
+# Django knows the request is HTTPS. Needed for CSRF origin checks on login.
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+CSRF_TRUSTED_ORIGINS = [o for o in os.environ.get("DJANGO_CSRF_TRUSTED_ORIGINS", "").split(",") if o]
+
+if not DEBUG:  # production behind the TLS proxy: cookies only over HTTPS
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
 
 LOGIN_URL = "login"
 LOGIN_REDIRECT_URL = "home"

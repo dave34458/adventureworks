@@ -1,7 +1,7 @@
 {% extends "core/base.html" %}
 {% block content %}
 <h2>{{ title }}</h2>
-<p class="muted d-sub">Rolling 12 months · {{ window_label }} · compared with {{ prev_label }} · USD · through {{ through|date:"M j, Y" }}</p>
+<p class="muted d-sub">{% if custom %}Selected range{% else %}Rolling 12 months{% endif %} · {{ window_label }} · compared with {{ prev_label }} · USD · through {{ through|date:"M j, Y" }}</p>
 {% include "core/_range.html" %}
 <div class="dash">
  <section class="d-kpis">
@@ -17,19 +17,21 @@
  <section class="d-cols">
   <div class="d-panel">
    <h3>Monthly revenue</h3>
-   <p class="sub">Hover a bar for that month's numbers</p>
+   <p class="sub">Solid bars: revenue in {{ period }} · faded bars: the period before</p>
    <div class="d-bars">
     {% for t in trend %}
-    <div class="d-bar" title="{{ t.full }} · {{ t.money }} · {{ t.orders }} orders">
-     <span class="bw"><i style="height:{{ t.height }}%"></i></span>
+    <div class="d-bar" title="{{ t.full }} · {{ t.money }} · {{ t.orders }} orders{% if t.prev_full %} · previous {{ t.prev_full }}: {{ t.prev_money }} · {{ t.prev_orders }} orders{% endif %}">
+     <span class="bw"><i class="prev" style="height:{{ t.prev_h }}%"></i><i class="cur" style="height:{{ t.height }}%"></i></span>
      <b>{{ t.label }}</b>
     </div>
     {% endfor %}
    </div>
+   <div class="d-legend"><span class="sq blue"></span><span class="nm">Selected period</span></div>
+   <div class="d-legend"><span class="sq pale"></span><span class="nm">Previous period</span></div>
   </div>
   <div class="d-panel">
    <h3>Channel mix</h3>
-   <p class="sub">Revenue by order channel · last 12 months</p>
+   <p class="sub">Revenue by order channel · {{ period }}</p>
    <div class="d-splitbar">
     {% for c in channels %}<i class="{{ c.cls }}" style="width:{{ c.pct }}%"></i>{% endfor %}
    </div>
@@ -47,28 +49,28 @@
  <section class="d-tops">
   <div class="d-panel">
    <h3>Top territories</h3>
-   <p class="sub">Revenue · last 12 months</p>
+   <p class="sub">Revenue · {{ period }}</p>
    <ul class="d-rank">
     {% for r in territories %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div></li>{% endfor %}
    </ul>
   </div>
   <div class="d-panel">
    <h3>Top salespeople</h3>
-   <p class="sub">Revenue · last 12 months</p>
+   <p class="sub">Revenue · {{ period }}</p>
    <ul class="d-rank">
     {% for r in salespeople %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div></li>{% endfor %}
    </ul>
   </div>
   <div class="d-panel">
    <h3>Top products</h3>
-   <p class="sub">Revenue by product · last 12 months</p>
+   <p class="sub">Revenue by product · {{ period }}</p>
    <ul class="d-rank">
     {% for r in products %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div></li>{% endfor %}
    </ul>
   </div>
   <div class="d-panel">
    <h3>Promotions</h3>
-   <p class="sub">Revenue from discounted lines · last 12 months</p>
+   <p class="sub">Revenue from discounted lines · {{ period }}</p>
    <ul class="d-rank">
     {% for r in offers %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div></li>{% endfor %}
    </ul>
@@ -77,7 +79,7 @@
 
  <section class="d-panel">
   <h3>Biggest orders</h3>
-  <p class="sub">Largest sales orders · last 12 months</p>
+  <p class="sub">Largest sales orders · {{ period }}</p>
   <table class="d-table">
    <tr><th>Order</th><th class="d-hide-m">Date</th><th>Territory</th><th class="d-hide-m">Salesperson</th><th>Channel</th><th class="num">Revenue</th></tr>
    {% for o in biggest %}

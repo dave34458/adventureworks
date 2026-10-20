@@ -1,7 +1,7 @@
 {% extends "core/base.html" %}
 {% block content %}
 <h2>{{ title }}</h2>
-<p class="muted d-sub">Rolling 12 months · {{ window_label }} · compared with {{ prev_label }} · USD · through {{ through|date:"M j, Y" }}</p>
+<p class="muted d-sub">{% if custom %}Selected range{% else %}Rolling 12 months{% endif %} · {{ window_label }} · compared with {{ prev_label }} · USD · through {{ through|date:"M j, Y" }}</p>
 {% include "core/_range.html" %}
 <div class="dash">
  <section class="d-kpis">
@@ -16,7 +16,7 @@
 
   <section class="d-panel">
    <h3>Cost pipeline</h3>
-   <p class="sub">From buying parts to selling stock · last 12 months</p>
+   <p class="sub">From buying parts to selling stock · {{ period }}</p>
    <div class="d-flow">
     {% for p in pipeline %}
     {% if not forloop.first %}<div class="arrow" aria-hidden="true">→</div>{% endif %}
@@ -32,19 +32,21 @@
   <section class="d-cols">
    <div class="d-panel">
     <h3>Monthly cost of goods sold</h3>
-   <p class="sub">Standard cost of merchandise sold · hover a bar for margin</p>
+   <p class="sub">Solid bars: cost in {{ period }} · faded bars: the period before · hover for margin</p>
    <div class="d-bars">
     {% for t in trend %}
-    <div class="d-bar" title="{{ t.full }} · cost {{ t.money }} · {{ t.margin }}% margin">
-     <span class="bw"><i style="height:{{ t.height }}%"></i></span>
+    <div class="d-bar" title="{{ t.full }} · cost {{ t.money }} · {{ t.margin }}% margin{% if t.prev_full %} · previous {{ t.prev_full }}: {{ t.prev_money }}{% endif %}">
+     <span class="bw"><i class="prev" style="height:{{ t.prev_h }}%"></i><i class="cur" style="height:{{ t.height }}%"></i></span>
      <b>{{ t.label }}</b>
     </div>
     {% endfor %}
    </div>
+   <div class="d-legend"><span class="sq blue"></span><span class="nm">Selected period</span></div>
+   <div class="d-legend"><span class="sq pale"></span><span class="nm">Previous period</span></div>
   </div>
   <div class="d-panel">
    <h3>Where costs sit</h3>
-   <p class="sub">Cost of goods sold by category · last 12 months</p>
+   <p class="sub">Cost of goods sold by category · {{ period }}</p>
    <div class="d-donut">
     <svg viewBox="0 0 160 160" role="img" aria-label="Share of cost of goods by category">
      <g transform="rotate(-90 80 80)">
@@ -67,21 +69,21 @@
  <section class="d-tops">
   <div class="d-panel">
    <h3>Top vendors</h3>
-   <p class="sub">Purchase spend · last 12 months</p>
+   <p class="sub">Purchase spend · {{ period }}</p>
    <ul class="d-rank">
     {% for r in vendors %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
    </ul>
   </div>
   <div class="d-panel">
    <h3>Costliest products</h3>
-   <p class="sub">Cost of goods sold by product · last 12 months</p>
+   <p class="sub">Cost of goods sold by product · {{ period }}</p>
    <ul class="d-rank">
     {% for r in products %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
    </ul>
   </div>
   <div class="d-panel">
    <h3>Scrap reasons</h3>
-   <p class="sub">Units scrapped in manufacturing · last 12 months</p>
+   <p class="sub">Units scrapped in manufacturing · {{ period }}</p>
    <ul class="d-rank">
     {% for r in reasons %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
    </ul>
@@ -97,7 +99,7 @@
 
  <section class="d-panel">
   <h3>Biggest purchase orders</h3>
-  <p class="sub">Largest PO totals · last 12 months</p>
+  <p class="sub">Largest PO totals · {{ period }}</p>
   <table class="d-table">
    <tr><th>PO</th><th>Vendor</th><th class="d-hide-m">Ordered</th><th class="num">Lines</th><th>Status</th><th class="num">Total</th></tr>
    {% for o in biggest %}
