@@ -1,0 +1,49 @@
+{% extends "core/base.html" %}
+{% block content %}
+<h2>{{ title }}</h2>
+<p class="muted d-sub">{% if custom %}Selected range{% else %}Rolling 12 months{% endif %} · {{ window_label }} · compared with {{ prev_label }} · USD · through {{ through|date:"M j, Y" }}</p>
+{% include "core/_range.html" %}
+<div class="report">
+ <section class="d-kpis">
+  {% for k in kpis %}
+  <div class="d-kpi">
+   <div class="lab">{{ k.label }}</div>
+   <div class="val">{{ k.value }}{% if k.delta %} <span class="d-chip {{ k.dir }}">{{ k.delta }}</span>{% endif %}</div>
+   <div class="cap">{{ k.cap }}</div>
+  </div>
+  {% endfor %}
+ </section>
+
+ <section class="d-panel">
+  <h3>Total sales and sales trend</h3>
+  <p class="sub">Monthly merchandise sales · solid bars: {{ period }} · faded bars: {{ prev_label }}</p>
+  <div class="d-bars">
+   {% for t in trend %}
+   <div class="d-bar" title="{{ t.full }} · {{ t.money }} · {{ t.orders }} orders{% if t.prev_full %} · previous {{ t.prev_full }}: {{ t.prev_money }} · {{ t.prev_orders }} orders{% endif %}">
+    <span class="bw"><i class="prev" style="height:{{ t.prev_h }}%"></i><i class="cur" style="height:{{ t.height }}%"></i></span>
+    <b>{{ t.label }}</b>
+   </div>
+   {% endfor %}
+  </div>
+  <div class="d-legend"><span class="sq blue"></span><span class="nm">Selected period</span></div>
+  <div class="d-legend"><span class="sq pale"></span><span class="nm">Previous period</span></div>
+ </section>
+
+ <section class="d-tops">
+  <div class="d-panel">
+   <h3>High-performing products</h3>
+   <p class="sub">Sales by product · {{ period }}</p>
+   <ul class="d-rank">
+    {% for r in products %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div></li>{% endfor %}
+   </ul>
+  </div>
+  <div class="d-panel">
+   <h3>Low-performing products</h3>
+   <p class="sub">Lowest sales by product · {{ period }}</p>
+   <ul class="d-rank">
+    {% for r in low_products %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div></li>{% endfor %}
+   </ul>
+  </div>
+ </section>
+</div>
+{% endblock %}

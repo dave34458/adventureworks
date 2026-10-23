@@ -1,0 +1,178 @@
+{% extends "core/base.html" %}
+{% block content %}
+<h2>{{ title }}</h2>
+{% if has_data %}
+<p class="muted d-sub">{% if custom %}Selected range{% else %}Rolling 12 months{% endif %} · {{ window_label }} · compared with {{ prev_label }} · USD{% if selected_category %} · category: {{ selected_category.name }}{% endif %} · through {{ through|date:"M j, Y" }}</p>
+{% else %}
+<p class="muted d-sub">No sales data is available in the database.</p>
+{% endif %}
+<form class="d-filter" method="get">
+ <label>From <input type="date" name="from" value="{{ w_from }}"></label>
+ <label>To <input type="date" name="to" value="{{ w_to }}"></label>
+ <label>Category <select name="category"><option value="">All categories</option>{% for c in categories %}<option value="{{ c.id }}"{% if c.id == category_id %} selected{% endif %}>{{ c.name }}</option>{% endfor %}</select></label>
+ <button type="submit">Apply</button>
+ <a href="?">Reset</a>
+</form>
+<div class="report">
+ {% if kpis %}
+ <section class="d-kpis">
+  {% for k in kpis %}
+  <div class="d-kpi">
+   <div class="lab">{{ k.label }}</div>
+   <div class="val">{{ k.value }}{% if k.delta %} <span class="d-chip {{ k.dir }}">{{ k.delta }}</span>{% endif %}</div>
+   <div class="cap">{{ k.cap }}</div>
+  </div>
+  {% endfor %}
+ </section>
+ {% endif %}
+
+ {% if trend %}
+ <section class="d-cols d-main">
+  <div class="d-panel">
+   <h3>{{ trend_title }}</h3>
+   <p class="sub">{{ metric_name }} in dollars · solid bars: {{ period }} · faded bars: {{ prev_label }}</p>
+   <div class="d-bars">
+    {% for t in trend %}
+    <div class="d-bar" title="{{ t.title }}">
+     <span class="bw"><i class="prev" style="height:{{ t.prev_h }}%"></i><i class="cur" style="height:{{ t.height }}%"></i></span>
+     <b>{{ t.label }}</b>
+    </div>
+    {% endfor %}
+   </div>
+   <div class="d-legend"><span class="sq blue"></span><span class="nm">Selected period</span></div>
+   <div class="d-legend"><span class="sq pale"></span><span class="nm">Previous period</span></div>
+  </div>
+
+  <div class="d-panel">
+   {% if selected_category %}
+   <h3>Top products in {{ selected_category.name }}</h3>
+   <p class="sub">Ranked by {{ metric_lower }} · {{ period }} · <a href="{% if custom %}?from={{ w_from }}&amp;to={{ w_to }}{% else %}?{% endif %}">All categories</a></p>
+   {% if products_top %}
+   <ul class="d-rank">
+    {% for r in products_top %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div></li>{% endfor %}
+   </ul>
+   {% else %}
+   <p class="d-note">No product sales in this category for the selected period.</p>
+   {% endif %}
+   {% elif category_rows %}
+   <h3>{{ category_title }}</h3>
+   <p class="sub">Share of {{ metric_lower }} · {{ period }} · click a category to filter</p>
+   <div class="d-donutrow">
+    <div class="d-donut">
+     <svg viewBox="0 0 160 160" role="img" aria-label="Share of {{ metric_lower }} by product category">
+      <g transform="rotate(-90 80 80)">
+       {% for s in category_rows %}<circle class="{{ s.cls }}" cx="80" cy="80" r="60" fill="none" stroke-width="30" stroke-dasharray="{{ s.dash }} 1000" stroke-dashoffset="{{ s.off }}"><title>{{ s.t }}</title></circle>{% endfor %}
+      </g>
+     </svg>
+     <div class="mid"><b>{{ category_total }}</b><span>{{ category_mid_label }}</span></div>
+    </div>
+     <div class="d-catlist">
+      {% for c in category_rows %}
+      <div class="d-legend">
+      <span class="dot {{ c.cls }}"></span>
+      <span class="nm"><a href="?{% if custom %}from={{ w_from }}&amp;to={{ w_to }}&amp;{% endif %}category={{ c.id }}">{{ c.name }}</a></span>
+      <span class="vl">{{ c.pct }}%</span>
+      <span class="mt">{{ c.value }}{% if show_profit %} · {{ c.margin }}% margin{% endif %}</span>
+     </div>
+     {% endfor %}
+    </div>
+   </div>
+   {% else %}
+   <p class="d-note">No category activity in the selected period.</p>
+   {% endif %}
+  </div>
+ </section>
+ {% endif %}
+
+ {% if margin_chart or customer_mix %}
+ <section class="d-cols d-main{% if not margin_chart or not customer_mix %} single{% endif %}">
+  {% if margin_chart %}
+  <div class="d-panel d-line">
+   <h3>Gross margin by month</h3>
+   <p class="sub">Gross margin percent · solid = {{ period }} · dashed = {{ prev_label }}</p>
+   <svg viewBox="0 0 960 260" role="img" aria-label="Monthly gross margin, selected period versus the previous period">
+    {% for t in margin_chart.ticks %}<line class="axis" x1="52" y1="{{ t.y }}" x2="944" y2="{{ t.y }}"/><text class="tick" x="44" y="{{ t.y }}" text-anchor="end" dominant-baseline="central">{{ t.label }}</text>{% endfor %}
+    <polyline class="prev" points="{{ margin_chart.prev_pts }}"/>
+    <polyline class="cur" points="{{ margin_chart.cur_pts }}"/>
+    {% for d in margin_chart.prev_dots %}<circle class="dotp" cx="{{ d.x }}" cy="{{ d.y }}" r="3"><title>{{ d.t }}</title></circle>{% endfor %}
+    {% for d in margin_chart.dots %}<circle class="dotc" cx="{{ d.x }}" cy="{{ d.y }}" r="3"><title>{{ d.t }}</title></circle>{% endfor %}
+    {% for t in margin_chart.xticks %}<text class="tick" x="{{ t.x }}" y="252" text-anchor="middle">{{ t.label }}</text>{% endfor %}
+   </svg>
+   <div class="d-legend"><span class="sw solid"></span><span class="nm">Margin · selected period</span><span class="mt">· percent</span></div>
+   <div class="d-legend"><span class="sw"></span><span class="nm">Margin · previous period</span></div>
+  </div>
+  {% endif %}
+
+  {% if customer_mix %}
+  <div class="d-panel">
+   <h3>Customer mix and spending</h3>
+   <p class="sub">Individuals vs stores{% if selected_category %} in {{ selected_category.name }}{% endif %} · {{ period }}</p>
+   <p class="sub">Revenue share</p>
+   <div class="d-splitbar">
+    {% for c in customer_mix.channels %}<i class="{{ c.cls }}" style="width:{{ c.pct }}%"></i>{% endfor %}
+   </div>
+   <p class="sub">Buyer share</p>
+   <div class="d-splitbar">
+    {% for c in customer_mix.channels %}<i class="{{ c.cls }}" style="width:{{ c.buyers_pct }}%"></i>{% endfor %}
+   </div>
+   {% for c in customer_mix.channels %}
+   <div class="d-legend">
+    <span class="dot {{ c.cls }}"></span>
+    <span class="nm">{{ c.name }}</span>
+    <span class="vl">{{ c.pct }}%</span>
+    <span class="mt">· {{ c.money }} · {{ c.customers }} customers ({{ c.buyers_pct }}% of buyers) · {{ c.aov }} avg order</span>
+   </div>
+   {% endfor %}
+   <p class="d-note">Revenue total {{ customer_mix.total }}; buyer counts are distinct customers in the period.</p>
+  </div>
+  {% endif %}
+ </section>
+ {% endif %}
+
+ {% if products %}
+ <section class="d-panel">
+  <h3>Top products by {{ metric_lower }}</h3>
+  <p class="sub">Top 10 aggregated from sales-order lines · {{ period }}{% if selected_category %} · {{ selected_category.name }}{% endif %}</p>
+  <div class="scroll">
+  <table class="d-table">
+   <tr><th>Product</th><th class="d-hide-m">Category</th><th class="num d-hide-m">Units</th><th class="num">{{ metric_name }}</th>{% if show_profit %}<th class="num">Gross profit</th><th class="num">Margin</th>{% endif %}</tr>
+   {% for p in products %}
+   <tr>
+    <td>{{ p.name }}</td>
+    <td class="d-hide-m">{{ p.category }}</td>
+    <td class="num d-hide-m">{{ p.units }}</td>
+    <td class="num">{{ p.value }}</td>
+    {% if show_profit %}<td class="num">{{ p.profit }}</td><td class="num">{{ p.margin }}</td>{% endif %}
+   </tr>
+   {% endfor %}
+  </table>
+  </div>
+ </section>
+ {% endif %}
+
+ {% if not has_data %}
+ <section class="d-panel">
+  <h3>No dashboard figures</h3>
+  <p class="sub">The database has no sales orders, so the consolidated figures cannot be calculated. The report links below remain available.</p>
+ </section>
+ {% endif %}
+
+ {% if insights %}
+ <section class="d-panel">
+  <h3>What the numbers show</h3>
+  <p class="sub">Short interpretations of the same database aggregates used above · {{ period }}</p>
+  <ul class="d-recs">
+   {% for i in insights %}<li><b>{{ i.title }}</b><span>{{ i.text }}</span></li>{% endfor %}
+  </ul>
+ </section>
+ {% endif %}
+
+ <section class="d-panel">
+  <h3>Explore the reports</h3>
+  <p class="sub">Open a module for its full tables, methods and CSV export.</p>
+  <ul class="d-recs">
+   {% for r in reports %}<li><a href="{% url r.url %}"><b>{{ r.name }}</b><span>{{ r.text }}</span></a></li>{% endfor %}
+  </ul>
+ </section>
+</div>
+{% endblock %}

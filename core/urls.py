@@ -9,6 +9,7 @@ urlpatterns = [
     path("privacy/", views.privacy, name="privacy"),
     path("login/", login_not_required(views.PrivacyLogin.as_view()), name="login"),
     path("logout/", LogoutView.as_view(), name="logout"),
+    path("dashboard/", views.dashboard, name="dashboard"),
     path("sales/", views.sales, name="sales"),
     path("customer-profile/", views.customer_profile, name="customer-profile"),
     path("revenue-and-loss/", views.revenue_and_loss, name="revenue-and-loss"),

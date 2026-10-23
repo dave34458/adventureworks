@@ -1,12 +1,12 @@
-"""All views for the app: home, the four dashboards, and the generic table browser
-(list / detail / edit / delete / autocomplete) used by every table."""
+"""All views for the app: home, the central dashboard, the four reports, and the
+generic table browser (list / detail / edit / delete / autocomplete) used by every table."""
 import re
 from datetime import date, datetime, time
 
 from django import forms
 from django.apps import apps
 from django.contrib import messages
-from django.contrib.auth.decorators import login_not_required, permission_required
+from django.contrib.auth.decorators import login_not_required, login_required, permission_required
 from django.contrib.auth.mixins import PermissionRequiredMixin
 from django.contrib.auth.views import LoginView
 from django.core.exceptions import FieldDoesNotExist
@@ -27,19 +27,19 @@ from .models import (
     PrivacyAcknowledgment,
     SalesOrderHeader,
 )
-from .utils import csv_response, delta, money, rank, ring, shift_months, window_for
+from .utils import csv_response, delta, money, rank, ring, window_for
 from .widgets import SearchSelect
 
 
 # ---------------------------------------------------------------------------
-# Pages: home, the four dashboards (below), and the generic table browser further down.
-# Each dashboard is one view: it builds its own data and renders its own template.
+# Pages: home, the central dashboard, the four reports (below), and the generic table
+# browser further down. Each report is one view: it builds its own data and template.
 
 def home(request):
-    """Send the user to the first tab they may open, or explain that they have none."""
-    for slug in ("sales", "customer-profile", "revenue-and-loss", "cost"):
-        if request.user.has_perm(f"core.access_{slug.replace('-', '_')}"):
-            return redirect(slug)
+    """Open the central dashboard, or explain that the user has no report access."""
+    if any(request.user.has_perm(f"core.access_{slug.replace('-', '_')}")
+           for slug in ("sales", "customer-profile", "revenue-and-loss", "cost")):
+        return redirect("dashboard")
     return render(request, "core/no_access.html")
 
 
@@ -66,64 +66,525 @@ class PrivacyLogin(LoginView):
         return response
 
 
+@login_required
+def dashboard(request):
+    """Central dashboard: one integrated view of the four reports.
+
+    The figures use the same sales-line base and report window as the Revenue and
+    Cost reports; the category filter narrows every figure on the page so the
+    comparisons stay like-for-like.
+    """
+    access = {
+        "sales": request.user.has_perm("core.access_sales"),
+        "customer_profile": request.user.has_perm("core.access_customer_profile"),
+        "revenue_and_loss": request.user.has_perm("core.access_revenue_and_loss"),
+        "cost": request.user.has_perm("core.access_cost"),
+    }
+    if not any(access.values()):
+        return render(request, "core/no_access.html")
+
+    with connection.cursor() as c:
+        c.execute("SELECT ProductCategoryID, Name FROM Production_ProductCategory ORDER BY Name")
+        categories = [{"id": row[0], "name": row[1]} for row in c.fetchall()]
+
+    try:
+        category_id = int(request.GET.get("category", ""))
+    except (TypeError, ValueError):
+        category_id = None
+    selected_category = next((c for c in categories if c["id"] == category_id), None)
+    if selected_category is None:
+        category_id = None
+    cat_sql = " AND pc.ProductCategoryID = %s" if category_id is not None else ""
+    cat_params = [category_id] if category_id is not None else []
+
+    show_revenue = access["sales"] or access["revenue_and_loss"]
+    show_profit = access["revenue_and_loss"]
+    show_cost = access["cost"] or access["revenue_and_loss"]
+    show_customer = access["customer_profile"]
+    metric_name = "Sales" if access["sales"] else "Revenue" if show_revenue else "Cost of goods"
+    metric_lower = metric_name.lower()
+
+    report_rows = (
+        ("sales", "Sales report", "sales", "Sales, trends and high/low products"),
+        ("customer_profile", "Customer profile report", "customer-profile",
+         "Segments, frequency, spending and geography"),
+        ("revenue_and_loss", "Revenue and loss report", "revenue-and-loss",
+         "Revenue, gross profit, margin and below-cost sales"),
+        ("cost", "Cost report", "cost", "Cost structure, contributors and recommendations"),
+    )
+    reports = [{"key": key, "name": name, "url": url, "text": text}
+               for key, name, url, text in report_rows if access[key]]
+
+    context = {
+        "tab": "dashboard",
+        "title": "Business performance dashboard",
+        "access": access,
+        "reports": reports,
+        "categories": categories,
+        "category_id": category_id,
+        "selected_category": selected_category,
+        "show_revenue": show_revenue,
+        "show_profit": show_profit,
+        "show_cost": show_cost,
+        "show_customer": show_customer,
+        "has_data": False,
+    }
+    w = window_for(request, SalesOrderHeader)
+    if w is None:
+        return render(request, "core/dashboard.html", context)
+
+    with connection.cursor() as c:
+        c.execute(
+            f"""
+            WITH lines AS (
+                SELECT d.LineTotal AS rev,
+                       d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost) AS cost,
+                       h.SalesOrderID AS order_id,
+                       h.CustomerID AS customer_id,
+                       CASE WHEN h.OrderDate < %s THEN 'prev' ELSE 'cur' END AS side,
+                       CASE WHEN d.LineTotal
+                                 < d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost)
+                            THEN 1 ELSE 0 END AS below
+                FROM Sales_SalesOrderDetail d
+                JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
+                JOIN Production_Product p ON p.ProductID = d.ProductID
+                LEFT JOIN Production_ProductCostHistory ch
+                  ON ch.ProductID = d.ProductID
+                 AND h.OrderDate >= ch.StartDate
+                 AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
+                LEFT JOIN Production_ProductSubcategory sc ON sc.ProductSubcategoryID = p.ProductSubcategoryID
+                LEFT JOIN Production_ProductCategory pc ON pc.ProductCategoryID = sc.ProductCategoryID
+                WHERE h.OrderDate >= %s AND h.OrderDate <= %s{cat_sql}
+            )
+            SELECT
+              COALESCE(SUM(CASE WHEN side = 'cur' THEN rev END), 0) AS rev,
+              COALESCE(SUM(CASE WHEN side = 'prev' THEN rev END), 0) AS rev_prev,
+              COALESCE(SUM(CASE WHEN side = 'cur' THEN cost END), 0) AS cogs,
+              COALESCE(SUM(CASE WHEN side = 'prev' THEN cost END), 0) AS cogs_prev,
+              COUNT(DISTINCT CASE WHEN side = 'cur' THEN order_id END) AS orders,
+              COUNT(DISTINCT CASE WHEN side = 'prev' THEN order_id END) AS orders_prev,
+              COUNT(DISTINCT CASE WHEN side = 'cur' THEN customer_id END) AS customers,
+              COUNT(DISTINCT CASE WHEN side = 'prev' THEN customer_id END) AS customers_prev,
+              COALESCE(SUM(CASE WHEN side = 'cur' THEN below ELSE 0 END), 0) AS below_n,
+              COALESCE(SUM(CASE WHEN side = 'cur' AND below = 1 THEN cost - rev ELSE 0 END), 0) AS below_short
+            FROM lines
+            """,
+            [w.trend_start, w.window_start, w.last] + cat_params,
+        )
+        (rev, rev_prev, cogs, cogs_prev, orders, orders_prev,
+         customers, customers_prev, below_n, below_short) = c.fetchone()
+
+    rev, rev_prev = float(rev or 0), float(rev_prev or 0)
+    cogs, cogs_prev = float(cogs or 0), float(cogs_prev or 0)
+    orders, orders_prev = int(orders or 0), int(orders_prev or 0)
+    customers, customers_prev = int(customers or 0), int(customers_prev or 0)
+    below_n = int(below_n or 0)
+    short = float(below_short or 0)
+    profit = rev - cogs
+    profit_prev = rev_prev - cogs_prev
+    margin = round(profit / rev * 100, 1) if rev else 0.0
+    prev_margin = round(profit_prev / rev_prev * 100, 1) if rev_prev else 0.0
+
+    kpis = []
+
+    def add_kpi(label, value, change, cap):
+        kpis.append({"label": label, "value": value, "delta": change[0],
+                     "dir": change[1], "cap": cap})
+
+    if access["sales"]:
+        add_kpi("Total sales", money(rev), delta(rev, rev_prev),
+                "merchandise, excl. tax & freight")
+        add_kpi("Orders", f"{orders:,}", delta(orders, orders_prev), "orders in the period")
+    elif access["revenue_and_loss"]:
+        add_kpi("Total revenue", money(rev), delta(rev, rev_prev),
+                "merchandise, excl. tax & freight")
+    if show_profit:
+        add_kpi("Gross profit", money(profit), delta(profit, profit_prev),
+                f"{margin}% margin \u00b7 was {prev_margin}%")
+    if show_cost:
+        add_kpi("Cost of goods", money(cogs), delta(cogs, cogs_prev),
+                "at standard cost on the sale date")
+    if show_customer:
+        add_kpi("Active customers", f"{customers:,}", delta(customers, customers_prev),
+                "distinct buyers")
+    if show_profit:
+        add_kpi("Below-cost shortfall", money(short), (None, None),
+                f"{below_n:,} sales lines below standard cost")
+
+    trend = []
+    margin_chart = None
+    cur_series = []
+    prev_series = []
+    if show_revenue or show_cost:
+        metric_key = "rev" if show_revenue else "cogs"
+        with connection.cursor() as c:
+            c.execute(
+                f"""
+                SELECT substr(h.OrderDate, 1, 7) AS month,
+                       CASE WHEN h.OrderDate < %s THEN 'prev' ELSE 'cur' END AS side,
+                       SUM(d.LineTotal) AS rev,
+                       SUM(d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost)) AS cogs,
+                       COUNT(DISTINCT h.SalesOrderID) AS orders
+                FROM Sales_SalesOrderDetail d
+                JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
+                JOIN Production_Product p ON p.ProductID = d.ProductID
+                LEFT JOIN Production_ProductCostHistory ch
+                  ON ch.ProductID = d.ProductID
+                 AND h.OrderDate >= ch.StartDate
+                 AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
+                LEFT JOIN Production_ProductSubcategory sc ON sc.ProductSubcategoryID = p.ProductSubcategoryID
+                LEFT JOIN Production_ProductCategory pc ON pc.ProductCategoryID = sc.ProductCategoryID
+                WHERE h.OrderDate >= %s AND h.OrderDate <= %s{cat_sql}
+                GROUP BY month, side
+                ORDER BY month
+                """,
+                [w.trend_start, w.window_start, w.last] + cat_params,
+            )
+            series = [
+                {"month": datetime.strptime(month, "%Y-%m"), "side": side,
+                 "rev": float(rev or 0), "cogs": float(cogs or 0), "orders": int(orders or 0)}
+                for month, side, rev, cogs, orders in c.fetchall()
+            ]
+        cur_series = [row for row in series if row["side"] == "cur"]
+        prev_series = [row for row in series if row["side"] == "prev"]
+        top = max((row[metric_key] for row in cur_series + prev_series), default=0)
+        for i, row in enumerate(cur_series):
+            prev = prev_series[i] if i < len(prev_series) else None
+            value = row[metric_key]
+            title = f"{row['month']:%b %Y} \u00b7 {money(value)}"
+            if access["sales"]:
+                title += f" \u00b7 {row['orders']:,} orders"
+            if show_profit and row["rev"]:
+                title += f" \u00b7 {round((row['rev'] - row['cogs']) / row['rev'] * 100, 1)}% margin"
+            if prev:
+                title += f" \u00b7 previous {prev['month']:%b %Y}: {money(prev[metric_key])}"
+            trend.append({
+                "label": f"{row['month']:%b}",
+                "full": f"{row['month']:%b %Y}",
+                "money": money(value),
+                "height": max(round(value / top * 100), 2) if top else 0,
+                "title": title,
+                "prev_h": (max(round(prev[metric_key] / top * 100), 2)
+                           if prev and prev[metric_key] and top else 0),
+            })
+
+        def margin_of(row):
+            value = row["rev"]
+            return round((value - row["cogs"]) / value * 100, 1) if value else 0.0
+
+        if show_profit and cur_series:
+            n = len(cur_series)
+            cur_margins = [margin_of(row) for row in cur_series]
+            prev_margins = [margin_of(row) for row in prev_series[:n]]
+            high = max(cur_margins + prev_margins + [0])
+            m_max = 60 if high <= 60 else (int(high / 10) + 1) * 10
+            px_w, px_h, pad_l, pad_r, pad_t, pad_b = 960, 260, 52, 16, 12, 28
+            plot_w, plot_h = px_w - pad_l - pad_r, px_h - pad_t - pad_b
+            xs = [round(pad_l + i * plot_w / max(n - 1, 1), 1) for i in range(n)]
+
+            def y_at(value):
+                return round(pad_t + (1 - value / m_max) * plot_h, 1)
+
+            ticks = [{"y": y_at(value), "label": f"{value:.0f}%"}
+                     for value in (0, m_max / 2, m_max)]
+            step = max(1, (n + 11) // 12)
+            xticks = [{"x": xs[i], "label": f"{cur_series[i]['month']:%b}"}
+                      for i in range(0, n, step)]
+            cur_pts = " ".join(f"{xs[i]},{y_at(cur_margins[i])}" for i in range(n))
+            prev_pts = " ".join(f"{xs[i]},{y_at(prev_margins[i])}"
+                                for i in range(len(prev_margins)))
+            dots = []
+            for i, row in enumerate(cur_series):
+                gross = row["rev"] - row["cogs"]
+                dots.append({"x": xs[i], "y": y_at(cur_margins[i]),
+                             "t": f"{row['month']:%b %Y} \u00b7 margin {cur_margins[i]}%"
+                                  f" \u00b7 gross profit {money(gross)}"})
+            prev_dots = [{"x": xs[i], "y": y_at(prev_margins[i]),
+                          "t": f"{prev_series[i]['month']:%b %Y} \u00b7 margin {prev_margins[i]}%"}
+                         for i in range(len(prev_margins))]
+            margin_chart = {"ticks": ticks, "xticks": xticks, "cur_pts": cur_pts,
+                            "prev_pts": prev_pts, "dots": dots, "prev_dots": prev_dots}
+
+        if access["sales"]:
+            trend_title = "Sales trend by month"
+        elif access["revenue_and_loss"]:
+            trend_title = "Revenue trend by month"
+        else:
+            trend_title = "Cost of goods sold by month"
+    else:
+        trend_title = ""
+
+    if access["sales"]:
+        category_title = "Revenue contribution by category"
+    else:
+        category_title = "Revenue contribution by category" if show_revenue else "Cost distribution by category"
+    category_mid_label = "revenue" if show_revenue else "cost of goods"
+
+    products = []
+    products_top = []
+    category_rows = []
+    if show_revenue or show_cost:
+        order_expr = ("SUM(d.LineTotal)" if show_revenue
+                      else "SUM(d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost))")
+        with connection.cursor() as c:
+            c.execute(
+                f"""
+                SELECT p.ProductID, p.Name, pc.Name,
+                       SUM(d.OrderQty) AS units,
+                       SUM(d.LineTotal) AS rev,
+                       SUM(d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost)) AS cost
+                FROM Sales_SalesOrderDetail d
+                JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
+                JOIN Production_Product p ON p.ProductID = d.ProductID
+                LEFT JOIN Production_ProductCostHistory ch
+                  ON ch.ProductID = d.ProductID
+                 AND h.OrderDate >= ch.StartDate
+                 AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
+                LEFT JOIN Production_ProductSubcategory sc ON sc.ProductSubcategoryID = p.ProductSubcategoryID
+                LEFT JOIN Production_ProductCategory pc ON pc.ProductCategoryID = sc.ProductCategoryID
+                WHERE h.OrderDate >= %s AND h.OrderDate <= %s{cat_sql}
+                GROUP BY p.ProductID, p.Name, pc.Name
+                ORDER BY {order_expr} DESC
+                LIMIT 10
+                """,
+                [w.trend_start, w.last] + cat_params,
+            )
+            raw_products = c.fetchall()
+
+        metric_total = rev if show_revenue else cogs
+        top_product = max((float(rev if show_revenue else cost) for _, _, _, _, rev, cost in raw_products),
+                          default=0)
+        for product_id, name, category, units, revenue, cost in raw_products:
+            value = float(revenue if show_revenue else cost or 0)
+            margin_pct = (round((float(revenue) - float(cost)) / float(revenue) * 100, 1)
+                          if revenue else 0.0)
+            products.append({
+                "id": product_id,
+                "name": name,
+                "category": category or "Uncategorized",
+                "units": f"{int(units or 0):,}",
+                "value": money(value),
+                "profit": money(float(revenue or 0) - float(cost or 0)),
+                "margin": f"{margin_pct:.1f}%",
+                "pct": max(round(value / top_product * 100), 2) if top_product else 0,
+                "share": round(value / metric_total * 100, 1) if metric_total else 0,
+            })
+        products_top = products[:6]
+
+        if category_id is None:
+            with connection.cursor() as c:
+                c.execute(
+                    f"""
+                    SELECT pc.ProductCategoryID, pc.Name,
+                           SUM(d.LineTotal) AS rev,
+                           SUM(d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost)) AS cost
+                    FROM Sales_SalesOrderDetail d
+                    JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
+                    JOIN Production_Product p ON p.ProductID = d.ProductID
+                        LEFT JOIN Production_ProductCostHistory ch
+                      ON ch.ProductID = d.ProductID
+                     AND h.OrderDate >= ch.StartDate
+                     AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
+                    LEFT JOIN Production_ProductSubcategory sc ON sc.ProductSubcategoryID = p.ProductSubcategoryID
+                    LEFT JOIN Production_ProductCategory pc ON pc.ProductCategoryID = sc.ProductCategoryID
+                    WHERE h.OrderDate >= %s AND h.OrderDate <= %s
+                    GROUP BY pc.ProductCategoryID, pc.Name
+                    ORDER BY {order_expr} DESC
+                    """,
+                    [w.trend_start, w.last],
+                )
+                raw_categories = c.fetchall()
+
+            palette = ["c1", "c2", "c3", "c4"]
+            total_metric = sum(float(rev if show_revenue else cost or 0)
+                               for _, _, rev, cost in raw_categories)
+            for i, (cat_id, name, revenue, cost) in enumerate(raw_categories):
+                value = float(revenue if show_revenue else cost or 0)
+                pct = round(value / total_metric * 100) if total_metric else 0
+                margin_pct = (round((float(revenue) - float(cost)) / float(revenue) * 100, 1)
+                              if revenue else 0.0)
+                note = f"{name} \u00b7 {money(value)} \u00b7 {pct}% of {metric_lower}"
+                if show_profit:
+                    note += f" \u00b7 {margin_pct:.1f}% margin"
+                category_rows.append({
+                    "id": cat_id,
+                    "name": name or "Uncategorized",
+                    "value": money(value),
+                    "pct": pct,
+                    "cls": palette[i % len(palette)],
+                    "margin": f"{margin_pct:.1f}",
+                    "t": note,
+                })
+            category_rows = ring(category_rows)
+
+    customer_mix = None
+    if show_customer:
+        with connection.cursor() as c:
+            c.execute(
+                f"""
+                SELECT CASE WHEN cu.StoreID IS NULL THEN 0 ELSE 1 END AS is_store,
+                       SUM(d.LineTotal) AS rev,
+                       COUNT(DISTINCT h.SalesOrderID) AS orders,
+                       COUNT(DISTINCT h.CustomerID) AS customers
+                FROM Sales_SalesOrderDetail d
+                JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
+                JOIN Sales_Customer cu ON cu.CustomerID = h.CustomerID
+                JOIN Production_Product p ON p.ProductID = d.ProductID
+                LEFT JOIN Production_ProductSubcategory sc ON sc.ProductSubcategoryID = p.ProductSubcategoryID
+                LEFT JOIN Production_ProductCategory pc ON pc.ProductCategoryID = sc.ProductCategoryID
+                WHERE h.OrderDate >= %s AND h.OrderDate <= %s{cat_sql}
+                GROUP BY is_store
+                """,
+                [w.trend_start, w.last] + cat_params,
+            )
+            raw_mix = c.fetchall()
+        if raw_mix:
+            rows = {0: {"rev": 0.0, "orders": 0, "customers": 0},
+                    1: {"rev": 0.0, "orders": 0, "customers": 0}}
+            for is_store, revenue, order_count, customer_count in raw_mix:
+                rows[int(is_store)] = {"rev": float(revenue or 0),
+                                       "orders": int(order_count or 0),
+                                       "customers": int(customer_count or 0)}
+            total_rev = rows[0]["rev"] + rows[1]["rev"]
+            total_buyers = rows[0]["customers"] + rows[1]["customers"]
+            store_pct = round(rows[1]["rev"] / total_rev * 100) if total_rev else 0
+            store_buyers_pct = round(rows[1]["customers"] / total_buyers * 100) if total_buyers else 0
+            customer_mix = {"total": money(total_rev), "channels": [
+                {"name": "Individuals", "cls": "online", "pct": 100 - store_pct,
+                 "buyers_pct": 100 - store_buyers_pct, "money": money(rows[0]["rev"]),
+                 "customers": f"{rows[0]['customers']:,}",
+                 "aov": money(rows[0]["rev"] / rows[0]["orders"] if rows[0]["orders"] else None)},
+                {"name": "Stores", "cls": "store", "pct": store_pct,
+                 "buyers_pct": store_buyers_pct, "money": money(rows[1]["rev"]),
+                 "customers": f"{rows[1]['customers']:,}",
+                 "aov": money(rows[1]["rev"] / rows[1]["orders"] if rows[1]["orders"] else None)},
+            ]}
+
+    insights = []
+    if show_revenue or show_cost:
+        metric_value = rev if show_revenue else cogs
+        metric_prev = rev_prev if show_revenue else cogs_prev
+        change = delta(metric_value, metric_prev)[0]
+        best = max(cur_series, key=lambda row: row[metric_key], default=None) if cur_series else None
+        if best:
+            lead = (f"{metric_name} is {change} versus {w.prev_label}."
+                    if change else f"{metric_name} has no prior-period comparison.")
+            insights.append({"title": f"{metric_name} trend",
+                             "text": f"{lead} The strongest month was {best['month']:%b %Y} "
+                                     f"at {money(best[metric_key])}."})
+    if show_profit:
+        points = margin - prev_margin
+        below = (f"{below_n:,} sales lines sold below standard cost, a {money(short)} shortfall."
+                 if below_n else "No sales line sold below standard cost.")
+        insights.append({"title": "Profitability",
+                         "text": f"Gross margin is {margin}% ({points:+.1f} pts versus {w.prev_label}). {below}"})
+    if show_revenue or show_cost:
+        if selected_category and products:
+            top = products[0]
+            insights.append({
+                "title": "Category mix",
+                "text": f"{top['name']} is the largest product in {selected_category['name']} "
+                        f"at {top['value']} ({top['share']}% of the category's {metric_lower}).",
+            })
+        elif category_rows:
+            top = category_rows[0]
+            text = f"{top['name']} contributes {top['pct']}% of {metric_lower}."
+            if show_profit:
+                text += f" Its gross margin is {top['margin']}%."
+            insights.append({"title": "Category mix", "text": text})
+    if customer_mix:
+        stores = customer_mix["channels"][1]
+        insights.append({
+            "title": "Customer mix",
+            "text": f"{customers:,} customers bought in this period; stores account for "
+                    f"{stores['pct']}% of revenue and {stores['buyers_pct']}% of buyers.",
+        })
+
+    context.update({
+        "has_data": True,
+        "kpis": kpis,
+        "trend": trend,
+        "trend_title": trend_title,
+        "metric_name": metric_name,
+        "metric_lower": metric_lower,
+        "margin_chart": margin_chart,
+        "products": products,
+        "products_top": products_top,
+        "category_rows": category_rows,
+        "category_title": category_title,
+        "category_total": money(rev if show_revenue else cogs),
+        "category_mid_label": category_mid_label,
+        "customer_mix": customer_mix,
+        "insights": insights,
+        "period": "the selected range" if w.custom else "the last 12 months",
+        "through": w.last,
+        "window_label": w.label,
+        "prev_label": w.prev_label,
+        "custom": w.custom,
+        "w_from": w.trend_start.strftime("%Y-%m-%d"),
+        "w_to": w.last.strftime("%Y-%m-%d"),
+    })
+    return render(request, "core/dashboard.html", context)
+
+
 @permission_required("core.access_sales", raise_exception=True)
 def sales(request):
-    """Sales dashboard: one aggregate query per panel, all windows anchored to the
+    """Sales report: one aggregate query per panel, all windows anchored to the
     data's own last order date (the sample data is historical, so "today" would be empty)."""
     w = window_for(request, SalesOrderHeader)
     if w is None:
-        return render(request, "core/sales/dashboard.html",
-                      {"tab": "sales", "title": "Sales"})
+        return render(request, "core/sales/report.html",
+                      {"tab": "sales", "title": "Sales report"})
 
     cur_lo, cur_hi = w.trend_start, w.last
     prev_lo, prev_hi = w.window_start, w.trend_start
 
-    with connection.cursor() as c:  # chart 1: the five KPI cards
+    with connection.cursor() as c:  # chart 1: total sales and summary KPIs
         c.execute(
             """
+            WITH lines AS (
+                SELECT h.OrderDate, h.SalesOrderID, h.CustomerID,
+                       d.LineTotal AS rev
+                FROM Sales_SalesOrderDetail d
+                JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
+            )
             SELECT
-              COALESCE(SUM(CASE WHEN OrderDate >= %s AND OrderDate <= %s THEN SubTotal END), 0) AS rev,
-              COALESCE(SUM(CASE WHEN OrderDate >= %s AND OrderDate < %s THEN SubTotal END), 0) AS rev_prev,
-              COALESCE(SUM(CASE WHEN OrderDate >= %s AND OrderDate <= %s THEN 1 ELSE 0 END), 0) AS orders,
-              COALESCE(SUM(CASE WHEN OrderDate >= %s AND OrderDate < %s THEN 1 ELSE 0 END), 0) AS orders_prev,
+              COALESCE(SUM(CASE WHEN OrderDate >= %s AND OrderDate <= %s THEN rev END), 0) AS rev,
+              COALESCE(SUM(CASE WHEN OrderDate >= %s AND OrderDate < %s THEN rev END), 0) AS rev_prev,
+              COUNT(DISTINCT CASE WHEN OrderDate >= %s AND OrderDate <= %s THEN SalesOrderID END) AS orders,
+              COUNT(DISTINCT CASE WHEN OrderDate >= %s AND OrderDate < %s THEN SalesOrderID END) AS orders_prev,
               COUNT(DISTINCT CASE WHEN OrderDate >= %s AND OrderDate <= %s THEN CustomerID END) AS customers,
-              COUNT(DISTINCT CASE WHEN OrderDate >= %s AND OrderDate < %s THEN CustomerID END) AS customers_prev,
-              COALESCE(SUM(CASE WHEN OrderDate >= %s AND OrderDate <= %s AND OnlineOrderFlag = 1
-                                THEN SubTotal END), 0) AS online_rev,
-              COALESCE(SUM(CASE WHEN OrderDate >= %s AND OrderDate <= %s AND OnlineOrderFlag = 1
-                                THEN 1 ELSE 0 END), 0) AS online_orders
-            FROM Sales_SalesOrderHeader
+              COUNT(DISTINCT CASE WHEN OrderDate >= %s AND OrderDate < %s THEN CustomerID END) AS customers_prev
+            FROM lines
             WHERE OrderDate >= %s
             """,
             [cur_lo, cur_hi, prev_lo, prev_hi, cur_lo, cur_hi, prev_lo, prev_hi,
-             cur_lo, cur_hi, prev_lo, prev_hi, cur_lo, cur_hi, cur_lo, cur_hi, w.window_start],
+             cur_lo, cur_hi, prev_lo, prev_hi, w.window_start],
         )
-        (rev, rev_prev, orders, orders_prev, customers, customers_prev,
-         online_rev, online_orders) = c.fetchone()
+        rev, rev_prev, orders, orders_prev, customers, customers_prev = c.fetchone()
 
     aov = (rev / orders) if orders else None
     aov_prev = (rev_prev / orders_prev) if orders_prev else None
-    share = round(float(online_rev) / float(rev) * 100) if rev else 0
 
     kpis = []
     for label, value, change, cap in (
-        ("Revenue", money(rev), delta(rev, rev_prev), "merchandise, excl. tax & freight"),
+        ("Total sales", money(rev), delta(rev, rev_prev), "merchandise, excl. tax & freight"),
         ("Orders", f"{orders:,}", delta(orders, orders_prev), "sales orders placed"),
-        ("Avg order value", money(aov), delta(aov, aov_prev), "revenue per order"),
+        ("Avg order value", money(aov), delta(aov, aov_prev), "sales per order"),
         ("Customers", f"{customers or 0:,}", delta(customers, customers_prev), "distinct buyers"),
-        ("Online share", f"{share}%", (None, None), f"{money(online_rev)} · {online_orders:,} orders"),
     ):
         kpis.append({"label": label, "value": value, "delta": change[0], "dir": change[1], "cap": cap})
 
-    with connection.cursor() as c:  # chart 2: monthly revenue, current vs previous window
+    with connection.cursor() as c:  # chart 2: sales trend and distribution, current vs previous window
         c.execute(
             """
-            SELECT substr(OrderDate, 1, 7) AS month,
-                   CASE WHEN OrderDate < %s THEN 'prev' ELSE 'cur' END AS side,
-                   SUM(SubTotal) AS rev,
-                   COUNT(*) AS orders
-            FROM Sales_SalesOrderHeader
-            WHERE OrderDate >= %s AND OrderDate <= %s
+            SELECT substr(h.OrderDate, 1, 7) AS month,
+                   CASE WHEN h.OrderDate < %s THEN 'prev' ELSE 'cur' END AS side,
+                   SUM(d.LineTotal) AS rev,
+                   COUNT(DISTINCT h.SalesOrderID) AS orders
+            FROM Sales_SalesOrderDetail d
+            JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
+            WHERE h.OrderDate >= %s AND h.OrderDate <= %s
             GROUP BY month, side
             ORDER BY month
             """,
@@ -144,59 +605,15 @@ def sales(request):
             "orders": f"{m['orders']:,}",
             "height": max(round(float(m["rev"] or 0) / top * 100), 2) if top else 0,
             "prev_full": prev_months[i]["month"].strftime("%b %Y") if i < len(prev_months) else "",
-            "prev_money": money(prev_months[i]["rev"]) if i < len(prev_months) else "—",
-            "prev_orders": f"{prev_months[i]['orders']:,}" if i < len(prev_months) else "—",
+            "prev_money": money(prev_months[i]["rev"]) if i < len(prev_months) else "\u2014",
+            "prev_orders": f"{prev_months[i]['orders']:,}" if i < len(prev_months) else "\u2014",
             "prev_h": (max(round(float(prev_months[i]["rev"] or 0) / top * 100), 2)
                        if i < len(prev_months) and prev_months[i]["rev"] and top else 0),
         }
         for i, m in enumerate(months)
     ]
 
-    channels = [
-        {"name": "Online", "pct": share, "money": money(online_rev), "orders": f"{online_orders:,}",
-         "aov": money((online_rev / online_orders) if online_orders else None), "cls": "online"},
-        {"name": "Assisted", "pct": 100 - share, "money": money(rev - online_rev), "orders": f"{orders - online_orders:,}",
-         "aov": money(((rev - online_rev) / (orders - online_orders)) if orders - online_orders else None), "cls": "store"},
-    ]
-
-    with connection.cursor() as c:  # chart 3: top territories
-        c.execute(
-            """
-            SELECT t.Name, SUM(h.SubTotal) AS rev
-            FROM Sales_SalesOrderHeader h
-            JOIN Sales_SalesTerritory t ON t.TerritoryID = h.TerritoryID
-            WHERE h.OrderDate >= %s AND h.OrderDate <= %s
-            GROUP BY t.Name
-            ORDER BY rev DESC
-            LIMIT 8
-            """,
-            [cur_lo, cur_hi],
-        )
-        territories = rank([{"name": name, "rev": rev} for name, rev in c.fetchall()],
-                           "name", "rev", money)
-
-    with connection.cursor() as c:  # chart 4: top salespeople
-        c.execute(
-            """
-            SELECT p.FirstName, p.LastName, SUM(h.SubTotal) AS rev
-            FROM Sales_SalesOrderHeader h
-            JOIN Sales_SalesPerson sp ON sp.BusinessEntityID = h.SalesPersonID
-            JOIN HumanResources_Employee e ON e.BusinessEntityID = sp.BusinessEntityID
-            JOIN Person_Person p ON p.BusinessEntityID = e.BusinessEntityID
-            WHERE h.OrderDate >= %s AND h.OrderDate <= %s
-            GROUP BY p.FirstName, p.LastName
-            ORDER BY rev DESC
-            LIMIT 8
-            """,
-            [cur_lo, cur_hi],
-        )
-        salespeople = rank(
-            [{"name": " ".join(x for x in (first, last) if x), "rev": rev}
-             for first, last, rev in c.fetchall()],
-            "name", "rev", money,
-        )
-
-    with connection.cursor() as c:  # chart 5: top products
+    with connection.cursor() as c:  # chart 3: sales by product, high performers
         c.execute(
             """
             SELECT pr.Name, SUM(d.LineTotal) AS rev
@@ -213,78 +630,44 @@ def sales(request):
         products = rank([{"name": name, "rev": rev} for name, rev in c.fetchall()],
                         "name", "rev", money)
 
-    with connection.cursor() as c:  # chart 6: promotions that sold
+    with connection.cursor() as c:  # chart 4: sales by product, low performers
         c.execute(
             """
-            SELECT o.Description, SUM(d.LineTotal) AS rev
+            SELECT pr.Name, SUM(d.LineTotal) AS rev
             FROM Sales_SalesOrderDetail d
             JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
-            JOIN Sales_SpecialOffer o ON o.SpecialOfferID = d.SpecialOfferID
+            JOIN Production_Product pr ON pr.ProductID = d.ProductID
             WHERE h.OrderDate >= %s AND h.OrderDate <= %s
-              AND o.Description <> 'No Discount'
-            GROUP BY o.Description
-            ORDER BY rev DESC
+            GROUP BY pr.Name
+            ORDER BY rev ASC
             LIMIT 6
             """,
             [cur_lo, cur_hi],
         )
-        offers = rank([{"name": name, "rev": rev} for name, rev in c.fetchall()],
-                      "name", "rev", money)
-
-    with connection.cursor() as c:  # chart 7: biggest orders
-        c.execute(
-            """
-            SELECT h.SalesOrderID, h.SalesOrderNumber, h.OrderDate, t.Name,
-                   h.SubTotal, h.OnlineOrderFlag, p.FirstName, p.LastName
-            FROM Sales_SalesOrderHeader h
-            LEFT JOIN Sales_SalesTerritory t ON t.TerritoryID = h.TerritoryID
-            LEFT JOIN Sales_SalesPerson sp ON sp.BusinessEntityID = h.SalesPersonID
-            LEFT JOIN HumanResources_Employee e ON e.BusinessEntityID = sp.BusinessEntityID
-            LEFT JOIN Person_Person p ON p.BusinessEntityID = e.BusinessEntityID
-            WHERE h.OrderDate >= %s AND h.OrderDate <= %s
-            ORDER BY h.SubTotal DESC
-            LIMIT 8
-            """,
-            [cur_lo, cur_hi],
-        )
-        biggest = [
-            {
-                "id": order_id,
-                "number": number,
-                "date": order_date,
-                "territory": territory or "—",
-                "who": " ".join(x for x in (first, last) if x) or "—",
-                "total": money(total),
-                "online": online,
-            }
-            for order_id, number, order_date, territory, total, online, first, last in c.fetchall()
-        ]
+        low_products = rank([{"name": name, "rev": rev} for name, rev in c.fetchall()],
+                            "name", "rev", money)
 
     if request.GET.get("export") == "csv":
         rows = [["Period", w.label, "compare", w.prev_label]]
-        rows += [["KPI", k["label"], k["value"], f"{k['delta']} · {k['cap']}" if k["delta"] else k["cap"]]
+        rows += [["KPI", k["label"], k["value"], f"{k['delta']} \u00b7 {k['cap']}" if k["delta"] else k["cap"]]
                  for k in kpis]
-        rows += [["Channel", c["name"], c["money"], f"{c['pct']}% · {c['orders']} orders · {c['aov']} avg"]
-                 for c in channels]
-        rows += [["Territory", r["name"], r["value"], ""] for r in territories]
-        rows += [["Salesperson", r["name"], r["value"], ""] for r in salespeople]
-        rows += [["Product", r["name"], r["value"], ""] for r in products]
-        rows += [["Offer", r["name"], r["value"], ""] for r in offers]
-        rows += [["Top order", r["number"], r["total"], f"{r['date']:%Y-%m-%d} · {r['territory']} · {r['who']}"]
-                 for r in biggest]
+        rows += [["Sales trend", t["full"], t["money"], f"{t['orders']} orders"]
+                 for t in trend]
+        rows += [["Sales trend (previous)", t["prev_full"], t["prev_money"], f"{t['prev_orders']} orders"]
+                 for t in trend if t["prev_full"]]
+        rows += [["High-performing product", r["name"], r["value"], f"{r['pct']}% of top product"]
+                 for r in products]
+        rows += [["Low-performing product", r["name"], r["value"], f"{r['pct']}% of low list top"]
+                 for r in low_products]
         return csv_response("sales.csv", ["Section", "Item", "Value", "Detail"], rows)
 
-    return render(request, "core/sales/dashboard.html", {
+    return render(request, "core/sales/report.html", {
         "tab": "sales",
-        "title": "Sales",
+        "title": "Sales report",
         "kpis": kpis,
         "trend": trend,
-        "channels": channels,
-        "territories": territories,
-        "salespeople": salespeople,
         "products": products,
-        "offers": offers,
-        "biggest": biggest,
+        "low_products": low_products,
         "through": w.last,
         "window_label": w.label,
         "prev_label": w.prev_label,
@@ -297,12 +680,12 @@ def sales(request):
 
 @permission_required("core.access_customer_profile", raise_exception=True)
 def customer_profile(request):
-    """Customer profile dashboard: who buys (individuals vs stores), how often they come
+    """Customer profile report: who buys (individuals vs stores), how often they come
     back, where they are, and which stores make up the B2B side."""
     w = window_for(request, SalesOrderHeader)
     if w is None:
-        return render(request, "core/customer-profile/dashboard.html",
-                      {"tab": "customer-profile", "title": "Customer profile"})
+        return render(request, "core/customer-profile/report.html",
+                      {"tab": "customer-profile", "title": "Customer profile report"})
 
     cur_lo, cur_hi = w.trend_start, w.last
     prev_lo, prev_hi = w.window_start, w.trend_start
@@ -313,22 +696,27 @@ def customer_profile(request):
             WITH firsts AS (
                 SELECT CustomerID, MIN(OrderDate) AS first_date
                 FROM Sales_SalesOrderHeader GROUP BY CustomerID
+            ), lines AS (
+                SELECT h.CustomerID, h.OrderDate,
+                       d.LineTotal AS rev
+                FROM Sales_SalesOrderDetail d
+                JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
             )
             SELECT
-              COALESCE(SUM(CASE WHEN h.OrderDate >= %s AND h.OrderDate <= %s
-                                THEN h.SubTotal END), 0) AS rev,
-              COALESCE(SUM(CASE WHEN h.OrderDate >= %s AND h.OrderDate < %s
-                                THEN h.SubTotal END), 0) AS rev_prev,
-              COUNT(DISTINCT CASE WHEN h.OrderDate >= %s AND h.OrderDate <= %s
-                                  THEN h.CustomerID END) AS actives,
-              COUNT(DISTINCT CASE WHEN h.OrderDate >= %s AND h.OrderDate < %s
-                                  THEN h.CustomerID END) AS actives_prev,
-              COALESCE(SUM(CASE WHEN h.OrderDate >= %s AND h.OrderDate <= %s
+              COALESCE(SUM(CASE WHEN l.OrderDate >= %s AND l.OrderDate <= %s
+                                THEN l.rev END), 0) AS rev,
+              COALESCE(SUM(CASE WHEN l.OrderDate >= %s AND l.OrderDate < %s
+                                THEN l.rev END), 0) AS rev_prev,
+              COUNT(DISTINCT CASE WHEN l.OrderDate >= %s AND l.OrderDate <= %s
+                                  THEN l.CustomerID END) AS actives,
+              COUNT(DISTINCT CASE WHEN l.OrderDate >= %s AND l.OrderDate < %s
+                                  THEN l.CustomerID END) AS actives_prev,
+              COALESCE(SUM(CASE WHEN l.OrderDate >= %s AND l.OrderDate <= %s
                                  AND f.first_date >= %s AND f.first_date <= %s
-                                THEN h.SubTotal END), 0) AS new_rev
-            FROM Sales_SalesOrderHeader h
-            JOIN firsts f ON f.CustomerID = h.CustomerID
-            WHERE h.OrderDate >= %s
+                                THEN l.rev END), 0) AS new_rev
+            FROM lines l
+            JOIN firsts f ON f.CustomerID = l.CustomerID
+            WHERE l.OrderDate >= %s
             """,
             [cur_lo, cur_hi, prev_lo, prev_hi, cur_lo, cur_hi, prev_lo, prev_hi,
              cur_lo, cur_hi, cur_lo, cur_hi, w.window_start],
@@ -413,13 +801,16 @@ def customer_profile(request):
         c.execute(
             """
             SELECT
-              COALESCE(SUM(CASE WHEN cu.StoreID IS NULL THEN h.SubTotal END), 0) AS ind_rev,
-              COALESCE(SUM(CASE WHEN cu.StoreID IS NOT NULL THEN h.SubTotal END), 0) AS st_rev,
-              COALESCE(SUM(CASE WHEN cu.StoreID IS NULL THEN 1 ELSE 0 END), 0) AS ind_orders,
-              COALESCE(SUM(CASE WHEN cu.StoreID IS NOT NULL THEN 1 ELSE 0 END), 0) AS st_orders,
+              COALESCE(SUM(CASE WHEN cu.StoreID IS NULL
+                                THEN d.LineTotal END), 0) AS ind_rev,
+              COALESCE(SUM(CASE WHEN cu.StoreID IS NOT NULL
+                                THEN d.LineTotal END), 0) AS st_rev,
+              COUNT(DISTINCT CASE WHEN cu.StoreID IS NULL THEN h.SalesOrderID END) AS ind_orders,
+              COUNT(DISTINCT CASE WHEN cu.StoreID IS NOT NULL THEN h.SalesOrderID END) AS st_orders,
               COUNT(DISTINCT CASE WHEN cu.StoreID IS NULL THEN h.CustomerID END) AS ind_customers,
               COUNT(DISTINCT CASE WHEN cu.StoreID IS NOT NULL THEN h.CustomerID END) AS st_customers
-            FROM Sales_SalesOrderHeader h
+            FROM Sales_SalesOrderDetail d
+            JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
             JOIN Sales_Customer cu ON cu.CustomerID = h.CustomerID
             WHERE h.OrderDate >= %s AND h.OrderDate <= %s
             """,
@@ -444,8 +835,10 @@ def customer_profile(request):
     with connection.cursor() as c:  # chart 4: revenue by country (feeds the map and the list)
         c.execute(
             """
-            SELECT co.Name, SUM(h.SubTotal) AS rev, COUNT(*) AS orders
-            FROM Sales_SalesOrderHeader h
+            SELECT co.Name, SUM(d.LineTotal) AS rev,
+                   COUNT(DISTINCT h.SalesOrderID) AS orders
+            FROM Sales_SalesOrderDetail d
+            JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
             JOIN Person_Address a ON a.AddressID = h.ShipToAddressID
             JOIN Person_StateProvince sp ON sp.StateProvinceID = a.StateProvinceID
             JOIN Person_CountryRegion co ON co.CountryRegionCode = sp.CountryRegionCode
@@ -483,8 +876,9 @@ def customer_profile(request):
     with connection.cursor() as c:  # chart 5: top shipping cities
         c.execute(
             """
-            SELECT a.City, SUM(h.SubTotal) AS rev
-            FROM Sales_SalesOrderHeader h
+            SELECT a.City, SUM(d.LineTotal) AS rev
+            FROM Sales_SalesOrderDetail d
+            JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
             JOIN Person_Address a ON a.AddressID = h.ShipToAddressID
             WHERE h.OrderDate >= %s AND h.OrderDate <= %s
             GROUP BY a.City
@@ -512,8 +906,9 @@ def customer_profile(request):
 
         c.execute(
             """
-            SELECT s.Demographics, SUM(h.SubTotal) AS rev
-            FROM Sales_SalesOrderHeader h
+            SELECT s.Demographics, SUM(d.LineTotal) AS rev
+            FROM Sales_SalesOrderDetail d
+            JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
             JOIN Sales_Customer cu ON cu.CustomerID = h.CustomerID
             JOIN Sales_Store s ON s.BusinessEntityID = cu.StoreID
             WHERE h.OrderDate >= %s AND h.OrderDate <= %s
@@ -565,8 +960,10 @@ def customer_profile(request):
         c.execute(
             """
             SELECT h.CustomerID, s.Name, p.FirstName, p.LastName, t.Name,
-                   COUNT(*) AS orders, SUM(h.SubTotal) AS rev
-            FROM Sales_SalesOrderHeader h
+                   COUNT(DISTINCT h.SalesOrderID) AS orders,
+                   SUM(d.LineTotal) AS rev
+            FROM Sales_SalesOrderDetail d
+            JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
             JOIN Sales_Customer cu ON cu.CustomerID = h.CustomerID
             LEFT JOIN Sales_Store s ON s.BusinessEntityID = cu.StoreID
             LEFT JOIN Person_Person p ON p.BusinessEntityID = cu.PersonID
@@ -583,8 +980,10 @@ def customer_profile(request):
         c.execute(
             """
             SELECT h.CustomerID, s.Name, p.FirstName, p.LastName, t.Name,
-                   COUNT(*) AS orders, SUM(h.SubTotal) AS rev
-            FROM Sales_SalesOrderHeader h
+                   COUNT(DISTINCT h.SalesOrderID) AS orders,
+                   SUM(d.LineTotal) AS rev
+            FROM Sales_SalesOrderDetail d
+            JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
             JOIN Sales_Customer cu ON cu.CustomerID = h.CustomerID
             LEFT JOIN Sales_Store s ON s.BusinessEntityID = cu.StoreID
             LEFT JOIN Person_Person p ON p.BusinessEntityID = cu.PersonID
@@ -638,9 +1037,9 @@ def customer_profile(request):
                   f"{r['orders']} orders · {'store' if r['store'] else 'individual'}"] for r in biggest]
         return csv_response("customer-profile.csv", ["Section", "Item", "Value", "Detail"], rows)
 
-    return render(request, "core/customer-profile/dashboard.html", {
+    return render(request, "core/customer-profile/report.html", {
         "tab": "customer-profile",
-        "title": "Customer profile",
+        "title": "Customer profile report",
         "kpis": kpis,
         "growth": growth,
         "channels": channels,
@@ -664,12 +1063,12 @@ def customer_profile(request):
 
 @permission_required("core.access_cost", raise_exception=True)
 def cost(request):
-    """Cost dashboard: what the merchandise cost us (standard cost), what we spent
+    """Cost report: what the merchandise cost us (standard cost), what we spent
     buying it (purchase orders), and what manufacturing wasted (work order scrap)."""
     w = window_for(request, SalesOrderHeader)
     if w is None:
-        return render(request, "core/cost/dashboard.html",
-                      {"tab": "cost", "title": "Cost"})
+        return render(request, "core/cost/report.html",
+                      {"tab": "cost", "title": "Cost report"})
 
     cur_lo, cur_hi = w.trend_start, w.last
     prev_lo, prev_hi = w.window_start, w.trend_start
@@ -679,9 +1078,9 @@ def cost(request):
             """
             SELECT
               COALESCE(SUM(CASE WHEN h.OrderDate >= %s AND h.OrderDate <= %s
-                                THEN d.OrderQty * p.StandardCost END), 0) AS cogs,
+                                THEN d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost) END), 0) AS cogs,
               COALESCE(SUM(CASE WHEN h.OrderDate >= %s AND h.OrderDate < %s
-                                THEN d.OrderQty * p.StandardCost END), 0) AS cogs_prev,
+                                THEN d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost) END), 0) AS cogs_prev,
               COALESCE(SUM(CASE WHEN h.OrderDate >= %s AND h.OrderDate <= %s
                                 THEN d.LineTotal END), 0) AS rev,
               COALESCE(SUM(CASE WHEN h.OrderDate >= %s AND h.OrderDate < %s
@@ -689,6 +1088,10 @@ def cost(request):
             FROM Sales_SalesOrderDetail d
             JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
             JOIN Production_Product p ON p.ProductID = d.ProductID
+            LEFT JOIN Production_ProductCostHistory ch
+              ON ch.ProductID = d.ProductID
+             AND h.OrderDate >= ch.StartDate
+             AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
             WHERE h.OrderDate >= %s
             """,
             [cur_lo, cur_hi, prev_lo, prev_hi, cur_lo, cur_hi, prev_lo, prev_hi, w.window_start],
@@ -705,7 +1108,7 @@ def cost(request):
               COALESCE(SUM(CASE WHEN OrderDate >= %s AND OrderDate <= %s
                                 THEN 1 ELSE 0 END), 0) AS orders
             FROM Purchasing_PurchaseOrderHeader
-            WHERE OrderDate >= %s
+            WHERE OrderDate >= %s AND Status <> 3
             """,
             [cur_lo, cur_hi, prev_lo, prev_hi, cur_lo, cur_hi, w.window_start],
         )
@@ -749,7 +1152,8 @@ def cost(request):
     rate_prev = (scrap["scr_prev"] or 0) / (scrap["qty_prev"] or 1) * 100
 
     pipeline = [
-        {"k": "Buy", "big": money(proc["spend"]), "cap": f"{proc['orders']:,} purchase orders", "cls": ""},
+        {"k": "Buy", "big": money(proc["spend"]),
+         "cap": f"{proc['orders']:,} purchase orders · merchandise, excl. rejected", "cls": ""},
         {"k": "Make", "big": f"{scrap['qty']:,}", "cap": "units started on work orders", "cls": ""},
         {"k": "Waste", "big": f"{scrap['scr']:,}", "cap": f"units scrapped · {rate:.2f}%", "cls": "bad"},
         {"k": "Sell", "big": money(cogs), "cap": "cost of goods sold to customers", "cls": ""},
@@ -757,29 +1161,34 @@ def cost(request):
 
     kpis = []
     for label, value, change, cap in (
-        ("Cost of goods sold", money(cogs), delta(cogs, cogs_prev), "standard cost of merchandise sold"),
+        ("Cost of goods sold", money(cogs), delta(cogs, cogs_prev),
+         "standard cost effective on the sale date"),
         ("Cost per $1 revenue", f"{ratio:.0f}¢" if ratio is not None else "—",
          delta(ratio, ratio_prev),
          f"was {ratio_prev:.0f}¢ last year" if ratio_prev is not None else "no revenue last year"),
         ("Procurement spend", money(proc["spend"]), delta(proc["spend"], proc_prev["spend"]),
-         f"{proc['orders']:,} purchase orders"),
+         f"{proc['orders']:,} non-rejected POs · merchandise, excl. tax & freight"),
         ("Scrap rate", f"{rate:.2f}%", delta(rate, rate_prev),
          f"{scrap['scr']:,} units of {scrap['qty']:,} started"),
         ("Rejected receipts", f"{rej_pct:.1f}%", (None, None),
-         f"{rec['rej']:,.0f} units of {rec['rec']:,.0f} received"),
+         f"{rec['rej']:,.0f} units of {rec['rec']:,.0f} received · all POs"),
     ):
         kpis.append({"label": label, "value": value, "delta": change[0], "dir": change[1], "cap": cap})
 
-    with connection.cursor() as c:  # chart 3: monthly cost of goods sold
+    with connection.cursor() as c:  # chart 2: monthly cost of goods sold
         c.execute(
             """
             SELECT substr(h.OrderDate, 1, 7) AS month,
                    CASE WHEN h.OrderDate < %s THEN 'prev' ELSE 'cur' END AS side,
-                   SUM(d.OrderQty * p.StandardCost) AS cogs,
+                   SUM(d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost)) AS cogs,
                    SUM(d.LineTotal) AS rev
             FROM Sales_SalesOrderDetail d
             JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
             JOIN Production_Product p ON p.ProductID = d.ProductID
+            LEFT JOIN Production_ProductCostHistory ch
+              ON ch.ProductID = d.ProductID
+             AND h.OrderDate >= ch.StartDate
+             AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
             WHERE h.OrderDate >= %s AND h.OrderDate <= %s
             GROUP BY month, side
             ORDER BY month
@@ -807,14 +1216,18 @@ def cost(request):
         for i, m in enumerate(months)
     ]
 
-    with connection.cursor() as c:  # chart 4: where costs sit (category mix)
+    with connection.cursor() as c:  # chart 3: where costs sit (category mix)
         c.execute(
             """
-            SELECT cat.Name, SUM(d.OrderQty * p.StandardCost) AS cogs,
+            SELECT cat.Name, SUM(d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost)) AS cogs,
                    SUM(d.LineTotal) AS rev
             FROM Sales_SalesOrderDetail d
             JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
             JOIN Production_Product p ON p.ProductID = d.ProductID
+            LEFT JOIN Production_ProductCostHistory ch
+              ON ch.ProductID = d.ProductID
+             AND h.OrderDate >= ch.StartDate
+             AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
             JOIN Production_ProductSubcategory sc ON sc.ProductSubcategoryID = p.ProductSubcategoryID
             JOIN Production_ProductCategory cat ON cat.ProductCategoryID = sc.ProductCategoryID
             WHERE h.OrderDate >= %s AND h.OrderDate <= %s
@@ -840,33 +1253,40 @@ def cost(request):
                    "t": f"{m['name']} · {m['money']} · {m['pct']}% of cost · {m['margin']}% margin"}
                   for m in mix])
 
-    with connection.cursor() as c:  # chart 5: top vendors by procurement spend
+    with connection.cursor() as c:  # chart 4: top vendors by procurement spend
         c.execute(
             """
-            SELECT v.Name, SUM(po.SubTotal) AS spend, COUNT(*) AS orders
+            SELECT v.Name, SUM(po.SubTotal) AS spend, COUNT(*) AS orders, v.ActiveFlag
             FROM Purchasing_PurchaseOrderHeader po
             JOIN Purchasing_Vendor v ON v.BusinessEntityID = po.VendorID
-            WHERE po.OrderDate >= %s AND po.OrderDate <= %s
-            GROUP BY v.Name
+            WHERE po.OrderDate >= %s AND po.OrderDate <= %s AND po.Status <> 3
+            GROUP BY v.Name, v.ActiveFlag
             ORDER BY spend DESC
             LIMIT 8
             """,
             [cur_lo, cur_hi],
         )
-        vendor_rows = [{"name": name, "spend": vendor_spend, "orders": orders}
-                       for name, vendor_spend, orders in c.fetchall()]
+        vendor_rows = [{"name": name, "spend": vendor_spend, "orders": orders,
+                        "active": bool(active)}
+                       for name, vendor_spend, orders, active in c.fetchall()]
     vendors = rank(vendor_rows, "name", "spend", money)
     for r, s in zip(vendors, vendor_rows):
-        r["note"] = f"{s['orders']:,} purchase orders"
+        r["note"] = f"{s['orders']:,} non-rejected purchase orders"
+        if not s["active"]:
+            r["note"] += " · inactive vendor"
 
-    with connection.cursor() as c:  # chart 6: products that cost us most
+    with connection.cursor() as c:  # chart 5: products that cost us most
         c.execute(
             """
-            SELECT p.Name, SUM(d.OrderQty * p.StandardCost) AS cogs,
+            SELECT p.Name, SUM(d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost)) AS cogs,
                    SUM(d.OrderQty) AS units
             FROM Sales_SalesOrderDetail d
             JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
             JOIN Production_Product p ON p.ProductID = d.ProductID
+            LEFT JOIN Production_ProductCostHistory ch
+              ON ch.ProductID = d.ProductID
+             AND h.OrderDate >= ch.StartDate
+             AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
             WHERE h.OrderDate >= %s AND h.OrderDate <= %s
             GROUP BY p.Name
             ORDER BY cogs DESC
@@ -880,7 +1300,7 @@ def cost(request):
     for r, s in zip(products, costly):
         r["note"] = f"{s['units']:,} units"
 
-    with connection.cursor() as c:  # chart 7: scrap reasons
+    with connection.cursor() as c:  # chart 6: scrap reasons
         c.execute(
             """
             SELECT sr.Name, SUM(w.ScrappedQty) AS scr, COUNT(*) AS orders
@@ -899,7 +1319,7 @@ def cost(request):
     for r, s in zip(reasons, reason_rows):
         r["note"] = f"{s['orders']:,} work orders"
 
-    with connection.cursor() as c:  # chart 8: standard cost changes
+    with connection.cursor() as c:  # chart 7: standard cost changes
         c.execute("SELECT ProductID, StandardCost FROM Production_ProductCostHistory WHERE EndDate IS NULL")
         open_cost = dict(c.fetchall())
 
@@ -930,11 +1350,11 @@ def cost(request):
     hikes = hikes[:6]
     changes = rank(hikes, "name", "pct", lambda v: f"+{v:.1f}%")
     for row, h in zip(changes, hikes):
-        row["value"] = f"{h['old']:,.2f} → {h['now']:,.2f}"
+        row["value"] = f"${h['old']:,.2f} → ${h['now']:,.2f}"
         row["note"] = "standard cost per unit"
 
     statuses = {1: ("Pending", ""), 2: ("Approved", "online"), 3: ("Rejected", "bad"), 4: ("Complete", "")}
-    with connection.cursor() as c:  # chart 9: largest purchase orders
+    with connection.cursor() as c:  # chart 8: largest purchase orders
         c.execute(
             """
             SELECT po.PurchaseOrderID, v.Name, po.OrderDate, po.TotalDue, po.Status,
@@ -957,6 +1377,52 @@ def cost(request):
             for order_id, vendor, order_date, total, status, lines in c.fetchall()
         ]
 
+    performance = None
+    if ratio is not None:
+        margin_ratio = round(100 - ratio, 1)
+        if ratio > 100:
+            note = (f"Cost of goods exceeds revenue: every revenue dollar carries {ratio:.0f}\u00a2 of cost, "
+                    "so gross margin is negative.")
+        else:
+            note = (f"Cost of goods absorbs {ratio:.0f}\u00a2 of each revenue dollar; "
+                    f"gross margin keeps the other {margin_ratio:.0f}\u00a2.")
+        if ratio_prev is not None:
+            note += f" Last year cost was {ratio_prev:.0f}\u00a2 per revenue dollar."
+        performance = {
+            "cost": f"{ratio:.1f}%", "margin": f"{margin_ratio:.1f}%",
+            "cost_w": min(max(round(ratio, 1), 0), 100),
+            "margin_w": max(margin_ratio, 0),
+            "note": note,
+        }
+
+    recommendations = []
+    if vendor_rows and spend:
+        share = round(float(vendor_rows[0]["spend"]) / float(spend) * 100)
+        recommendations.append({
+            "title": "Keep the largest vendor competitive",
+            "text": (f"{vendor_rows[0]['name']} is the largest vendor at {share}% of procurement spend; "
+                     "keep a second qualified source for its main parts."),
+        })
+    if mix:
+        recommendations.append({
+            "title": "Target the largest cost category",
+            "text": (f"{mix[0]['name']} is {mix[0]['pct']}% of cost of goods; "
+                     "a small reduction in its unit costs has the largest effect on total cost."),
+        })
+    if reason_rows and scr:
+        share = round(float(reason_rows[0]["scr"]) / float(scr) * 100)
+        recommendations.append({
+            "title": "Attack the top scrap reason",
+            "text": (f"{reason_rows[0]['name']} explains {share}% of scrapped units "
+                     f"({int(reason_rows[0]['scr']):,}); review that process step."),
+        })
+    if hikes:
+        recommendations.append({
+            "title": "Check pricing after cost increases",
+            "text": (f"{hikes[0]['name']} rose {hikes[0]['pct']}% in standard cost; "
+                     "confirm the selling price still protects margin."),
+        })
+
     if request.GET.get("export") == "csv":
         rows = [["Period", w.label, "compare", w.prev_label]]
         rows += [["KPI", k["label"], k["value"], f"{k['delta']} · {k['cap']}" if k["delta"] else k["cap"]]
@@ -968,13 +1434,17 @@ def cost(request):
         rows += [["Product", r["name"], r["value"], r["note"]] for r in products]
         rows += [["Scrap reason", r["name"], r["value"], r["note"]] for r in reasons]
         rows += [["Cost change", r["name"], r["value"], r["note"]] for r in changes]
+        if performance:
+            rows += [["Performance", "Cost of goods", performance["cost"], "share of revenue"],
+                     ["Performance", "Gross margin", performance["margin"], "share of revenue"]]
+        rows += [["Recommendation", r["title"], "", r["text"]] for r in recommendations]
         rows += [["Purchase order", f"PO{r['id']}", r["total"],
                   f"{r['date']:%Y-%m-%d} · {r['vendor']} · {r['status']}"] for r in biggest]
         return csv_response("cost.csv", ["Section", "Item", "Value", "Detail"], rows)
 
-    return render(request, "core/cost/dashboard.html", {
+    return render(request, "core/cost/report.html", {
         "tab": "cost",
-        "title": "Cost",
+        "title": "Cost report",
         "kpis": kpis,
         "pipeline": pipeline,
         "trend": trend,
@@ -986,6 +1456,8 @@ def cost(request):
         "reasons": reasons,
         "changes": changes,
         "biggest": biggest,
+        "performance": performance,
+        "recommendations": recommendations,
         "through": w.last,
         "window_label": w.label,
         "prev_label": w.prev_label,
@@ -998,12 +1470,12 @@ def cost(request):
 
 @permission_required("core.access_revenue_and_loss", raise_exception=True)
 def revenue_and_loss(request):
-    """Revenue and loss dashboard: revenue, cost, gross profit and where the money leaks
-    (below-cost wholesale lines, discounts, tax collected)."""
+    """Revenue and loss report: revenue, cost, gross profit and where the money leaks
+    (below-cost wholesale lines); the page also states how each figure is calculated."""
     w = window_for(request, SalesOrderHeader)
     if w is None:
-        return render(request, "core/revenue-and-loss/dashboard.html",
-                      {"tab": "revenue-and-loss", "title": "Revenue and loss"})
+        return render(request, "core/revenue-and-loss/report.html",
+                      {"tab": "revenue-and-loss", "title": "Revenue and loss report"})
 
     cur_lo, cur_hi = w.trend_start, w.last
     prev_lo, prev_hi = w.window_start, w.trend_start
@@ -1013,40 +1485,41 @@ def revenue_and_loss(request):
             """
             WITH lines AS (
                 SELECT d.LineTotal AS rev,
-                       d.OrderQty * p.StandardCost AS cost,
-                       cu.StoreID AS store_id,
+                       d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost) AS cost,
                        CASE WHEN h.OrderDate < %s THEN 'prev' ELSE 'cur' END AS side
                 FROM Sales_SalesOrderDetail d
                 JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
                 JOIN Production_Product p ON p.ProductID = d.ProductID
-                LEFT JOIN Sales_Customer cu ON cu.CustomerID = h.CustomerID
+                LEFT JOIN Production_ProductCostHistory ch
+                  ON ch.ProductID = d.ProductID
+                 AND h.OrderDate >= ch.StartDate
+                 AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
                 WHERE h.OrderDate >= %s AND h.OrderDate <= %s
             )
             SELECT
               COALESCE(SUM(CASE WHEN side = 'cur' THEN rev END), 0) AS rev,
               COALESCE(SUM(CASE WHEN side = 'prev' THEN rev END), 0) AS rev_prev,
               COALESCE(SUM(CASE WHEN side = 'cur' THEN cost END), 0) AS cogs,
-              COALESCE(SUM(CASE WHEN side = 'prev' THEN cost END), 0) AS cogs_prev,
-              COALESCE(SUM(CASE WHEN side = 'cur' AND store_id IS NULL THEN rev END), 0) AS ind_rev,
-              COALESCE(SUM(CASE WHEN side = 'cur' AND store_id IS NULL THEN cost END), 0) AS ind_cogs,
-              COALESCE(SUM(CASE WHEN side = 'cur' AND store_id IS NOT NULL THEN rev END), 0) AS st_rev,
-              COALESCE(SUM(CASE WHEN side = 'cur' AND store_id IS NOT NULL THEN cost END), 0) AS st_cogs
+              COALESCE(SUM(CASE WHEN side = 'prev' THEN cost END), 0) AS cogs_prev
             FROM lines
             """,
             [w.trend_start, w.window_start, w.last],
         )
-        (rev, rev_prev, cogs, cogs_prev,
-         ind_rev, ind_cogs, st_rev, st_cogs) = c.fetchone()
+        rev, rev_prev, cogs, cogs_prev = c.fetchone()
 
         c.execute(  # invoiced totals from the order headers
             """
             SELECT
-              COALESCE(SUM(CASE WHEN OrderDate >= %s AND OrderDate <= %s THEN TaxAmt END), 0) AS tax,
-              COALESCE(SUM(CASE WHEN OrderDate >= %s AND OrderDate <= %s THEN Freight END), 0) AS freight,
-              COALESCE(SUM(CASE WHEN OrderDate >= %s AND OrderDate <= %s THEN TotalDue END), 0) AS due,
-              COALESCE(SUM(CASE WHEN OrderDate >= %s AND OrderDate < %s THEN TotalDue END), 0) AS due_prev
-            FROM Sales_SalesOrderHeader
-            WHERE OrderDate >= %s
+              COALESCE(SUM(CASE WHEN h.OrderDate >= %s AND h.OrderDate <= %s
+                                THEN h.TaxAmt END), 0) AS tax,
+              COALESCE(SUM(CASE WHEN h.OrderDate >= %s AND h.OrderDate <= %s
+                                THEN h.Freight END), 0) AS freight,
+              COALESCE(SUM(CASE WHEN h.OrderDate >= %s AND h.OrderDate <= %s
+                                THEN h.TotalDue END), 0) AS due,
+              COALESCE(SUM(CASE WHEN h.OrderDate >= %s AND h.OrderDate < %s
+                                THEN h.TotalDue END), 0) AS due_prev
+            FROM Sales_SalesOrderHeader h
+            WHERE h.OrderDate >= %s
             """,
             [cur_lo, cur_hi, cur_lo, cur_hi, cur_lo, cur_hi, prev_lo, prev_hi, w.window_start],
         )
@@ -1054,13 +1527,19 @@ def revenue_and_loss(request):
 
         c.execute(  # lines sold below their standard cost
             """
-            SELECT COUNT(*), COALESCE(SUM(d.LineTotal), 0),
-                   COALESCE(SUM(d.OrderQty * p.StandardCost), 0)
+            SELECT COUNT(*),
+                   COALESCE(SUM(d.LineTotal), 0),
+                   COALESCE(SUM(d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost)), 0)
             FROM Sales_SalesOrderDetail d
             JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
             JOIN Production_Product p ON p.ProductID = d.ProductID
+            LEFT JOIN Production_ProductCostHistory ch
+              ON ch.ProductID = d.ProductID
+             AND h.OrderDate >= ch.StartDate
+             AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
             WHERE h.OrderDate >= %s AND h.OrderDate <= %s
-              AND d.LineTotal < d.OrderQty * p.StandardCost
+              AND d.LineTotal
+                  < d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost)
             """,
             [cur_lo, cur_hi],
         )
@@ -1071,31 +1550,67 @@ def revenue_and_loss(request):
     profit_prev = (rev_prev or 0) - (cogs_prev or 0)
     margin = round(float(profit) / float(rev) * 100, 1) if rev else 0
     prev_margin = round(float(profit_prev) / float(rev_prev) * 100, 1) if rev_prev else 0
-    ind_m = round(float(ind_rev - ind_cogs) / float(ind_rev) * 100, 1) if ind_rev else 0
-    st_m = round(float(st_rev - st_cogs) / float(st_rev) * 100, 1) if st_rev else 0
     short = (loss_cost or 0) - (loss_rev or 0)
 
     kpis = []
     for label, value, change, cap in (
-        ("Revenue", money(rev), delta(rev, rev_prev), "merchandise, excl. tax & freight"),
-        ("Cost of goods", money(cogs), delta(cogs, cogs_prev), "at current standard cost"),
+        ("Total revenue", money(rev), delta(rev, rev_prev), "merchandise, excl. tax & freight"),
+        ("Cost of goods", money(cogs), delta(cogs, cogs_prev),
+         "at standard cost on the sale date"),
         ("Gross profit", money(profit), delta(profit, profit_prev),
-         f"{margin}% margin · was {prev_margin}% · individual {ind_m}% / store {st_m}%"),
+         f"{margin}% margin \u00b7 was {prev_margin}%"),
         ("Invoiced total", money(due), delta(due, due_prev),
          f"incl. {money(tax)} tax · {money(freight)} freight"),
-        ("Below-cost sales", money(short), (None, None), f"{loss_n:,} store lines below standard cost"),
+        ("Below-cost sales", money(short), (None, None), f"{loss_n:,} sales lines below standard cost"),
     ):
         kpis.append({"label": label, "value": value, "delta": change[0], "dir": change[1], "cap": cap})
 
-    with connection.cursor() as c:  # chart 2: profit and margin by month (24 months)
+    with connection.cursor() as c:  # chart 2: revenue trend, current vs previous window
+        c.execute(
+            """
+            SELECT substr(h.OrderDate, 1, 7) AS month,
+                   CASE WHEN h.OrderDate < %s THEN 'prev' ELSE 'cur' END AS side,
+                   SUM(d.LineTotal) AS rev
+            FROM Sales_SalesOrderDetail d
+            JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
+            WHERE h.OrderDate >= %s AND h.OrderDate <= %s
+            GROUP BY month, side
+            ORDER BY month
+            """,
+            [w.trend_start, w.window_start, w.last],
+        )
+        rev_series = [{"month": datetime.strptime(m, "%Y-%m"), "side": side, "rev": rev}
+                      for m, side, rev in c.fetchall()]
+    rev_months = [m for m in rev_series if m["side"] == "cur"]
+    prev_rev_months = [m for m in rev_series if m["side"] == "prev"]
+    rev_top = max((float(m["rev"] or 0) for m in rev_series), default=0)
+    rev_trend = [
+        {
+            "label": m["month"].strftime("%b"),
+            "full": m["month"].strftime("%b %Y"),
+            "money": money(m["rev"]),
+            "height": max(round(float(m["rev"] or 0) / rev_top * 100), 2) if rev_top else 0,
+            "prev_full": prev_rev_months[i]["month"].strftime("%b %Y") if i < len(prev_rev_months) else "",
+            "prev_money": money(prev_rev_months[i]["rev"]) if i < len(prev_rev_months) else "\u2014",
+            "prev_h": (max(round(float(prev_rev_months[i]["rev"] or 0) / rev_top * 100), 2)
+                       if i < len(prev_rev_months) and prev_rev_months[i]["rev"] and rev_top else 0),
+        }
+        for i, m in enumerate(rev_months)
+    ]
+
+    with connection.cursor() as c:  # chart 3: profit and margin by month (24 months)
         c.execute(
             """
             SELECT substr(h.OrderDate, 1, 7) AS month,
                    SUM(d.LineTotal) AS rev,
-                   SUM(d.OrderQty * p.StandardCost) AS cogs
+                   SUM(d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost)) AS cogs
             FROM Sales_SalesOrderDetail d
             JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
             JOIN Production_Product p ON p.ProductID = d.ProductID
+            LEFT JOIN Production_ProductCostHistory ch
+              ON ch.ProductID = d.ProductID
+             AND h.OrderDate >= ch.StartDate
+             AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
             WHERE h.OrderDate >= %s AND h.OrderDate <= %s
             GROUP BY month
             ORDER BY month
@@ -1109,11 +1624,11 @@ def revenue_and_loss(request):
         return round((float(row["rev"]) - float(row["cogs"])) / float(row["rev"]) * 100, 1) if row["rev"] else 0.0
 
     cur_rows = [r for r in months24 if r["month"] >= w.trend_start]
+    prev_rows = [r for r in months24 if r["month"] < w.trend_start]
     cur_dates = [r["month"] for r in cur_rows]
-    prev_map = {r["month"]: margin_of(r) for r in months24 if r["month"] < w.trend_start}
-    prev_dates = [shift_months(m, -12) for m in cur_dates]  # the same month a year earlier
+    prev_dates = [r["month"] for r in prev_rows[:len(cur_dates)]]
     cur_vals = [margin_of(r) for r in cur_rows]
-    prev_vals = [prev_map.get(m, 0.0) for m in prev_dates]
+    prev_vals = [margin_of(r) for r in prev_rows[:len(cur_dates)]]
 
     profits = [float(r["rev"]) - float(r["cogs"]) for r in cur_rows]
     pmax = max(round(max(profits + [0.0]) / 200000) * 200000, 200000)
@@ -1155,14 +1670,18 @@ def revenue_and_loss(request):
         "rticks": [{"y": y_pct(v), "lab": f"{v}%"} for v in (0, 20, 40, 60)],
     }
 
-    with connection.cursor() as c:  # chart 3: revenue by category
+    with connection.cursor() as c:  # chart 4: revenue by category
         c.execute(
             """
             SELECT cat.Name, SUM(d.LineTotal) AS rev,
-                   SUM(d.OrderQty * p.StandardCost) AS cogs
+                   SUM(d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost)) AS cogs
             FROM Sales_SalesOrderDetail d
             JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
             JOIN Production_Product p ON p.ProductID = d.ProductID
+            LEFT JOIN Production_ProductCostHistory ch
+              ON ch.ProductID = d.ProductID
+             AND h.OrderDate >= ch.StartDate
+             AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
             JOIN Production_ProductSubcategory sc ON sc.ProductSubcategoryID = p.ProductSubcategoryID
             JOIN Production_ProductCategory cat ON cat.ProductCategoryID = sc.ProductCategoryID
             WHERE h.OrderDate >= %s AND h.OrderDate <= %s
@@ -1188,43 +1707,50 @@ def revenue_and_loss(request):
                    "t": f"{m['name']} · {m['money']} · {m['pct']}% of revenue · {m['margin']}% margin"}
                   for m in mix])
 
-    with connection.cursor() as c:  # chart 4: profit by territory
+    with connection.cursor() as c:  # chart 5: products with declining revenue vs previous window
         c.execute(
             """
-            SELECT t.Name, SUM(d.LineTotal) AS rev,
-                   SUM(d.OrderQty * p.StandardCost) AS cogs
+            SELECT p.Name,
+                   SUM(CASE WHEN h.OrderDate >= %s
+                            THEN d.LineTotal ELSE 0 END) AS cur_rev,
+                   SUM(CASE WHEN h.OrderDate < %s
+                            THEN d.LineTotal ELSE 0 END) AS prev_rev
             FROM Sales_SalesOrderDetail d
             JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
             JOIN Production_Product p ON p.ProductID = d.ProductID
-            LEFT JOIN Sales_SalesTerritory t ON t.TerritoryID = h.TerritoryID
             WHERE h.OrderDate >= %s AND h.OrderDate <= %s
-            GROUP BY t.Name
+            GROUP BY p.ProductID, p.Name
+            HAVING prev_rev > 0 AND cur_rev < prev_rev
+            ORDER BY (prev_rev - cur_rev) DESC
+            LIMIT 8
             """,
-            [cur_lo, cur_hi],
+            [cur_lo, cur_lo, w.window_start, w.last],
         )
-        terr = [{"name": name, "rev": rev, "cogs": cogs} for name, rev, cogs in c.fetchall()]
-    terr.sort(key=lambda r: -(float(r["rev"]) - float(r["cogs"])))
-    top_profit = float(terr[0]["rev"]) - float(terr[0]["cogs"]) if terr else 0
-    territories = []
-    for r in terr:
-        p = float(r["rev"]) - float(r["cogs"])
-        territories.append({
-            "name": r["name"] or "—",
-            "value": ("-" if p < 0 else "") + money(abs(p)),
-            "pct": max(round(p / top_profit * 100), 2) if top_profit else 0,
-            "note": f"{round(p / float(r['rev']) * 100, 1)}% margin" if r["rev"] else "",
-        })
+        decline_rows = [{"name": name, "cur": cur_rev, "prev": prev_rev,
+                         "drop": float(prev_rev) - float(cur_rev)}
+                        for name, cur_rev, prev_rev in c.fetchall()]
+    declining = rank(decline_rows, "name", "drop", lambda v: f"-{money(v)}")
+    for r, s_row in zip(declining, decline_rows):
+        pct = round(s_row["drop"] / float(s_row["prev"]) * 100, 1)
+        r["note"] = f"{money(s_row['cur'])} vs {money(s_row['prev'])} \u00b7 -{pct}%"
 
-    with connection.cursor() as c:  # chart 5: below-cost products
+    with connection.cursor() as c:  # chart 6: below-cost products
         c.execute(
             """
-            SELECT p.Name, SUM(d.OrderQty * p.StandardCost) - SUM(d.LineTotal) AS gap,
+            SELECT p.Name,
+                   SUM(d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost))
+                   - SUM(d.LineTotal) AS gap,
                    COUNT(*) AS n
             FROM Sales_SalesOrderDetail d
             JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
             JOIN Production_Product p ON p.ProductID = d.ProductID
+            LEFT JOIN Production_ProductCostHistory ch
+              ON ch.ProductID = d.ProductID
+             AND h.OrderDate >= ch.StartDate
+             AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
             WHERE h.OrderDate >= %s AND h.OrderDate <= %s
-              AND d.LineTotal < d.OrderQty * p.StandardCost
+              AND d.LineTotal
+                  < d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost)
             GROUP BY p.Name
             ORDER BY gap DESC
             LIMIT 6
@@ -1236,68 +1762,19 @@ def revenue_and_loss(request):
     for r, s in zip(leaks, leak_rows):
         r["note"] = f"{s['n']:,} lines"
 
-    with connection.cursor() as c:  # chart 6: discount cost by offer
+    with connection.cursor() as c:  # chart 7: product profitability table
         c.execute(
             """
-            SELECT o.Description,
-                   SUM(d.OrderQty * d.UnitPrice * d.UnitPriceDiscount) AS d,
-                   COUNT(*) AS n
-            FROM Sales_SalesOrderDetail d
-            JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
-            JOIN Sales_SpecialOffer o ON o.SpecialOfferID = d.SpecialOfferID
-            WHERE h.OrderDate >= %s AND h.OrderDate <= %s
-              AND d.UnitPriceDiscount > 0
-            GROUP BY o.Description
-            ORDER BY d DESC
-            LIMIT 6
-            """,
-            [cur_lo, cur_hi],
-        )
-        offer_rows = [{"name": name, "d": amount, "n": n} for name, amount, n in c.fetchall()]
-    discounts = rank(offer_rows, "name", "d", money)
-    for r, s in zip(discounts, offer_rows):
-        r["note"] = f"{s['n']:,} lines"
-
-    with connection.cursor() as c:  # chart 7: tax collected by state
-        c.execute(
-            """
-            SELECT sp.Name, r.TaxRate
-            FROM Sales_SalesTaxRate r
-            JOIN Person_StateProvince sp ON sp.StateProvinceID = r.StateProvinceID
-            ORDER BY r.SalesTaxRateID
-            """
-        )
-        rates = {}
-        for name, tax_rate in c.fetchall():
-            rates.setdefault(name, tax_rate)
-
-        c.execute(
-            """
-            SELECT sp.Name, SUM(h.TaxAmt) AS tax
-            FROM Sales_SalesOrderHeader h
-            JOIN Person_Address a ON a.AddressID = h.ShipToAddressID
-            JOIN Person_StateProvince sp ON sp.StateProvinceID = a.StateProvinceID
-            WHERE h.OrderDate >= %s AND h.OrderDate <= %s
-            GROUP BY sp.Name
-            ORDER BY tax DESC
-            LIMIT 6
-            """,
-            [cur_lo, cur_hi],
-        )
-        tax_rows = [{"name": name, "tax": tax} for name, tax in c.fetchall()]
-    taxes = rank(tax_rows, "name", "tax", money)
-    for r, s in zip(taxes, tax_rows):
-        rate = rates.get(s["name"])
-        r["note"] = f"{float(rate):g}% rate" if rate is not None else "no tax rate on file"
-
-    with connection.cursor() as c:  # chart 8: product profitability table
-        c.execute(
-            """
-            SELECT p.ProductID, p.Name, SUM(d.LineTotal) AS rev,
-                   SUM(d.OrderQty * p.StandardCost) AS cogs
+            SELECT p.ProductID, p.Name,
+                   SUM(d.LineTotal) AS rev,
+                   SUM(d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost)) AS cogs
             FROM Sales_SalesOrderDetail d
             JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
             JOIN Production_Product p ON p.ProductID = d.ProductID
+            LEFT JOIN Production_ProductCostHistory ch
+              ON ch.ProductID = d.ProductID
+             AND h.OrderDate >= ch.StartDate
+             AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
             WHERE h.OrderDate >= %s AND h.OrderDate <= %s
             GROUP BY p.ProductID, p.Name
             ORDER BY rev DESC
@@ -1307,7 +1784,6 @@ def revenue_and_loss(request):
         )
         prods = [{"product_id": product_id, "name": name, "rev": rev, "cogs": cogs}
                  for product_id, name, rev, cogs in c.fetchall()]
-    prods.sort(key=lambda r: -(float(r["rev"]) - float(r["cogs"])))
     products = [
         {
             "id": r["product_id"], "name": r["name"],
@@ -1320,30 +1796,29 @@ def revenue_and_loss(request):
 
     if request.GET.get("export") == "csv":
         rows = [["Period", w.label, "compare", w.prev_label]]
-        rows += [["KPI", k["label"], k["value"], f"{k['delta']} · {k['cap']}" if k["delta"] else k["cap"]]
+        rows += [["KPI", k["label"], k["value"], f"{k['delta']} \u00b7 {k['cap']}" if k["delta"] else k["cap"]]
                  for k in kpis]
-        rows += [["Category", m["name"], m["money"], f"{m['pct']}% of revenue · {m['margin']}% margin"]
+        rows += [["Revenue trend", t["full"], t["money"], f"previous {t['prev_full']}: {t['prev_money']}"]
+                 for t in rev_trend if t["prev_full"]]
+        rows += [["Category", m["name"], m["money"], f"{m['pct']}% of revenue \u00b7 {m['margin']}% margin"]
                  for m in mix]
-        rows += [["Territory", r["name"], r["value"], r["note"]] for r in territories]
+        rows += [["Declining product", r["name"], r["value"], r["note"]] for r in declining]
         rows += [["Below-cost product", r["name"], r["value"], r["note"]] for r in leaks]
-        rows += [["Discount", r["name"], r["value"], r["note"]] for r in discounts]
-        rows += [["Tax", r["name"], r["value"], r["note"]] for r in taxes]
-        rows += [["Product", r["name"], r["rev"], f"cost {r['cost']} · profit {r['profit']} · {r['margin']} margin"]
+        rows += [["Product", r["name"], r["rev"], f"cost {r['cost']} \u00b7 profit {r['profit']} \u00b7 {r['margin']} margin"]
                  for r in products]
         return csv_response("revenue-and-loss.csv", ["Section", "Item", "Value", "Detail"], rows)
 
-    return render(request, "core/revenue-and-loss/dashboard.html", {
+    return render(request, "core/revenue-and-loss/report.html", {
         "tab": "revenue-and-loss",
-        "title": "Revenue and loss",
+        "title": "Revenue and loss report",
         "kpis": kpis,
         "combo": combo,
         "donut": donut,
         "donut_mid": {"big": money(rev), "small": "revenue"},
         "mix": mix,
-        "territories": territories,
+        "rev_trend": rev_trend,
+        "declining": declining,
         "leaks": leaks,
-        "discounts": discounts,
-        "taxes": taxes,
         "products": products,
         "through": w.last,
         "window_label": w.label,

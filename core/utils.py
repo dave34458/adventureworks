@@ -1,4 +1,4 @@
-"""Shared dashboard helpers: number formatting and the rolling 12-month window.
+"""Shared report helpers: number formatting and the rolling 12-month window.
 
 The sample data is historical, so every window is anchored to the data's own last
 order date instead of "today"; all four tabs use the same window so their numbers
@@ -33,8 +33,8 @@ def money(value):
 
 
 def delta(cur, prev):
-    """Percent change and direction, or (None, None) when there is nothing to compare."""
-    if cur is None or prev in (None, 0):
+    """Percent change and direction, or (None, None) when the baseline is non-positive."""
+    if cur is None or prev is None or float(prev) <= 0:
         return None, None
     change = round((float(cur) - float(prev)) / float(prev) * 100, 1)
     return f"{change:+.1f}%", "up" if change > 0 else "down" if change < 0 else "flat"

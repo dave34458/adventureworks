@@ -2,9 +2,9 @@
 
 The department matrix is encoded here a second time (that is the point: the tests are
 the independent spec). `core.roles` is applied and every role is checked permission by
-permission, then over HTTP: dashboards, home redirect, table lists and the edit/delete
-gates. HTTP tests run against Django's empty test database; every page renders empty
-fine, so no fixtures are needed.
+permission, then over HTTP: dashboard, reports, home redirect, table lists and the
+edit/delete gates. HTTP tests run against Django's empty test database; every page
+renders empty fine, so no fixtures are needed.
 """
 from io import StringIO
 from datetime import timedelta
@@ -161,16 +161,40 @@ class HttpGateTests(TestCase):
             user.groups.add(Group.objects.get(name=role))
             cls.users[role] = user
 
-    def test_dashboards_and_home(self):
+    def test_reports_and_dashboard(self):
+        labels = {
+            "sales": "Sales report",
+            "customer-profile": "Customer profile report",
+            "revenue-and-loss": "Revenue and loss report",
+            "cost": "Cost report",
+        }
         for role, (tabs, view, change, delete) in MATRIX.items():
             self.client.force_login(self.users[role])
             with self.subTest(role=role, page="home"):
-                first = next(tab for tab in ALL_TABS if tab in tabs)
-                self.assertRedirects(self.client.get("/"), f"/{first}/")
+                self.assertRedirects(self.client.get("/"), "/dashboard/")
+            with self.subTest(role=role, page="dashboard"):
+                resp = self.client.get("/dashboard/")
+                self.assertEqual(resp.status_code, 200)
+                body = resp.content.decode()
+                for tab in ALL_TABS:
+                    self.assertEqual(labels[tab] in body, tab in tabs)
             for tab in ALL_TABS:
                 with self.subTest(role=role, page=tab):
                     resp = self.client.get(f"/{tab}/")
                     self.assertEqual(resp.status_code, 200 if tab in tabs else 403)
+
+    def test_dashboard_filters_and_no_access(self):
+        self.client.force_login(self.users["Executive"])
+        for query in ("?from=2025-01-01&to=2025-01-31", "?category=1", "?category=9999"):
+            with self.subTest(query=query):
+                resp = self.client.get(f"/dashboard/{query}")
+                self.assertEqual(resp.status_code, 200)
+                self.assertContains(resp, "No sales data is available")
+        User.objects.create_user("blocked", password="x")
+        self.client.force_login(User.objects.get(username="blocked"))
+        resp = self.client.get("/dashboard/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotContains(resp, "Explore the reports")
 
     def test_table_lists(self):
         for role, (tabs, view, change, delete) in MATRIX.items():

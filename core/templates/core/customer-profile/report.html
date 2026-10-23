@@ -5,7 +5,7 @@
 <h2>{{ title }}</h2>
 <p class="muted d-sub">{% if custom %}Selected range{% else %}Rolling 12 months{% endif %} · {{ window_label }} · compared with {{ prev_label }} · USD · through {{ through|date:"M j, Y" }}</p>
 {% include "core/_range.html" %}
-<div class="dash">
+<div class="report">
  <section class="d-kpis">
   {% for k in kpis %}
   <div class="d-kpi">
@@ -18,7 +18,7 @@
 
  <section class="d-cols">
   <div class="d-panel">
-   <h3>Customer growth</h3>
+   <h3>Purchasing patterns and trends</h3>
    <p class="sub">New vs returning buyers per month · hover a bar for counts</p>
    <div class="d-bars">
     {% for g in growth %}
@@ -38,7 +38,7 @@
    </div>
   </div>
   <div class="d-panel">
-   <h3>Who buys</h3>
+   <h3>Who buys: segmentation and spending</h3>
    <p class="sub">Individuals vs stores · revenue and buyer shares · {{ period }}</p>
    <p class="sub">Revenue share</p>
    <div class="d-splitbar">
@@ -60,7 +60,7 @@
  </section>
 
  <section class="d-panel">
-  <h3>Where customers are</h3>
+  <h3>Customer distribution</h3>
   <p class="sub">Revenue by country · bubble size is revenue · hover a bubble for details</p>
   <div class="d-mapgrid">
    <div class="d-map"><div id="cust-map" class="d-map-leaflet"></div>
@@ -76,21 +76,21 @@
 
  <section class="d-tops">
   <div class="d-panel">
-   <h3>Top cities</h3>
+   <h3>Customer distribution by city</h3>
    <p class="sub">Revenue by shipping city · {{ period }}</p>
    <ul class="d-rank">
     {% for r in cities %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
    </ul>
   </div>
   <div class="d-panel">
-   <h3>Store network</h3>
+   <h3>Customer segmentation by business type</h3>
    <p class="sub">The B2B side by business type · revenue {{ period }}</p>
    <ul class="d-rank">
     {% for r in network %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
    </ul>
   </div>
   <div class="d-panel">
-   <h3>Orders per customer</h3>
+   <h3>Purchase frequency</h3>
    <p class="sub">Buyers by how many orders they placed · {{ period }}</p>
    <ul class="d-rank">
     {% for r in frequency %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
@@ -99,8 +99,9 @@
  </section>
 
  <section class="d-panel">
-  <h3>Top customers</h3>
-  <p class="sub">Biggest buyers · {{ period }}</p>
+  <h3>High-value customers</h3>
+  <p class="sub">Highest revenue and order counts · {{ period }}</p>
+  <div class="scroll">
   <table class="d-table">
    <tr><th>Customer</th><th>Type</th><th class="d-hide-m">Territory</th><th class="num">Orders</th><th class="num">Revenue</th></tr>
    {% for c in biggest %}
@@ -113,6 +114,7 @@
    </tr>
    {% endfor %}
   </table>
+  </div>
  </section>
 </div>
 {{ bubbles|json_script:"cust-bubbles" }}

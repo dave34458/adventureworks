@@ -1,4 +1,4 @@
-# AdventureWorks (2025 build): Django + SQLite, four tabs, role-based access, RA 10173 privacy governance
+# AdventureWorks (2025 build): Django + SQLite, dashboard and four reports, role-based access, RA 10173 privacy governance
 
 Source data: Microsoft's `AdventureWorks-oltp-install-script.zip`
 https://github.com/Microsoft/sql-server-samples/releases/tag/adventureworks
@@ -20,9 +20,10 @@ plus the 17 demo role users. The first sign-in asks you to acknowledge the Data 
                         + TabAccess, one permission per tab (access_sales, access_customer_profile, ...)
                         + PrivacyAcknowledgment and PRIVACY_NOTICE_VERSION (data privacy governance)
                         + AuditLog, the append-only record of every table edit and deletion
-      views.py          all views: home, one dashboard view per tab (sales, customer_profile,
-                        revenue_and_loss, cost) and the shared list / detail / edit / delete pages
-                        every table uses, plus the JSON autocomplete they call
+      views.py          all views: home, the consolidated dashboard, one report view per module
+                        (sales, customer_profile, revenue_and_loss, cost) and the shared list /
+                        detail / edit / delete pages every table uses, plus the JSON autocomplete
+                        they call
       roles.py          ROLES (the 17 department roles) and apply_roles; see core/tests.py
       forms.py          the login form: credentials + the required privacy acknowledgment
       tests.py          RBAC + privacy tests: the department matrix, applied and checked over HTTP
@@ -30,14 +31,16 @@ plus the 17 demo role users. The first sign-in asks you to acknowledge the Data 
       management/       commands/seed_users.py: one demo login per role (username = password)
       widgets.py        SearchSelect, the on-demand foreign-key box for the edit pages
       static/core/      autocomplete.js, the tiny script behind the edit page's foreign-key boxes
-      templates/        base, list, detail, form, confirm_delete, no_access, privacy notice,
-                        per-tab dashboards, login, 403
+      templates/        base, dashboard, list, detail, form, confirm_delete, no_access,
+                        privacy notice, report pages, login, 403
 
 ## Pages
     /login/                                  login (public; requires acknowledging the privacy notice)
     /privacy/                                data privacy notice (public, RA 10173)
-    /                                        goes to the first tab the user may open
-    /sales/ /customer-profile/ /revenue-and-loss/ /cost/    dashboard page per tab
+    /                                        goes to the dashboard (or no-access page)
+    /dashboard/                              consolidated KPIs, charts, filters and report links;
+                                             shows only the modules the user may open
+    /sales/ /customer-profile/ /revenue-and-loss/ /cost/    report page per module
     /<tab>/data/<Table>/                     list (search with ?q=)
     /<tab>/data/<Table>/<id>/                detail
     /<tab>/data/<Table>/<id>/edit/           edit
@@ -98,5 +101,18 @@ Then `railway up`.
 * 85 of 88 CHECK constraints are enforced (not translated: Employee BirthDate/HireDate, ProductInventory Shelf).
 * `SalesOrderDetail.clean()` enforces SQL Server's composite FK to SpecialOfferProduct.
 * Order dates run 2022-05-30 to 2025-06-29: do not default date filters to "today".
+* Report money is USD. AdventureWorks stores sales line totals and header tax/freight/total due
+  in USD; `CurrencyRateID` records the order's currency but is not applied to those amounts.
+  Sales revenue uses `SalesOrderDetail.LineTotal`, not the header `SubTotal`.
+* Cost of goods is quantity sold × `ProductCostHistory.StandardCost` effective on the order date,
+  falling back to `Product.StandardCost` when no history row covers that date.
+* Procurement spend and vendor rankings use purchase-order `SubTotal` (merchandise only) and exclude
+  `Status=3` rejected orders. Receipt rejection includes every PO status: a rejected PO is a fully
+  rejected receipt, so excluding it would hide the quality problem.
+* Previous-period comparisons use the equal-length period immediately before the selected window.
+  A custom window that starts near the first order date has only a partial prior period, so its
+  percentage changes can be extreme.
+* Customer geography is grouped by the order's ship-to address; nearly every order ships to an
+  address already on the customer record.
 * Keep `PersonPassword` and `SalesCreditCard` out of your pages (they are not registered).
 * Before deploying anywhere public: set DJANGO_SECRET_KEY, DJANGO_DEBUG=0 and DJANGO_ALLOWED_HOSTS.
