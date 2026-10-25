@@ -1,8 +1,8 @@
 """
 Roles (RBAC).
 
-There is exactly one global Administrator: Django's `is_superuser` flag (the shipped
-`admin` account). No "Administrator" group is created.
+There is exactly one global Administrator: a superuser account (the shipped `admin`
+account). No "Administrator" group is created.
 
 The other roles are 12 scoped Django groups: Manager, Supervisor and Employee for each
 of the four in-scope departments. Each department gets exactly one report tab:
@@ -67,6 +67,9 @@ ROLES = {
     for department, tab in DEPARTMENT_TABS.items()
     for kind in ROLE_KINDS
 }
+
+ADMIN_ROLE = "Administrator"
+ROLE_CHOICES = [(role, role) for role in ROLES] + [(ADMIN_ROLE, ADMIN_ROLE)]
 
 
 def apply_roles(roles, prune=False):

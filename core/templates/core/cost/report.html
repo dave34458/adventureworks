@@ -3,7 +3,7 @@
 {% block content %}
 <h2>{{ title }}</h2>
 {% if window_label %}
-<p class="muted d-sub">{% if custom %}Selected range{% else %}Rolling 12 months{% endif %} · {{ window_label }} · compared with {{ prev_label }} · USD · through {{ through|date:"M j, Y" }}</p>
+<p class="muted d-sub" title="USD &middot; data through {{ through|date:'M j, Y' }}">{% if custom %}Selected{% else %}Last 12 months{% endif %}: {{ window_label }} &middot; vs {{ prev_label }}</p>
 {% else %}
 <p class="muted d-sub">{{ empty_message }}</p>
 {% endif %}
@@ -133,18 +133,6 @@
    {% endfor %}
   </table>
   </div>
- </section>
-
- <section class="d-panel">
-  <h3>Recommendations based on cost data</h3>
-  <p class="sub">Actions derived from the figures above</p>
-  <ul class="d-recs">
-   {% for r in recommendations %}
-   <li><b>{{ r.title }}</b><span>{{ r.text }}</span></li>
-   {% empty %}
-   <li><b>No recommendation</b><span>There is not enough cost activity in this period to support a recommendation.</span></li>
-   {% endfor %}
-  </ul>
- </section>
-</div>
+  </section>
+ </div>
 {% endblock %}

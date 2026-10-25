@@ -3,7 +3,8 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from io import StringIO
 
-from django.contrib.auth.models import Group, User
+from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
 from django.core.management import call_command
 from django.test import RequestFactory, SimpleTestCase, TestCase
 
@@ -13,7 +14,6 @@ from .models import (
     PersonBusinessEntity,
     PersonCountryRegion,
     PersonStateProvince,
-    PrivacyAcknowledgment,
     ProductionProduct,
     ProductionProductCategory,
     ProductionProductSubcategory,
@@ -40,6 +40,8 @@ from .services.dashboard import dashboard
 from .services.revenue_and_loss import revenue_and_loss
 from .services.sales import sales
 from .utils import range_window, rank, rolling_window
+
+User = get_user_model()
 
 ALL_TABS = ["sales", "customer-profile", "revenue-and-loss", "cost"]
 
@@ -143,7 +145,6 @@ def cost_payload():
         "changes": [],
         "biggest": [],
         "performance": None,
-        "recommendations": [],
     }
 
 
@@ -155,8 +156,19 @@ VALID_PAYLOADS = {
 }
 
 
-def username_for(role):
-    return role.lower().replace(" ", ".")
+def email_for(role):
+    return f"{role.lower().replace(' ', '.')}@example.com"
+
+
+def make_user(email, role="", password="x"):
+    user = User.objects.create_user(email=email, password=password)
+    if role:
+        user.groups.set([Group.objects.get(name=role)])
+    return user
+
+
+def make_superuser(email="root@example.com", password="x"):
+    return User.objects.create_superuser(email=email, password=password)
 
 
 def expected_codenames(tabs, view, change, delete):
@@ -205,9 +217,7 @@ class HttpTests(TestCase):
         apply_roles(ROLES)
         cls.users = {}
         for role in ("Sales Manager", "Sales Supervisor", "Sales Employee"):
-            user = User.objects.create_user(username_for(role), password="x")
-            user.groups.add(Group.objects.get(name=role))
-            cls.users[role] = user
+            cls.users[role] = make_user(email_for(role), role=role)
 
     def test_sales_roles_see_only_the_sales_tab(self):
         for role, user in self.users.items():
@@ -243,7 +253,7 @@ class HttpTests(TestCase):
         self.assertNotIn("snapshot", response.context)
 
     def test_administrator_has_full_access(self):
-        root = User.objects.create_superuser("root", password="x")
+        root = make_superuser()
         self.client.force_login(root)
         for tab in ALL_TABS:
             with self.subTest(tab=tab):
@@ -404,7 +414,7 @@ class HttpTests(TestCase):
 
     def test_snapshot_editor_uses_numeric_and_date_inputs(self):
         report = self.cost_report()
-        self.client.force_login(User.objects.create_superuser("cost-root", password="x"))
+        self.client.force_login(make_superuser("cost-root@example.com"))
         response = self.client.get(f"/cost/reports/{report.pk}/edit/")
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'type="number"')
@@ -414,7 +424,7 @@ class HttpTests(TestCase):
 
     def test_snapshot_edit_keeps_date_only(self):
         report = self.cost_report()
-        self.client.force_login(User.objects.create_superuser("cost-root", password="x"))
+        self.client.force_login(make_superuser("cost-root@example.com"))
         response = self.client.post(
             f"/cost/reports/{report.pk}/edit/",
             self.edit_data(report, **{"editor-biggest-0-date": "2024-02-03"}),
@@ -511,9 +521,8 @@ class ReportDataTests(TestCase):
             tax_amt=Decimal(50), freight=Decimal(25), status=2,
         )
 
-        cls.root = User.objects.create_superuser("report-root", password="x")
-        cls.cost_user = User.objects.create_user("report-cost", password="x")
-        cls.cost_user.groups.add(Group.objects.get(name="Production Manager"))
+        cls.root = make_superuser("report-root@example.com")
+        cls.cost_user = make_user("report-cost@example.com", role="Production Manager")
 
     def report_context(self, service, **params):
         request = RequestFactory().get("/", {"report": "", **params})
@@ -1044,15 +1053,16 @@ class SeedUsersTests(TestCase):
         self.assertEqual(User.objects.count(), 12)
         self.assertFalse(User.objects.filter(is_superuser=True).exists())
         for role in MATRIX:
-            user = User.objects.get(username=username_for(role))
-            self.assertEqual([group.name for group in user.groups.all()], [role])
+            user = User.objects.get(email=email_for(role))
+            self.assertEqual(
+                list(user.groups.values_list("name", flat=True)), [role])
 
     def test_seed_keeps_administrator(self):
-        admin = User.objects.create_superuser("admin", password="x")
+        admin = make_superuser("admin@example.com")
         call_command("seed_users", stdout=StringIO())
         admin.refresh_from_db()
         self.assertTrue(admin.is_superuser)
-        self.assertEqual(admin.groups.count(), 0)
+        self.assertFalse(admin.groups.exists())
 
 
 class PrivacyTests(TestCase):
@@ -1061,9 +1071,8 @@ class PrivacyTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, f"version {PRIVACY_NOTICE_VERSION}")
 
-    def test_login_records_acknowledgment(self):
-        User.objects.create_user(username="u", password="p")
+    def test_login_works_without_acknowledgment(self):
+        make_user("u@example.com", password="p")
         response = self.client.post(
-            "/login/", {"username": "u", "password": "p", "privacy_accepted": "on"})
+            "/login/", {"username": "u@example.com", "password": "p"})
         self.assertEqual(response.status_code, 302)
-        self.assertTrue(PrivacyAcknowledgment.objects.filter(user__username="u").exists())

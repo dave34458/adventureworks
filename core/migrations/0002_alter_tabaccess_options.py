@@ -2,7 +2,6 @@
 
 from django.db import migrations
 
-
 RENAMES = [
     (["access_sales"], "access_sales", "Can open the Sales tab"),
     (["access_customers", "access_customer-profile"], "access_customer_profile",

@@ -3,7 +3,7 @@
 {% block content %}
 <h2>{{ title }}</h2>
 {% if window_label %}
-<p class="muted d-sub">{% if custom %}Selected range{% else %}Rolling 12 months{% endif %} · {{ window_label }} · compared with {{ prev_label }} · USD · through {{ through|date:"M j, Y" }}</p>
+<p class="muted d-sub" title="USD &middot; data through {{ through|date:'M j, Y' }}">{% if custom %}Selected{% else %}Last 12 months{% endif %}: {{ window_label }} &middot; vs {{ prev_label }}</p>
 {% else %}
 <p class="muted d-sub">{{ empty_message }}</p>
 {% endif %}

@@ -1,8 +1,14 @@
-{% extends "core/base.html" %}{% block content %}
+{% extends "core/base.html" %}{% load static %}{% block extra_head %}<style>
+ .lcard{text-align:center}
+ .lcard img{margin:0 auto .8rem}
+ .lcard form label{display:block;text-align:left;text-transform:uppercase;letter-spacing:.04em;font-size:.72rem;color:#5f6b79}
+ .lcard form input[type=email],.lcard form input[type=password]{width:100%;box-sizing:border-box}
+</style>{% endblock %}{% block content %}
 <div class="lw"><div class="lcard">
+ <img src="{% static 'core/favicon.svg' %}" alt="AdventureWorks" width="48" height="48">
  <h2>Log in</h2>
  <form method="post">{% csrf_token %}
-  {% if form.errors %}<p class="msg error">Wrong username or password.</p>{% endif %}
+  {% if form.errors %}<p class="msg error">Wrong email or password.</p>{% endif %}
   {{ form.as_p }}
   <input type="hidden" name="next" value="{{ next }}">
   <button>Log in</button>

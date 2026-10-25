@@ -1,10 +1,6 @@
-{% if snapshot %}
-<p class="muted d-sub">Saved snapshot generated {{ snapshot.generated_at|date:"M j, Y H:i" }}{% if snapshot.generated_by %} by {{ snapshot.generated_by }}{% endif %}.</p>
-{% else %}
-<p class="muted d-sub">Live data &mdash; not saved. A manager can generate a saved snapshot for this range.</p>
-{% endif %}
 <form class="d-filter" method="get">
- <label>Saved report
+ <span class="d-chip flat" title="{% if snapshot %}Saved snapshot generated {{ snapshot.generated_at|date:'M j, Y H:i' }}{% if snapshot.generated_by %} by {{ snapshot.generated_by }}{% endif %}.{% else %}Live data &mdash; not saved. A manager can generate a saved snapshot for this range.{% endif %}">{% if snapshot %}Saved{% else %}Live data{% endif %}</span>
+ <label>Report
   <select name="report" onchange="this.form.submit()">
    <option value="">Live / custom range</option>
    {% for s in snapshots %}

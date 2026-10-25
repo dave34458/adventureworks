@@ -369,10 +369,6 @@ PERFORMANCE_FIELDS = {
     "margin": _number(-1_000, 100),
     "note": _text(1000),
 }
-RECOMMENDATION_FIELDS = {
-    "title": _text(200, 1),
-    "text": _text(1000, 1),
-}
 REPORT_PAYLOADS = {
     "sales": {
         "kpis": _kpis,
@@ -417,7 +413,6 @@ REPORT_PAYLOADS = {
         "changes": _rows(COST_CHANGE_FIELDS, 50),
         "biggest": _rows(COST_BIGGEST_FIELDS, 20),
         "performance": _object(PERFORMANCE_FIELDS, nullable=True),
-        "recommendations": _rows(RECOMMENDATION_FIELDS, 20),
     },
 }
 

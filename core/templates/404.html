@@ -1,0 +1,7 @@
+{% extends "core/base.html" %}{% block title %}Page not found · AdventureWorks{% endblock %}{% block content %}
+<div class="lw"><div class="lcard">
+ <h2>Page not found</h2>
+ <p>The page you requested does not exist or may have moved.</p>
+ <p><a href="{% url 'home' %}">Go to the dashboard</a></p>
+</div></div>
+{% endblock %}

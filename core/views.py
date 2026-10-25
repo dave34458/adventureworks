@@ -1,7 +1,8 @@
-"""HTTP views for the dashboard, reports, saved-report editor, and table browser."""
+"""HTTP views for the dashboard, reports, saved-report editor, table browser, and account."""
 from django import forms
 from django.apps import apps
 from django.contrib import messages
+from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.decorators import (
     login_not_required,
     login_required,
@@ -22,13 +23,8 @@ from django.views.generic import DeleteView, DetailView, ListView, UpdateView
 
 from . import services
 from .constants import LABEL_COLUMNS
-from .forms import PrivacyAuthenticationForm, ReportEditForm
-from .models import (
-    PRIVACY_NOTICE_VERSION,
-    AuditLog,
-    PrivacyAcknowledgment,
-    Report,
-)
+from .forms import AccountForm, EmailAuthenticationForm, ReportEditForm
+from .models import PRIVACY_NOTICE_VERSION, AuditLog, Report
 from .services import REPORT_VIEWS, cell, name_needs_joins, shown
 from .utils import metric
 from .widgets import SearchSelect
@@ -55,20 +51,26 @@ def privacy(request):
                   {"title": "Data privacy notice", "version": PRIVACY_NOTICE_VERSION})
 
 
-class PrivacyLogin(LoginView):
-    """Login that requires acknowledging the privacy notice. Every successful login
-    records the acknowledgment (current notice version + time) for the account."""
+@login_required
+def account(request):
+    """Let a signed-in user edit their own name and password."""
+    if request.method == "POST":
+        form = AccountForm(request.POST, instance=request.user)
+        if form.is_valid():
+            user = form.save()
+            update_session_auth_hash(request, user)
+            messages.success(request, "Account updated.")
+            return redirect("account")
+    else:
+        form = AccountForm(instance=request.user)
+    return render(request, "core/account.html", {"form": form, "title": "Account"})
+
+
+class EmailLogin(LoginView):
+    """Email and password login."""
 
     template_name = "registration/login.html"
-    form_class = PrivacyAuthenticationForm
-
-    def form_valid(self, form):
-        response = super().form_valid(form)
-        PrivacyAcknowledgment.objects.update_or_create(
-            user=self.request.user,
-            defaults={"version": PRIVACY_NOTICE_VERSION, "acknowledged_at": timezone.now()},
-        )
-        return response
+    form_class = EmailAuthenticationForm
 
 
 @login_required
@@ -294,7 +296,7 @@ class TableList(TableMixin, ListView):
                     conds.append(Q(**{f"{f.name}__icontains": q}))
             qs = qs.annotate(**ann).filter(Q(*conds, _connector=Q.OR)) if conds else qs.none()
         sort = self.request.GET.get("sort", "")
-        name = sort[1:] if sort.startswith("-") else sort
+        name = sort.removeprefix("-")
         try:
             sf = self.model._meta.get_field(name) if name else None
         except FieldDoesNotExist:

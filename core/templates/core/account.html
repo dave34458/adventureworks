@@ -1,0 +1,8 @@
+{% extends "core/base.html" %}{% block content %}
+<h2>Account</h2>
+<p>Signed in as <strong>{{ user.email }}</strong>.</p>
+<form method="post">{% csrf_token %}
+ {{ form.as_p }}
+ <button>Save changes</button> <a href="{% url 'home' %}">cancel</a>
+</form>
+{% endblock %}

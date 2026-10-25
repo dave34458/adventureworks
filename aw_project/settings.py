@@ -56,6 +56,9 @@ if not DEBUG:  # production behind the TLS proxy: cookies only over HTTPS
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
 
+AUTH_USER_MODEL = "core.User"
+AUTHENTICATION_BACKENDS = ["core.auth_backends.EmailBackend"]
+
 LOGIN_URL = "login"
 LOGIN_REDIRECT_URL = "home"
 LOGOUT_REDIRECT_URL = "login"

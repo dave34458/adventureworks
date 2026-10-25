@@ -16,12 +16,64 @@ import uuid
 from decimal import Decimal
 
 from django.conf import settings
+from django.contrib.auth.base_user import AbstractBaseUser, BaseUserManager
+from django.contrib.auth.models import PermissionsMixin
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import models
 from django.db.models import ExpressionWrapper, F
 from django.utils import timezone
 
 
+class UserManager(BaseUserManager):
+    def _create_user(self, email, password, **extra_fields):
+        if not email:
+            raise ValueError("The email address is required.")
+        email = self.normalize_email(email).strip().lower()
+        user = self.model(email=email, **extra_fields)
+        user.set_password(password)
+        user.save(using=self._db)
+        return user
+
+    def create_user(self, email, password=None, **extra_fields):
+        extra_fields.setdefault("is_active", True)
+        return self._create_user(email, password, **extra_fields)
+
+    def create_superuser(self, email, password=None, **extra_fields):
+        extra_fields["is_staff"] = True
+        extra_fields["is_superuser"] = True
+        extra_fields.setdefault("is_active", True)
+        return self._create_user(email, password, **extra_fields)
+
+
+class User(AbstractBaseUser, PermissionsMixin):
+    email = models.EmailField(unique=True, max_length=254)
+    first_name = models.CharField(max_length=150, blank=True)
+    last_name = models.CharField(max_length=150, blank=True)
+    is_active = models.BooleanField(default=True)
+    is_staff = models.BooleanField(default=False)
+
+    objects = UserManager()
+
+    USERNAME_FIELD = "email"
+    REQUIRED_FIELDS = ()
+
+    class Meta:
+        db_table = "auth_user"
+        verbose_name = "user"
+        verbose_name_plural = "users"
+
+    def __str__(self):
+        return self.email
+
+    def clean(self):
+        super().clean()
+        self.email = self.email.strip().lower()
+
+    def get_full_name(self):
+        return f"{self.first_name} {self.last_name}".strip()
+
+    def get_short_name(self):
+        return self.first_name
 
 
 
@@ -557,26 +609,9 @@ class TabAccess(models.Model):
 
 
 # ---------------------------------------------------------------------------
-# Hand-written (not generated): data privacy governance.
+# Hand-written (not generated): privacy notice version and audit trail.
 
 PRIVACY_NOTICE_VERSION = "1.0"
-
-
-class PrivacyAcknowledgment(models.Model):
-    """One row per user holding the latest recorded acknowledgment of the privacy
-    notice. Written on every successful login, so the row always shows the notice
-    version the user accepted and when. This is the audit evidence for consent."""
-
-    user = models.OneToOneField("auth.User", on_delete=models.CASCADE, related_name="privacy_acknowledgment")
-    version = models.CharField(max_length=10)
-    acknowledged_at = models.DateTimeField()
-
-    class Meta:
-        verbose_name = "privacy acknowledgment"
-        verbose_name_plural = "privacy acknowledgments"
-
-    def __str__(self):
-        return f"{self.user} acknowledged v{self.version}"
 
 
 class AuditLog(models.Model):
@@ -587,8 +622,8 @@ class AuditLog(models.Model):
 
     ACTIONS = [("create", "create"), ("update", "update"), ("delete", "delete")]
 
-    user = models.ForeignKey("auth.User", null=True, blank=True, on_delete=models.SET_NULL,
-                             related_name="audit_log")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True,
+                             on_delete=models.SET_NULL, related_name="audit_log")
     username = models.CharField(max_length=150)  # snapshot: the record survives user deletion
     action = models.CharField(max_length=8, choices=ACTIONS)
     model = models.CharField(max_length=100)

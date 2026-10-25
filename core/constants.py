@@ -17,7 +17,7 @@ EDITABLE_KEYS = {
     ],
     "cost": [
         "kpis", "pipeline", "mix", "vendors", "products", "reasons", "changes",
-        "biggest", "performance", "recommendations", "donut_mid",
+        "biggest", "performance", "donut_mid",
     ],
 }
 
@@ -41,7 +41,6 @@ SECTION_LABELS = {
     "reasons": "Scrap reasons",
     "changes": "Standard-cost changes",
     "performance": "Cost performance",
-    "recommendations": "Recommendations",
     "donut_mid": "Donut centre",
 }
 

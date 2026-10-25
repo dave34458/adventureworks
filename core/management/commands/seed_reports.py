@@ -27,7 +27,7 @@ class Command(BaseCommand):
         start, end = window.trend_start.date(), window.last.date()
         user = get_user_model().objects.filter(is_superuser=True).first()
         if user is None:
-            user = get_user_model()(username="system", is_superuser=True, is_staff=True)
+            user = get_user_model()(email="system@example.com", is_superuser=True, is_staff=True)
 
         created = skipped = 0
         for module in REPORT_VIEWS:

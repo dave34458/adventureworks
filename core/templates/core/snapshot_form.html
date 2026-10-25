@@ -1,7 +1,8 @@
 {% extends "core/base.html" %}{% block content %}
 <h2>{{ title }}</h2>
 <p class="muted">{{ snapshot.range_start|date:"M j, Y" }} &ndash; {{ snapshot.range_end|date:"M j, Y" }} &middot; generated {{ snapshot.generated_at|date:"M j, Y H:i" }}{% if snapshot.generated_by %} by {{ snapshot.generated_by }}{% endif %}</p>
-<p class="muted">Editing dates or labels does not recalculate the saved numbers. KPI values update the displayed value but do not recalculate derived values, deltas or captions. Edit the saved list, table and recommendation values below. Chart geometry is read-only; regenerate the report for a fresh calculation.</p>
+<p class="muted">Editing dates or labels does not recalculate the saved numbers. KPI values update the displayed value but do not recalculate derived values, deltas or captions. Edit the saved list and table values below. Chart geometry is read-only; regenerate the report for a fresh
+calculation.</p>
 <form method="post">{% csrf_token %}
 {{ form.as_p }}
 {% for section in editor_sections %}

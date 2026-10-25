@@ -52,7 +52,7 @@ def dashboard(request):
          "Segments, frequency, spending and geography"),
         ("revenue_and_loss", "Revenue and loss report", "revenue-and-loss",
          "Revenue, gross profit, margin and below-cost shortfall"),
-        ("cost", "Cost report", "cost", "Cost structure, contributors and recommendations"),
+        ("cost", "Cost report", "cost", "Cost structure and contributors"),
     )
     reports = [{"key": key, "name": name, "url": url, "text": text}
                for key, name, url, text in report_rows if access[key]]

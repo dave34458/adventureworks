@@ -386,34 +386,6 @@ def cost(request):
             "note": note,
         }
 
-    recommendations = []
-    if vendor_rows and spend:
-        share = round(float(vendor_rows[0]["spend"]) / float(spend) * 100)
-        recommendations.append({
-            "title": "Keep the largest vendor competitive",
-            "text": (f"{vendor_rows[0]['name']} is the largest vendor at {share}% of procurement spend; "
-                     "keep a second qualified source for its main parts."),
-        })
-    if mix:
-        recommendations.append({
-            "title": "Target the largest cost category",
-            "text": (f"{mix[0]['name']} is {mix[0]['pct']}% of cost of goods; "
-                     "a small reduction in its unit costs has the largest effect on total cost."),
-        })
-    if reason_rows and scr:
-        share = round(float(reason_rows[0]["scr"]) / float(scr) * 100)
-        recommendations.append({
-            "title": "Attack the top scrap reason",
-            "text": (f"{reason_rows[0]['name']} explains {share}% of scrapped units "
-                     f"({int(reason_rows[0]['scr']):,}); review that process step."),
-        })
-    if hikes:
-        recommendations.append({
-            "title": "Check pricing after cost increases",
-            "text": (f"{hikes[0]['name']} rose {hikes[0]['pct']}% in standard cost; "
-                     "confirm the selling price still protects margin."),
-        })
-
     return _report_response(request, "cost", "core/cost/report.html", {
         "tab": "cost",
         "title": "Cost report",
@@ -429,7 +401,6 @@ def cost(request):
         "changes": changes,
         "biggest": biggest,
         "performance": performance,
-        "recommendations": recommendations,
         "through": w.last,
         "window_label": w.label,
         "prev_label": w.prev_label,

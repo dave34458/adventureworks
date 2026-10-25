@@ -11,17 +11,20 @@ https://github.com/Microsoft/sql-server-samples/releases/tag/adventureworks
 5. `python manage.py runserver`
 6. Open http://127.0.0.1:8000/ and log in.
 
-The shipped database already has all the logins (see Roles below): the single Administrator
-(superuser `admin` / `admin`) plus 12 demo department users. The first sign-in asks you to
-acknowledge the Data Privacy Notice (see Data privacy below). Change the passwords on /manage/
-before real use.
+The shipped database already has all the logins (see Roles below): the Administrator
+(`admin@example.com` / `admin`) plus 12 demo department users. Accounts are `core.User` rows with
+email (login), first/last name, active flag, and hashed password; a user's role is their Django
+group, and the Administrator is a superuser. There is no username. Sign in with your email; the
+Data Privacy Notice is linked from the login page and footer (see Data privacy below). Change the
+demo passwords on /manage/ (or /account/ for the user) before real use.
 
 ## Layout
     aw_project/         settings.py, urls.py (project configuration, not an app)
     core/               the one app
       models.py         the 19 AdventureWorks models still used by the report SQL, plus:
+                        + User, the email-login account (role is its Django group)
                         + TabAccess, one permission per tab (access_sales, access_customer_profile, ...)
-                        + PrivacyAcknowledgment and PRIVACY_NOTICE_VERSION (data privacy governance)
+                        + PRIVACY_NOTICE_VERSION (the published notice version)
                         + AuditLog, the append-only record of every table edit and deletion
                         + Report, the single saved-report table (all four modules)
       services/         report SQL and context builders (sales, customer_profile,
@@ -32,19 +35,21 @@ before real use.
       utils.py          number formatting and date-window helpers
       constants.py      report labels, editor metadata, and table column hints
       roles.py          ROLES (the 12 department roles) and apply_roles; see core/tests.py
-      forms.py          the login form: credentials + the required privacy acknowledgment
-      tests.py          fast RBAC, table-browser, privacy and report-semantics tests
-      admin.py          read-only privacy and audit records (visible at /manage/)
-      management/       commands/seed_users.py: one demo login per role (username = password)
+      forms.py          email login and account edit forms
+      auth_backends.py  EmailBackend: email + password login (no username)
+      tests.py          fast RBAC, table-browser, privacy-notice and report-semantics tests
+      admin.py          User admin and read-only audit records (visible at /manage/)
+      management/       commands/seed_users.py: one demo login per role (email local part = password)
                         commands/seed_reports.py: default rolling 12-month snapshots per module
       widgets.py        SearchSelect, the on-demand foreign-key box for the edit pages
       static/core/      autocomplete.js, the tiny script behind the edit page's foreign-key boxes
       templates/        base, dashboard, list, detail, form, confirm_delete, no_access,
-                        privacy notice, report pages, login, 403
+                        privacy notice, report pages, login, account, 403
 
 ## Pages
-    /login/                                  login (public; requires acknowledging the privacy notice)
+    /login/                                  email and password login (public)
     /privacy/                                data privacy notice (public, RA 10173)
+    /account/                                edit own first/last name and password
     /                                        goes to the dashboard (or no-access page)
     /dashboard/                              consolidated KPIs, charts, filters and report links;
                                              shows only the modules the user may open
@@ -57,12 +62,12 @@ before real use.
     /<tab>/data/<Table>/<id>/                detail
     /<tab>/data/<Table>/<id>/edit/           edit
     /<tab>/data/<Table>/<id>/delete/         delete
-    /manage/                                 Users, roles, privacy and audit records (Administrator only)
+    /manage/                                 Users, roles, and audit records (Administrator only)
 
 ## Saved reports
 There is one table, `Report`. One row is one saved report for a module and effective date range.
 All panel data lives in `payload` JSON, including the KPI numbers, monthly trends,
-product/customer/vendor rows, chart geometry and recommendations. This keeps the schema simple:
+product/customer/vendor rows and chart geometry. This keeps the schema simple:
 there are no per-module KPI columns.
 
 Opening a report tab with no query parameters loads the latest saved row for that module.
@@ -77,29 +82,29 @@ skips ranges that already exist; add `--force` to replace them. The Railway star
 every boot, so a fresh volume gets fast default reports without overwriting edited snapshots.
 
 ## Roles (RBAC)
-* **Administrator** = the single Django superuser (`admin`; `createsuperuser`). It can open every
-  tab and every table. There is no Administrator group.
-* **Department roles** are 12 Django groups in `core/roles.py`: Manager, Supervisor and Employee
-  for each of four departments. Each department gets exactly one tab:
+* **Administrator** = a superuser (`admin@example.com`; `createsuperuser` sets this). It can
+  open every tab and every table. There is no Administrator group.
+* **Department roles** are 12 choices in `core/roles.py`, backed by 12 Django groups: Manager,
+  Supervisor and Employee for each of four departments. Each department gets exactly one tab:
   * Sales -> Sales
   * Marketing -> Customer Profile
   * Finance -> Revenue and Loss
   * Production -> Cost
   Apply them with
   `python manage.py shell -c "from core.roles import ROLES, apply_roles; apply_roles(ROLES, prune=True)"`;
-  `prune=True` removes old groups. Add users at /manage/ -> Groups / Users. Applying is safe to repeat.
+  `prune=True` removes old groups. Add users at /manage/ -> Users; assigning a role grants its
+  group permissions. Applying is safe to repeat.
 * **Permissions**:
   * Manager: opens the department tab, views its source tables and saved report, and
     edits/deletes/generates the saved report.
   * Supervisor: opens the tab and views its source tables and saved report; read-only.
   * Employee: opens the tab and views its saved report only; no source tables, no edits.
   * Source tables are read-only for every non-Administrator role. Nobody can create source records.
-* **Demo logins**: one per role, username = password — `sales.manager`, `sales.supervisor`,
-  `sales.employee`, `marketing.manager`, `marketing.supervisor`, `marketing.employee`,
-  `finance.manager`, `finance.supervisor`, `finance.employee`, `production.manager`,
-  `production.supervisor`, `production.employee`. Run
+* **Demo logins**: one per role, email local part = password — `sales.manager@example.com` /
+  `sales.manager`, `sales.supervisor@example.com` / `sales.supervisor`, etc. Run
   `python manage.py seed_users --reset --prune` to create/reset them and remove the old 17 demo
-  users. Safe to repeat.
+  users. Safe to repeat. Legacy accounts without a group can log in but see no tabs; assign a
+  role at /manage/.
 * A user sees a tab only with its `access_<tab>` permission, and a table only with `view_<table>`.
   Managers and Supervisors get read-only table access; only the Administrator can edit/delete
   source-table rows. Managers can edit/delete their saved report. A saved report is created by
@@ -108,7 +113,7 @@ every boot, so a fresh volume gets fast default reports without overwriting edit
 ### RBAC matrix
 
 `Manager`, `Supervisor`, and `Employee` are scoped to the department named in their group.
-The Administrator is the single superuser; there is no Administrator group.
+The Administrator is the superuser; there is no Administrator group.
 
 | Capability | Administrator | Manager | Supervisor | Employee |
 |---|---|---|---|---|
@@ -135,12 +140,10 @@ gated by `access_<tab>`; table pages need `view_<table>`.
   (DPA Sections 12 and 13), least-privilege access, protection, retention and disposal, the data
   subject rights, 15-working-day request handling, breach notification (NPC Circular No. 16-03) and
   the DPO contact. It is public and linked in the footer of every page.
-* **Logging in requires acknowledging the notice**: the checkbox on the login form is validated on
-  the server, so an unchecked box cannot log anyone in.
-* Every successful login **records the acknowledgment** — `PrivacyAcknowledgment` stores the user,
-  the notice version and the timestamp (audit evidence). Bump `PRIVACY_NOTICE_VERSION` in
-  `core/models.py` when the notice changes; users then re-acknowledge at their next login, which
-  refreshes the record. The records are visible read-only at `/manage/`.
+* The notice is public and linked from the login page and footer. Sign-in has no acknowledgment
+  checkbox, and the system stores no acknowledgment records.
+* `PRIVACY_NOTICE_VERSION` in `core/models.py` is displayed on the notice; bump it when the text
+  changes.
 * Every page obeys the same role gates, and no role can create records.
 * Every edit or deletion made through the table pages is written to the **audit trail** (`AuditLog`):
   the account, time, record, changed values (old and new), and IP address. Records are kept twelve

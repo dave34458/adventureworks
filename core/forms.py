@@ -1,26 +1,81 @@
-"""The login form, extended with the privacy acknowledgment required by the
-Data Privacy Act of 2012 (Republic Act No. 10173)."""
+"""Email login and self-service account editing."""
+from typing import ClassVar
+
 from django import forms
+from django.contrib.auth import password_validation
 from django.contrib.auth.forms import AuthenticationForm
-from django.utils.safestring import mark_safe
+from django.core.exceptions import ValidationError
 
-from .models import PRIVACY_NOTICE_VERSION, Report
+from .models import Report, User
 
 
-class PrivacyAuthenticationForm(AuthenticationForm):
-    """Login form whose privacy acknowledgment checkbox is required and validated
-    server-side: without it the credentials never log anyone in."""
+class EmailAuthenticationForm(AuthenticationForm):
+    """Email and password login. There is no privacy acknowledgment step."""
 
-    privacy_accepted = forms.BooleanField(
-        label=mark_safe(
-            f'I have read and understood the <a href="/privacy/" target="_blank" rel="noopener">'
-            f"Data Privacy Notice</a> (version {PRIVACY_NOTICE_VERSION}), and I am aware that "
-            f"the version and time of my acknowledgment are recorded with my account."
-        ),
-        error_messages={
-            "required": "Acknowledge the Data Privacy Notice to log in.",
-        },
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("label_suffix", "")
+        super().__init__(*args, **kwargs)
+
+    username = forms.EmailField(
+        label="Email",
+        widget=forms.EmailInput(attrs={"autofocus": True, "autocomplete": "email"}),
     )
+    error_messages: ClassVar[dict] = {
+        **AuthenticationForm.error_messages,
+        "invalid_login": (
+            "Please enter a correct email and password. "
+            "Note that both fields may be case-sensitive."
+        ),
+    }
+
+
+class AccountForm(forms.ModelForm):
+    """Self-service name and password edit for any signed-in account."""
+
+    new_password1 = forms.CharField(
+        label="New password",
+        required=False,
+        strip=False,
+        widget=forms.PasswordInput(attrs={"autocomplete": "new-password"}),
+        help_text="Leave blank to keep the current password.",
+    )
+    new_password2 = forms.CharField(
+        label="Confirm new password",
+        required=False,
+        strip=False,
+        widget=forms.PasswordInput(attrs={"autocomplete": "new-password"}),
+    )
+
+    class Meta:
+        model = User
+        fields = ("first_name", "last_name")
+
+    def clean(self):
+        cleaned = super().clean()
+        for field in ("first_name", "last_name"):
+            if cleaned.get(field):
+                cleaned[field] = cleaned[field].strip()
+
+        password1 = cleaned.get("new_password1")
+        password2 = cleaned.get("new_password2")
+        if password1 or password2:
+            if password1 != password2:
+                self.add_error("new_password2", "The two password fields do not match.")
+            else:
+                try:
+                    password_validation.validate_password(password1, self.instance)
+                except ValidationError as error:
+                    self.add_error("new_password1", error)
+        return cleaned
+
+    def save(self, commit=True):
+        user = super().save(commit=False)
+        password = self.cleaned_data.get("new_password1")
+        if password:
+            user.set_password(password)
+        if commit:
+            user.save()
+        return user
 
 
 class ReportEditForm(forms.ModelForm):
@@ -28,10 +83,10 @@ class ReportEditForm(forms.ModelForm):
 
     class Meta:
         model = Report
-        fields = [
+        fields = (
             "title", "range_start", "range_end", "compare_start", "compare_end",
             "source_through", "window_label", "prev_label", "period", "custom",
-        ]
+        )
 
     def clean(self):
         cleaned = super().clean()
