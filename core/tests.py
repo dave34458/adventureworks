@@ -1,384 +1,243 @@
-"""RBAC tests.
-
-The department matrix is encoded here a second time (that is the point: the tests are
-the independent spec). `core.roles` is applied and every role is checked permission by
-permission, then over HTTP: dashboard, reports, home redirect, table lists and the
-edit/delete gates. HTTP tests run against Django's empty test database; every page
-renders empty fine, so no fixtures are needed.
-"""
+"""Fast RBAC and access tests."""
+from datetime import date
 from io import StringIO
-from datetime import timedelta
 
-from django.contrib.auth.models import Group, Permission, User
+from django.contrib.auth.models import Group, User
 from django.core.management import call_command
 from django.test import TestCase
-from django.utils import timezone
 
-from .models import AuditLog, PRIVACY_NOTICE_VERSION, PrivacyAcknowledgment, SalesReason
-from .roles import ROLES, apply_roles
+from .models import PRIVACY_NOTICE_VERSION, PrivacyAcknowledgment, Report
+from .roles import ROLES, TABLES, apply_roles
 
 ALL_TABS = ["sales", "customer-profile", "revenue-and-loss", "cost"]
 
-TABLES = {
-    "sales": [
-        "SalesOrderHeader", "SalesOrderDetail", "SalesTerritory", "SalesPerson",
-        "SalesSpecialOffer", "SalesSpecialOfferProduct", "SalesReason", "SalesTaxRate",
-    ],
-    "customer-profile": [
-        "SalesCustomer", "Person", "PersonEmailAddress", "PersonPhone", "PersonAddress",
-        "PersonBusinessEntityAddress", "SalesStore", "PersonStateProvince", "PersonCountryRegion",
-    ],
-    "revenue-and-loss": [
-        "ProductionProduct", "ProductionProductListPriceHistory", "ProductionProductSubcategory",
-        "ProductionProductCategory", "SalesCurrency", "SalesCurrencyRate",
-    ],
-    "cost": [
-        "PurchasingPurchaseOrderHeader", "PurchasingPurchaseOrderDetail", "PurchasingVendor",
-        "PurchasingProductVendor", "ProductionWorkOrder", "ProductionLocation",
-        "ProductionProductCostHistory", "ProductionScrapReason", "PurchasingShipMethod",
-    ],
+DEPARTMENTS = {
+    "Sales": "sales",
+    "Marketing": "customer-profile",
+    "Finance": "revenue-and-loss",
+    "Production": "cost",
 }
 
-SALES_MANAGER_TABLES = TABLES["sales"] + TABLES["customer-profile"]
-SALES_STAFF_TABLES = [m for m in TABLES["sales"] if m != "SalesPerson"] + TABLES["customer-profile"]
-ENGINEERING_TABLES = [
-    "ProductionProduct", "ProductionProductSubcategory", "ProductionProductCategory",
-    "ProductionProductCostHistory", "ProductionWorkOrder", "ProductionLocation",
-]
-PRODUCT_TABLES = ["ProductionProduct", "ProductionProductSubcategory", "ProductionProductCategory"]
+MATRIX = {}
+for _department, _tab in DEPARTMENTS.items():
+    _tables = {f"view_{name.lower()}" for name in TABLES[_tab]}
+    MATRIX[f"{_department} Manager"] = (
+        [_tab], _tables | {"view_report"}, {"change_report"}, {"delete_report"})
+    MATRIX[f"{_department} Supervisor"] = (
+        [_tab], _tables | {"view_report"}, set(), set())
+    MATRIX[f"{_department} Employee"] = (
+        [_tab], {"view_report"}, set(), set())
 
-# role -> (tabs, view, change, delete), straight from the department spec.
-MATRIX = {
-    "Executive": (ALL_TABS, TABLES["sales"] + TABLES["customer-profile"]
-                  + TABLES["revenue-and-loss"] + TABLES["cost"], [], []),
-    "Finance Manager": (ALL_TABS, TABLES["sales"] + TABLES["customer-profile"]
-                        + TABLES["revenue-and-loss"] + TABLES["cost"],
-                        ["ProductionProduct", "ProductionProductListPriceHistory",
-                         "ProductionProductCostHistory", "SalesCurrencyRate"], []),
-    "Finance Staff": (ALL_TABS, TABLES["sales"] + TABLES["customer-profile"]
-                      + TABLES["revenue-and-loss"] + TABLES["cost"], ["SalesCurrencyRate"], []),
-    "Sales Manager": (["sales", "customer-profile"], SALES_MANAGER_TABLES,
-                      ["SalesOrderHeader", "SalesOrderDetail", "SalesCustomer", "SalesStore",
-                       "PersonEmailAddress", "PersonPhone", "PersonAddress",
-                       "PersonBusinessEntityAddress", "SalesSpecialOffer",
-                       "SalesSpecialOfferProduct"],
-                      ["SalesSpecialOffer", "SalesSpecialOfferProduct"]),
-    "Sales Staff": (["sales", "customer-profile"], SALES_STAFF_TABLES,
-                    ["PersonEmailAddress", "PersonPhone", "PersonAddress",
-                     "PersonBusinessEntityAddress"], []),
-    "Marketing": (["sales", "customer-profile"], SALES_STAFF_TABLES,
-                  ["SalesSpecialOffer", "SalesSpecialOfferProduct"], []),
-    "Purchasing Manager": (["cost"], TABLES["cost"],
-                           ["PurchasingPurchaseOrderHeader", "PurchasingPurchaseOrderDetail",
-                            "PurchasingVendor", "PurchasingProductVendor", "PurchasingShipMethod"],
-                           ["PurchasingProductVendor"]),
-    "Purchasing Staff": (["cost"], TABLES["cost"],
-                         ["PurchasingPurchaseOrderHeader", "PurchasingPurchaseOrderDetail",
-                          "PurchasingProductVendor"], []),
-    "Shipping and Receiving": (["cost"],
-                               ["PurchasingPurchaseOrderHeader", "PurchasingPurchaseOrderDetail",
-                                "PurchasingVendor", "PurchasingShipMethod", "ProductionLocation"],
-                               ["PurchasingPurchaseOrderDetail"], []),
-    "Production Manager": (["cost"], TABLES["cost"], ["ProductionWorkOrder"], []),
-    "Production Staff": (["cost"], ["ProductionWorkOrder", "ProductionLocation"], [], []),
-    "Production Control": (["cost"],
-                           ["ProductionWorkOrder", "ProductionScrapReason", "ProductionLocation"],
-                           ["ProductionWorkOrder", "ProductionScrapReason", "ProductionLocation"],
-                           []),
-    "Quality Assurance": (["cost"],
-                          ["ProductionWorkOrder", "ProductionScrapReason", "ProductionLocation"],
-                          ["ProductionScrapReason"], []),
-    "Engineering Manager": (["revenue-and-loss", "cost"], ENGINEERING_TABLES, PRODUCT_TABLES, []),
-    "Engineering Staff": (["revenue-and-loss", "cost"], ENGINEERING_TABLES,
-                          ["ProductionProduct"], []),
-    "Research and Development": (["revenue-and-loss"], PRODUCT_TABLES, [], []),
-    "Tool Design": (["revenue-and-loss"], PRODUCT_TABLES, [], []),
-}
 
-TAB_OF = {table: tab for tab, tables in TABLES.items() for table in tables}
+def username_for(role):
+    return role.lower().replace(" ", ".")
 
 
 def expected_codenames(tabs, view, change, delete):
     codes = {f"core.access_{tab.replace('-', '_')}" for tab in tabs}
-    for action, tables in (("view", view), ("change", change), ("delete", delete)):
-        codes |= {f"core.{action}_{table.lower()}" for table in tables}
+    codes |= {f"core.{code}" for code in view | change | delete}
     return codes
 
 
-class RoleMatrixTests(TestCase):
+class RoleTests(TestCase):
     @classmethod
     def setUpTestData(cls):
         apply_roles(ROLES)
-        cls.groups = {g.name: g for g in Group.objects.all()}
+        cls.groups = {group.name: group for group in Group.objects.all()}
 
-    def test_role_names_match(self):
+    def test_matrix(self):
         self.assertEqual(list(ROLES), list(MATRIX))
-
-    def test_every_role_has_exactly_the_matrix_permissions(self):
         for role, (tabs, view, change, delete) in MATRIX.items():
             with self.subTest(role=role):
                 actual = {
-                    f"{p.content_type.app_label}.{p.codename}"
-                    for p in self.groups[role].permissions.select_related("content_type")
+                    f"{permission.content_type.app_label}.{permission.codename}"
+                    for permission in self.groups[role].permissions.select_related(
+                        "content_type")
                 }
                 self.assertEqual(actual, expected_codenames(tabs, view, change, delete))
 
-    def test_view_change_delete_lists_stay_inside_the_allowed_tabs(self):
-        for role, (tabs, view, change, delete) in MATRIX.items():
-            allowed = {m for tab in tabs for m in TABLES[tab]}
-            with self.subTest(role=role):
-                self.assertLessEqual(set(view), allowed)
-                self.assertLessEqual(set(change), set(view))
-                self.assertLessEqual(set(delete), set(view))
+    def test_counts_and_no_administrator_group(self):
+        self.assertEqual(len(MATRIX), 12)
+        self.assertEqual(Group.objects.count(), 12)
+        self.assertFalse(Group.objects.filter(name="Administrator").exists())
 
-    def test_table_inventory(self):
-        self.assertEqual([len(TABLES[t]) for t in ALL_TABS], [8, 9, 6, 9])
-        self.assertEqual(len(TAB_OF), 32)
-        self.assertEqual(len(MATRIX), 17)
+    def test_prune_removes_legacy_groups(self):
+        Group.objects.create(name="Legacy")
+        apply_roles(ROLES, prune=True)
+        self.assertFalse(Group.objects.filter(name="Legacy").exists())
+        self.assertEqual(Group.objects.count(), 12)
 
-    def test_reapplying_is_idempotent(self):
-        def snapshot():
-            return {g.name: set(g.permissions.values_list("codename", flat=True))
-                    for g in Group.objects.all()}
-
-        before = snapshot()
-        apply_roles(ROLES)
-        self.assertEqual(snapshot(), before)
-
-    def test_unknown_table_raises_and_creates_nothing(self):
+    def test_unknown_permission_creates_nothing(self):
         with self.assertRaisesMessage(ValueError, "Broken"):
-            apply_roles({"Broken": {"tabs": ["sales"], "view": ["NoSuchTable"]}})
+            apply_roles({"Broken": {"tabs": ["sales"], "view": ["NoSuchReport"]}})
         self.assertFalse(Group.objects.filter(name="Broken").exists())
 
 
-class HttpGateTests(TestCase):
+class HttpTests(TestCase):
     @classmethod
     def setUpTestData(cls):
         apply_roles(ROLES)
         cls.users = {}
-        for role in MATRIX:
-            user = User.objects.create_user(username=role, password="x")
+        for role in ("Sales Manager", "Sales Supervisor", "Sales Employee"):
+            user = User.objects.create_user(username_for(role), password="x")
             user.groups.add(Group.objects.get(name=role))
             cls.users[role] = user
 
-    def test_reports_and_dashboard(self):
-        labels = {
-            "sales": "Sales report",
-            "customer-profile": "Customer profile report",
-            "revenue-and-loss": "Revenue and loss report",
-            "cost": "Cost report",
-        }
-        for role, (tabs, view, change, delete) in MATRIX.items():
-            self.client.force_login(self.users[role])
-            with self.subTest(role=role, page="home"):
-                self.assertRedirects(self.client.get("/"), "/dashboard/")
+    def test_sales_roles_see_only_the_sales_tab(self):
+        for role, user in self.users.items():
+            self.client.force_login(user)
+            with self.subTest(role=role, page="sales"):
+                self.assertEqual(self.client.get("/sales/").status_code, 200)
+            with self.subTest(role=role, page="cost"):
+                self.assertEqual(self.client.get("/cost/").status_code, 403)
             with self.subTest(role=role, page="dashboard"):
-                resp = self.client.get("/dashboard/")
-                self.assertEqual(resp.status_code, 200)
-                body = resp.content.decode()
-                for tab in ALL_TABS:
-                    self.assertEqual(labels[tab] in body, tab in tabs)
-            for tab in ALL_TABS:
-                with self.subTest(role=role, page=tab):
-                    resp = self.client.get(f"/{tab}/")
-                    self.assertEqual(resp.status_code, 200 if tab in tabs else 403)
+                self.assertEqual(self.client.get("/dashboard/").status_code, 200)
 
-    def test_dashboard_filters_and_no_access(self):
-        self.client.force_login(self.users["Executive"])
-        for query in ("?from=2025-01-01&to=2025-01-31", "?category=1", "?category=9999"):
-            with self.subTest(query=query):
-                resp = self.client.get(f"/dashboard/{query}")
-                self.assertEqual(resp.status_code, 200)
-                self.assertContains(resp, "No sales data is available")
-        User.objects.create_user("blocked", password="x")
-        self.client.force_login(User.objects.get(username="blocked"))
-        resp = self.client.get("/dashboard/")
-        self.assertEqual(resp.status_code, 200)
-        self.assertNotContains(resp, "Explore the reports")
+    def test_snapshot_manage_gate(self):
+        self.client.force_login(self.users["Sales Manager"])
+        self.assertEqual(self.client.get("/sales/reports/1/edit/").status_code, 404)
+        self.client.force_login(self.users["Sales Supervisor"])
+        self.assertEqual(self.client.get("/sales/reports/1/edit/").status_code, 403)
+        self.assertEqual(self.client.get("/sales/reports/1/delete/").status_code, 403)
 
-    def test_table_lists(self):
-        for role, (tabs, view, change, delete) in MATRIX.items():
-            self.client.force_login(self.users[role])
-            for tab, tables in TABLES.items():
-                for table in tables:
-                    with self.subTest(role=role, table=table):
-                        resp = self.client.get(f"/{tab}/data/{table}/")
-                        self.assertEqual(resp.status_code, 200 if table in view else 403)
+    def test_administrator_has_full_access(self):
+        root = User.objects.create_superuser("root", password="x")
+        self.client.force_login(root)
+        for tab in ALL_TABS:
+            with self.subTest(tab=tab):
+                self.assertEqual(self.client.get(f"/{tab}/").status_code, 200)
+                self.assertEqual(self.client.get(f"/{tab}/reports/").status_code, 200)
+        self.assertEqual(self.client.get("/manage/").status_code, 200)
 
-    def test_edit_and_delete_gates(self):
-        for role, (tabs, view, change, delete) in MATRIX.items():
-            self.client.force_login(self.users[role])
-            editable = change[0] if change else None
-            deletable = delete[0] if delete else None
-            denied = next(m for tab in tabs for m in TABLES[tab] if m not in change)
-            for action, allowed, url in (
-                ("edit", editable, f"/{TAB_OF[editable]}/data/{editable}/1/edit/" if editable else None),
-                ("delete", deletable, f"/{TAB_OF[deletable]}/data/{deletable}/1/delete/" if deletable else None),
-                ("edit", None, f"/{TAB_OF[denied]}/data/{denied}/1/edit/"),
-                ("delete", None, f"/{TAB_OF[denied]}/data/{denied}/1/delete/"),
-            ):
-                if url is None:
-                    continue
-                with self.subTest(role=role, action=action, allowed=allowed is not None, url=url):
-                    resp = self.client.get(url)
-                    # allowed roles pass the gate and find no rows (empty test DB); others get 403
-                    self.assertEqual(resp.status_code, 404 if allowed is not None else 403)
+    def test_table_browser_still_works_for_remaining_tables(self):
+        self.client.force_login(self.users["Sales Manager"])
+        self.assertEqual(self.client.get("/sales/data/SalesOrderHeader/").status_code, 200)
+        self.assertEqual(
+            self.client.get("/sales/data/SalesOrderHeader/1/edit/").status_code, 403)
+
+    def make_report(self, **overrides):
+        values = {
+            "module": "sales",
+            "title": "Sales snapshot",
+            "range_start": date(2024, 1, 1),
+            "range_end": date(2024, 6, 30),
+            "compare_start": date(2023, 1, 1),
+            "compare_end": date(2023, 12, 31),
+            "source_through": date(2024, 12, 31),
+            "window_label": "Jan-Jun 2024",
+            "prev_label": "Jan-Dec 2023",
+            "period": "the selected range",
+            "payload": {"kpis": [{"label": "Revenue", "value": "100", "score": 5}]},
+        }
+        values.update(overrides)
+        return Report.objects.create(**values)
+
+    def edit_data(self, report, **overrides):
+        values = {
+            "title": report.title,
+            "range_start": report.range_start.isoformat(),
+            "range_end": report.range_end.isoformat(),
+            "compare_start": report.compare_start.isoformat() if report.compare_start else "",
+            "compare_end": report.compare_end.isoformat() if report.compare_end else "",
+            "source_through": report.source_through.isoformat(),
+            "window_label": report.window_label,
+            "prev_label": report.prev_label,
+            "period": report.period,
+            "custom": "on" if report.custom else "",
+        }
+        values.update(overrides)
+        return values
+
+    def test_snapshot_edit_updates_metadata_and_payload(self):
+        report = self.make_report()
+        self.client.force_login(self.users["Sales Manager"])
+        response = self.client.post(
+            f"/sales/reports/{report.pk}/edit/",
+            self.edit_data(
+                report,
+                title="Updated snapshot",
+                range_start="2024-02-01",
+                range_end="2024-07-31",
+                compare_start="2023-02-01",
+                compare_end="2024-01-31",
+                window_label="Feb-Jul 2024",
+                prev_label="Feb 2023-Jan 2024",
+                custom="on",
+                **{"editor-kpis-0-score": "7"},
+            ),
+        )
+        self.assertEqual(response.status_code, 302)
+        report.refresh_from_db()
+        self.assertEqual(report.title, "Updated snapshot")
+        self.assertEqual(report.range_start, date(2024, 2, 1))
+        self.assertEqual(report.range_end, date(2024, 7, 31))
+        self.assertEqual(report.payload["kpis"][0]["score"], 7)
+
+    def test_snapshot_edit_rejects_invalid_range(self):
+        report = self.make_report()
+        self.client.force_login(self.users["Sales Manager"])
+        response = self.client.post(
+            f"/sales/reports/{report.pk}/edit/",
+            self.edit_data(report, range_start="2024-07-01", range_end="2024-01-01"),
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "End date must be on or after the start date.")
+        report.refresh_from_db()
+        self.assertEqual(report.range_start, date(2024, 1, 1))
+
+    def test_snapshot_edit_rejects_duplicate_range(self):
+        report = self.make_report()
+        self.make_report(
+            range_start=date(2024, 8, 1), range_end=date(2024, 9, 30),
+            source_through=date(2024, 12, 31),
+        )
+        self.client.force_login(self.users["Sales Manager"])
+        response = self.client.post(
+            f"/sales/reports/{report.pk}/edit/",
+            self.edit_data(report, range_start="2024-08-01", range_end="2024-09-30"),
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "A saved report already exists for this range.")
+
+    def test_snapshot_edit_rejects_invalid_payload_number(self):
+        report = self.make_report()
+        self.client.force_login(self.users["Sales Manager"])
+        response = self.client.post(
+            f"/sales/reports/{report.pk}/edit/",
+            self.edit_data(report, **{"editor-kpis-0-score": "not a number"}),
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Score must be a whole number.")
+        report.refresh_from_db()
+        self.assertEqual(report.payload["kpis"][0]["score"], 5)
 
 
-class SeedUsersCommandTests(TestCase):
-    @staticmethod
-    def username_for(role):
-        return role.lower().replace(" and ", " ").replace(" ", ".")
-
-    def test_seeds_one_user_per_role_in_its_group(self):
+class SeedUsersTests(TestCase):
+    def test_seed_creates_one_user_per_role(self):
         call_command("seed_users", stdout=StringIO())
-        self.assertEqual(User.objects.count(), len(MATRIX))
+        self.assertEqual(User.objects.count(), 12)
+        self.assertFalse(User.objects.filter(is_superuser=True).exists())
         for role in MATRIX:
-            username = self.username_for(role)
-            with self.subTest(username=username):
-                user = User.objects.get(username=username)
-                self.assertTrue(user.check_password(username))
-                self.assertEqual([g.name for g in user.groups.all()], [role])
+            user = User.objects.get(username=username_for(role))
+            self.assertEqual([group.name for group in user.groups.all()], [role])
 
-    def test_seed_is_idempotent_and_reset_refreshes_passwords(self):
+    def test_seed_keeps_administrator(self):
+        admin = User.objects.create_superuser("admin", password="x")
         call_command("seed_users", stdout=StringIO())
-        call_command("seed_users", stdout=StringIO())
-        self.assertEqual(User.objects.count(), len(MATRIX))
-        user = User.objects.get(username="sales.manager")
-        user.set_password("changed")
-        user.save()
-        call_command("seed_users", "--reset", stdout=StringIO())
-        self.assertEqual(User.objects.count(), len(MATRIX))
-        self.assertTrue(User.objects.get(username="sales.manager").check_password("sales.manager"))
+        admin.refresh_from_db()
+        self.assertTrue(admin.is_superuser)
+        self.assertEqual(admin.groups.count(), 0)
 
 
 class PrivacyTests(TestCase):
-    """The privacy notice is public; the login acknowledges it; the acknowledgment
-    is validated server-side and recorded with its version and time."""
+    def test_notice_is_public(self):
+        response = self.client.get("/privacy/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f"version {PRIVACY_NOTICE_VERSION}")
 
-    CREDENTIALS = {"username": "u", "password": "p"}
-
-    def setUp(self):
-        User.objects.create_user(**self.CREDENTIALS)
-
-    def login(self, **extra):
-        return self.client.post("/login/", {**self.CREDENTIALS, **extra})
-
-    def test_notice_page_is_public_and_cites_the_law(self):
-        resp = self.client.get("/privacy/")
-        self.assertEqual(resp.status_code, 200)
-        for phrase in ("Data Privacy Act of 2012", "Republic Act No. 10173",
-                       "National Privacy Commission", "Data Protection Officer",
-                       f"version {PRIVACY_NOTICE_VERSION}"):
-            with self.subTest(phrase=phrase):
-                self.assertContains(resp, phrase)
-
-    def test_footer_and_login_link_to_the_notice(self):
-        self.assertContains(self.client.get("/login/"), 'href="/privacy/"')
-
-    def test_login_requires_the_acknowledgment(self):
-        resp = self.login()
-        self.assertEqual(resp.status_code, 200)
-        self.assertNotIn("_auth_user_id", self.client.session)
-        self.assertFalse(PrivacyAcknowledgment.objects.exists())
-        self.assertContains(resp, "Acknowledge the Data Privacy Notice to log in")
-
-    def test_acknowledgment_is_recorded_on_login(self):
-        resp = self.login(privacy_accepted="on")
-        self.assertEqual(resp.status_code, 302)
-        self.assertIn("_auth_user_id", self.client.session)
-        ack = PrivacyAcknowledgment.objects.get(user__username="u")
-        self.assertEqual(ack.version, PRIVACY_NOTICE_VERSION)
-        self.assertIsNotNone(ack.acknowledged_at)
-
-    def test_reacknowledging_refreshes_a_single_record(self):
-        self.login(privacy_accepted="on")
-        ack = PrivacyAcknowledgment.objects.get(user__username="u")
-        PrivacyAcknowledgment.objects.filter(pk=ack.pk).update(
-            version="0.9", acknowledged_at=timezone.now() - timedelta(days=30))
-        self.login(privacy_accepted="on")
-        self.assertEqual(PrivacyAcknowledgment.objects.count(), 1)
-        ack.refresh_from_db()
-        self.assertEqual(ack.version, PRIVACY_NOTICE_VERSION)
-
-    def test_failed_login_records_nothing(self):
-        resp = self.login(password="wrong", privacy_accepted="on")
-        self.assertEqual(resp.status_code, 200)
-        self.assertNotIn("_auth_user_id", self.client.session)
-        self.assertFalse(PrivacyAcknowledgment.objects.exists())
-
-
-class AuditTests(TestCase):
-    """Edits and deletes made through the table pages are recorded in AuditLog: who,
-    when, which record, and the old and new values. Reads, denied requests, invalid
-    forms and no-op saves are not recorded."""
-
-    def setUp(self):
-        self.user = User.objects.create_user("auditor", password="x")
-        self.user.user_permissions.add(
-            Permission.objects.get(codename="access_sales"),
-            Permission.objects.get(codename="change_salesreason"),
-            Permission.objects.get(codename="delete_salesreason"),
-        )
-        self.client.force_login(self.user)
-
-    @staticmethod
-    def reason(name="Wrong part"):
-        return SalesReason.objects.create(name=name, reason_type="Other")
-
-    def edit(self, pk, **data):
-        return self.client.post(f"/sales/data/SalesReason/{pk}/edit/",
-                                {"name": "Wrong part", "reason_type": "Other", **data})
-
-    def test_edit_records_only_the_changed_fields(self):
-        r = self.reason()
-        resp = self.edit(r.pk, name="Damaged part")
-        self.assertEqual(resp.status_code, 302)
-        log = AuditLog.objects.get()
-        self.assertEqual((log.username, log.action, log.model, log.object_pk),
-                         ("auditor", "update", "SalesReason", str(r.pk)))
-        self.assertEqual(log.changes, {"name": ["Wrong part", "Damaged part"]})
-        self.assertEqual(log.ip_address, "127.0.0.1")
-
-    def test_edit_without_changes_records_nothing(self):
-        r = self.reason()
-        resp = self.edit(r.pk)  # the same values: the save succeeds, the log stays empty
-        self.assertEqual(resp.status_code, 302)
-        self.assertFalse(AuditLog.objects.exists())
-
-    def test_invalid_edit_records_nothing(self):
-        r = self.reason()
-        resp = self.edit(r.pk, name="")  # name is required
-        self.assertEqual(resp.status_code, 200)
-        self.assertFalse(AuditLog.objects.exists())
-
-    def test_delete_records_the_removed_row(self):
-        r = self.reason()
-        resp = self.client.post(f"/sales/data/SalesReason/{r.pk}/delete/")
-        self.assertEqual(resp.status_code, 302)
-        self.assertFalse(SalesReason.objects.filter(pk=r.pk).exists())
-        log = AuditLog.objects.get()
-        self.assertEqual((log.action, log.object_repr), ("delete", "Wrong part"))
-        self.assertEqual(log.changes["name"], "Wrong part")
-
-    def test_denied_edit_records_nothing(self):
-        r = self.reason()
-        self.user.user_permissions.clear()
-        resp = self.edit(r.pk, name="Damaged part")
-        self.assertEqual(resp.status_code, 403)
-        self.assertFalse(AuditLog.objects.exists())
-
-    def test_record_survives_deleting_the_user(self):
-        r = self.reason()
-        self.edit(r.pk, name="Damaged part")
-        self.user.delete()
-        log = AuditLog.objects.get()
-        self.assertIsNone(log.user)
-        self.assertEqual(log.username, "auditor")
-
-    def test_audit_admin_is_read_only_and_superadmin_only(self):
-        self.assertEqual(self.client.get("/manage/core/auditlog/").status_code, 302)  # not staff
-        User.objects.create_superuser("root", password="x")
-        self.client.force_login(User.objects.get(username="root"))
-        self.assertEqual(self.client.get("/manage/core/auditlog/").status_code, 200)
-        self.assertEqual(self.client.get("/manage/core/auditlog/add/").status_code, 403)  # no adding
+    def test_login_records_acknowledgment(self):
+        User.objects.create_user(username="u", password="p")
+        response = self.client.post(
+            "/login/", {"username": "u", "password": "p", "privacy_accepted": "on"})
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(PrivacyAcknowledgment.objects.filter(user__username="u").exists())

@@ -1,0 +1,5 @@
+{% extends "core/base.html" %}{% block content %}
+<h2>{{ title }}: {{ snapshot }}?</h2>
+<p class="muted">{{ snapshot.range_start|date:"M j, Y" }} &ndash; {{ snapshot.range_end|date:"M j, Y" }}. This cannot be undone.</p>
+<form method="post">{% csrf_token %}<button>Yes, delete</button> <a href="{% url 'snapshot_list' tab %}">cancel</a></form>
+{% endblock %}

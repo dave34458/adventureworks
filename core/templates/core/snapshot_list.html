@@ -1,0 +1,26 @@
+{% extends "core/base.html" %}{% block content %}
+<h2>{{ title }}</h2>
+<p class="muted"><a href="{% url tab %}">Back to the {{ tab }} report</a> &middot; Generate a new report from the report page.</p>
+{% if rows %}
+<div class="scroll"><table>
+ <tr><th>Title</th><th>From</th><th>To</th>{% for label in kpi_headers %}<th>{{ label }}</th>{% endfor %}<th>Generated</th><th></th></tr>
+ {% for row in rows %}
+ <tr>
+  <td>{{ row.snapshot.title }}</td>
+  <td>{{ row.snapshot.range_start }}</td>
+  <td>{{ row.snapshot.range_end }}</td>
+  {% for value in row.cells %}<td>{{ value|default_if_none:"" }}</td>{% endfor %}
+  <td>{{ row.snapshot.generated_at|date:"M j, Y H:i" }}{% if row.snapshot.generated_by %}<br><span class="muted">{{ row.snapshot.generated_by }}</span>{% endif %}</td>
+  <td><a href="{% url tab %}?report={{ row.snapshot.pk }}">view</a>
+  {% if can_change %} <a href="{% url 'snapshot_edit' tab row.snapshot.pk %}">edit</a>{% endif %}
+  {% if can_delete %} <a href="{% url 'snapshot_delete' tab row.snapshot.pk %}">delete</a>{% endif %}</td>
+ </tr>
+ {% endfor %}
+</table></div>
+<p>{% if page_obj.has_previous %}<a href="?page={{ page_obj.previous_page_number }}">prev</a>{% endif %}
+page {{ page_obj.number }} of {{ paginator.num_pages }}
+{% if page_obj.has_next %}<a href="?page={{ page_obj.next_page_number }}">next</a>{% endif %}</p>
+{% else %}
+<p class="muted">No saved reports for this module. Generate one from the report page.</p>
+{% endif %}
+{% endblock %}

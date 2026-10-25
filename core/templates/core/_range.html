@@ -1,7 +1,32 @@
+{% if snapshot %}
+<p class="muted d-sub">Saved snapshot generated {{ snapshot.generated_at|date:"M j, Y H:i" }}{% if snapshot.generated_by %} by {{ snapshot.generated_by }}{% endif %}.</p>
+{% else %}
+<p class="muted d-sub">Live data &mdash; not saved. A manager can generate a saved snapshot for this range.</p>
+{% endif %}
+<form class="d-filter" method="get">
+ <label>Saved report
+  <select name="report" onchange="this.form.submit()">
+   <option value="">Live / custom range</option>
+   {% for s in snapshots %}
+   <option value="{{ s.pk }}"{% if snapshot and snapshot.pk == s.pk %} selected{% endif %}>{{ s.title|default:s.module }} &middot; {{ s.range_start|date:"M j, Y" }} &ndash; {{ s.range_end|date:"M j, Y" }}</option>
+   {% endfor %}
+  </select>
+ </label>
+ <noscript><button type="submit">View</button></noscript>
+ {% if can_manage and snapshot %}
+ <a class="d-btn" href="{{ edit_url }}">Edit stored report</a>
+ {% endif %}
+ {% if manage_url %}
+ <a href="{{ manage_url }}">Manage saved reports</a>
+ {% endif %}
+</form>
 <form class="d-filter" method="get">
  <label>From <input type="date" name="from" value="{{ w_from }}"></label>
  <label>To <input type="date" name="to" value="{{ w_to }}"></label>
  <button type="submit">Apply</button>
- <a class="d-btn" href="?from={{ w_from }}&amp;to={{ w_to }}&amp;export=csv">Export CSV</a>
- <a href="?">Reset</a>
+ <a class="d-btn" href="{% if snapshot %}?report={{ snapshot.pk }}&amp;export=csv{% else %}?from={{ w_from }}&amp;to={{ w_to }}&amp;export=csv{% endif %}">Export CSV</a>
+ {% if can_manage %}
+ <button type="submit" formaction="{% url 'report_generate' tab %}" formmethod="post">{% if snapshot %}Regenerate report{% else %}Generate report{% endif %}</button>
+ {% endif %}
+ <a href="?">Live / reset</a>
 </form>

@@ -1,0 +1,30 @@
+{% extends "core/base.html" %}{% block content %}
+<h2>{{ title }}</h2>
+<p class="muted">{{ snapshot.range_start|date:"M j, Y" }} &ndash; {{ snapshot.range_end|date:"M j, Y" }} &middot; generated {{ snapshot.generated_at|date:"M j, Y H:i" }}{% if snapshot.generated_by %} by {{ snapshot.generated_by }}{% endif %}</p>
+<p class="muted">Editing dates or labels does not recalculate the saved numbers. KPI values update the displayed value but do not recalculate derived values, deltas or captions. Edit the saved list, table and recommendation values below. Chart geometry is read-only; regenerate the report for a fresh calculation.</p>
+<form method="post">{% csrf_token %}
+{{ form.as_p }}
+{% for section in editor_sections %}
+<fieldset>
+ <legend>{{ section.label }}</legend>
+ {% if section.kind == "table" %}
+ <div class="scroll"><table>
+  <tr>{% for column in section.columns %}<th>{{ column.label }}</th>{% endfor %}</tr>
+  {% for row in section.rows %}
+  <tr>{% for field in row.fields %}<td><input name="editor-{{ section.key }}-{{ row.index }}-{{ field.name }}" value="{{ field.value }}"></td>{% endfor %}</tr>
+  {% endfor %}
+ </table></div>
+ {% elif section.kind == "dict" %}
+ <table>
+  {% for field in section.items %}
+  <tr><th>{{ field.label }}</th><td><input name="editor-{{ section.key }}-{{ field.name }}" value="{{ field.value }}"></td></tr>
+  {% endfor %}
+ </table>
+ {% else %}
+ <p><input name="editor-{{ section.key }}" value="{{ section.value }}"></p>
+ {% endif %}
+</fieldset>
+{% endfor %}
+<p><button>Save</button> <a href="{% url 'snapshot_list' tab %}">cancel</a></p>
+</form>
+{% endblock %}

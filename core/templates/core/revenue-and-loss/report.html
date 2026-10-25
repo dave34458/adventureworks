@@ -96,7 +96,7 @@
    <tr><th>Product</th><th class="num">Revenue</th><th class="num">Cost</th><th class="num">Profit</th><th class="num">Margin</th></tr>
    {% for p in products %}
    <tr>
-    <td><a href="{% url 'table_detail' tab 'ProductionProduct' p.id %}">{{ p.name }}</a></td>
+    <td>{{ p.name }}</td>
     <td class="num">{{ p.rev }}</td>
     <td class="num">{{ p.cost }}</td>
     <td class="num">{{ p.profit }}</td>

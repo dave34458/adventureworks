@@ -6,29 +6,34 @@ https://github.com/Microsoft/sql-server-samples/releases/tag/adventureworks
 ## Run it (prebuilt database)
 1. `pip install -r requirements.txt` (Django 6.0.5, gunicorn, whitenoise)
 2. `git clone` the repo (`adventureworks.sqlite3`, ~78 MB, is a plain file in git; no Git LFS needed)
-3. `python manage.py runserver`
-4. Open http://127.0.0.1:8000/ and log in.
+3. `python manage.py migrate`
+4. `python manage.py seed_reports` (optional; fills missing default report snapshots)
+5. `python manage.py runserver`
+6. Open http://127.0.0.1:8000/ and log in.
 
-The shipped database already has all the logins (see Roles below): superuser `admin` / `admin`
-plus the 17 demo role users. The first sign-in asks you to acknowledge the Data Privacy Notice
-(see Data privacy below). Change the passwords on /manage/ before real use.
+The shipped database already has all the logins (see Roles below): the single Administrator
+(superuser `admin` / `admin`) plus 12 demo department users. The first sign-in asks you to
+acknowledge the Data Privacy Notice (see Data privacy below). Change the passwords on /manage/
+before real use.
 
 ## Layout
     aw_project/         settings.py, urls.py (project configuration, not an app)
     core/               the one app
-      models.py         the 71 AdventureWorks models (generated; do not edit by hand)
+      models.py         the 19 AdventureWorks models still used by the report SQL, plus:
                         + TabAccess, one permission per tab (access_sales, access_customer_profile, ...)
                         + PrivacyAcknowledgment and PRIVACY_NOTICE_VERSION (data privacy governance)
                         + AuditLog, the append-only record of every table edit and deletion
+                        + Report, the single saved-report table (all four modules)
       views.py          all views: home, the consolidated dashboard, one report view per module
-                        (sales, customer_profile, revenue_and_loss, cost) and the shared list /
-                        detail / edit / delete pages every table uses, plus the JSON autocomplete
-                        they call
-      roles.py          ROLES (the 17 department roles) and apply_roles; see core/tests.py
+                        (sales, customer_profile, revenue_and_loss, cost), saved-report storage
+                        and CSV, the saved-report editor, and the shared list / detail / edit /
+                        delete pages every table uses, plus the JSON autocomplete they call
+      roles.py          ROLES (the 12 department roles) and apply_roles; see core/tests.py
       forms.py          the login form: credentials + the required privacy acknowledgment
-      tests.py          RBAC + privacy tests: the department matrix, applied and checked over HTTP
-      admin.py          read-only privacy acknowledgment and audit records (visible at /manage/)
+      tests.py          fast RBAC, table-browser and privacy tests
+      admin.py          read-only privacy and audit records (visible at /manage/)
       management/       commands/seed_users.py: one demo login per role (username = password)
+                        commands/seed_reports.py: default rolling 12-month snapshots per module
       widgets.py        SearchSelect, the on-demand foreign-key box for the edit pages
       static/core/      autocomplete.js, the tiny script behind the edit page's foreign-key boxes
       templates/        base, dashboard, list, detail, form, confirm_delete, no_access,
@@ -41,26 +46,88 @@ plus the 17 demo role users. The first sign-in asks you to acknowledge the Data 
     /dashboard/                              consolidated KPIs, charts, filters and report links;
                                              shows only the modules the user may open
     /sales/ /customer-profile/ /revenue-and-loss/ /cost/    report page per module
+    /<tab>/report/generate/                  POST: save or replace a snapshot (manager)
+    /<tab>/reports/                          saved reports for the module
+    /<tab>/reports/<id>/edit/                edit a saved report
+    /<tab>/reports/<id>/delete/              delete a saved report
     /<tab>/data/<Table>/                     list (search with ?q=)
     /<tab>/data/<Table>/<id>/                detail
     /<tab>/data/<Table>/<id>/edit/           edit
     /<tab>/data/<Table>/<id>/delete/         delete
-    /manage/                                 Users, roles, privacy and audit records (superadmin only)
+    /manage/                                 Users, roles, privacy and audit records (Administrator only)
+
+## Saved reports
+There is one table, `Report`. One row is one saved report for a module and effective date range.
+All panel data lives in `payload` JSON, including the KPI numbers, monthly trends,
+product/customer/vendor rows, chart geometry and recommendations. This keeps the schema simple:
+there are no per-module KPI columns.
+
+The report page reads the saved row instead of rerunning the aggregate SQL. If no saved row matches
+the requested range, the page falls back to live SQL and shows a "Live data" banner. Managers can
+press **Generate report** to save the current range or **Regenerate report** to recalculate it.
+Saved rows are edited at `/<tab>/reports/`: the title and the structured payload sections, including
+the KPI values, are editable. Chart geometry is read-only.
+
+`python manage.py seed_reports` creates the default rolling 12-month snapshot for every module and
+skips ranges that already exist; add `--force` to replace them. The Railway start command runs it on
+every boot, so a fresh volume gets fast default reports without overwriting edited snapshots.
 
 ## Roles (RBAC)
-* **Superadmin** = a Django superuser (`createsuperuser`). It can open every tab and every table.
-* **Other roles** are 17 Django groups defined in `core/roles.py`, one per department (the same
-  matrix lives in `core/tests.py`). Apply them with
-  `python manage.py shell -c "from core.roles import ROLES, apply_roles; apply_roles(ROLES)"`,
-  and add users to the group at /manage/ -> Groups / Users. Applying is safe to repeat.
-* **Demo logins**: one user per role, username = password — `executive`, `finance.manager`,
-  `finance.staff`, `sales.manager`, `sales.staff`, `marketing`, `purchasing.manager`,
-  `purchasing.staff`, `shipping.receiving`, `production.manager`, `production.staff`,
-  `production.control`, `quality.assurance`, `engineering.manager`, `engineering.staff`,
-  `research.development`, `tool.design`. `python manage.py seed_users` creates or resets them
-  (`--reset` also resets passwords); safe to repeat.
+* **Administrator** = the single Django superuser (`admin`; `createsuperuser`). It can open every
+  tab and every table. There is no Administrator group.
+* **Department roles** are 12 Django groups in `core/roles.py`: Manager, Supervisor and Employee
+  for each of four departments. Each department gets exactly one tab:
+  * Sales -> Sales
+  * Marketing -> Customer Profile
+  * Finance -> Revenue and Loss
+  * Production -> Cost
+  Apply them with
+  `python manage.py shell -c "from core.roles import ROLES, apply_roles; apply_roles(ROLES, prune=True)"`;
+  `prune=True` removes old groups. Add users at /manage/ -> Groups / Users. Applying is safe to repeat.
+* **Permissions**:
+  * Manager: opens the department tab, views its source tables and saved report, and
+    edits/deletes/generates the saved report.
+  * Supervisor: opens the tab and views its source tables and saved report; read-only.
+  * Employee: opens the tab and views its saved report only; no source tables, no edits.
+  * Source tables are read-only for every non-Administrator role. Nobody can create source records.
+* **Demo logins**: one per role, username = password — `sales.manager`, `sales.supervisor`,
+  `sales.employee`, `marketing.manager`, `marketing.supervisor`, `marketing.employee`,
+  `finance.manager`, `finance.supervisor`, `finance.employee`, `production.manager`,
+  `production.supervisor`, `production.employee`. Run
+  `python manage.py seed_users --reset --prune` to create/reset them and remove the old 17 demo
+  users. Safe to repeat.
 * A user sees a tab only with its `access_<tab>` permission, and a table only with `view_<table>`.
-  The edit and delete links appear only with `change_<table>` / `delete_<table>`. Nobody can create records.
+  Managers and Supervisors get read-only table access; only the Administrator can edit/delete
+  source-table rows. Managers can edit/delete their saved report. A saved report is created by
+  **Generate report**, not by a blank create form.
+
+### RBAC matrix
+
+`Manager`, `Supervisor`, and `Employee` are scoped to the department named in their group.
+The Administrator is the single superuser; there is no Administrator group.
+
+| Capability | Administrator | Manager | Supervisor | Employee |
+|---|---|---|---|---|
+| Open a department tab (`access_<tab>`) | All four tabs | Own tab | Own tab | Own tab |
+| View department source tables (`view_<table>`) | All 19 | Own department | Own department | No |
+| View saved reports | All modules | Own module | Own module | Own module |
+| Generate/regenerate a saved report (`change_report`) | Yes | Yes | No | No |
+| Edit/delete a saved report (`change_report`, `delete_report`) | Yes | Yes | No | No |
+| Edit/delete source-table rows (`change_<table>`, `delete_<table>`) | Yes | No | No | No |
+| Open `/manage/` (users, groups, privacy, audit) | Yes | No | No | No |
+| Export report CSV | Yes | Yes | Yes | Yes |
+| Export table CSV | Yes | Own department | Own department | No |
+
+| Department | Tab | Source tables for Manager/Supervisor |
+|---|---|---|
+| Sales | Sales | `SalesOrderHeader`, `SalesOrderDetail`, `SalesTerritory` |
+| Marketing | Customer Profile | `SalesCustomer`, `Person`, `PersonBusinessEntity`, `PersonAddress`, `SalesStore`, `PersonStateProvince`, `PersonCountryRegion` |
+| Finance | Revenue and Loss | `ProductionProduct`, `ProductionProductSubcategory`, `ProductionProductCategory` |
+| Production | Cost | `PurchasingPurchaseOrderHeader`, `PurchasingPurchaseOrderDetail`, `PurchasingVendor`, `ProductionWorkOrder`, `ProductionProductCostHistory`, `ProductionScrapReason` |
+
+No role can create source records through the UI. Report pages and saved-report lists are
+gated by `access_<tab>`; table pages and table exports need `view_<table>`. Report exports
+use the same tab gate.
 
 ## Data privacy and governance (RA 10173)
 * `/privacy/` is the published, versioned **Data Privacy Notice**: data inventory, legal bases
@@ -81,7 +148,8 @@ plus the 17 demo role users. The first sign-in asks you to acknowledge the Data 
 ## Deploy (Railway)
 The repo is deploy-ready: `requirements.txt` (Django 6.0.5, gunicorn, whitenoise), `.python-version`
 (3.12) and `railway.json` — build runs `collectstatic`; the start command copies the shipped database
-onto the volume on first boot, migrates, then serves with gunicorn on `$PORT`. Whitenoise serves
+onto the volume on first boot, migrates, seeds any missing default report snapshots, then serves with
+gunicorn on `$PORT`. Whitenoise serves
 `/static/`, and `SECURE_PROXY_SSL_HEADER` lets Django trust Railway's HTTPS proxy (needed for the login
 CSRF check). Set these service variables:
 * `DJANGO_SECRET_KEY` — a long random value

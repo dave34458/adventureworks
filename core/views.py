@@ -1,7 +1,9 @@
-"""All views for the app: home, the central dashboard, the four reports, and the
-generic table browser (list / detail / edit / delete / autocomplete) used by every table."""
+"""All views for the app: home, the central dashboard, the four reports, the saved-report
+editor, and the generic table browser (list / detail / edit / delete / autocomplete)."""
+import copy
+import json
 import re
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 
 from django import forms
 from django.apps import apps
@@ -9,7 +11,8 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_not_required, login_required, permission_required
 from django.contrib.auth.mixins import PermissionRequiredMixin
 from django.contrib.auth.views import LoginView
-from django.core.exceptions import FieldDoesNotExist
+from django.core.exceptions import FieldDoesNotExist, PermissionDenied
+from django.core.serializers.json import DjangoJSONEncoder
 from django.db import connection
 from django.db.models import ProtectedError, Q, TextField
 from django.db.models.functions import Cast
@@ -17,23 +20,71 @@ from django.http import Http404, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.views.decorators.http import require_POST
 from django.views import View
 from django.views.generic import DeleteView, DetailView, ListView, UpdateView
 
-from .forms import PrivacyAuthenticationForm
+from .widgets import SearchSelect
+
+from .forms import PrivacyAuthenticationForm, ReportEditForm
 from .models import (
     AuditLog,
     PRIVACY_NOTICE_VERSION,
     PrivacyAcknowledgment,
+    Report,
     SalesOrderHeader,
 )
 from .utils import csv_response, delta, money, rank, ring, window_for
-from .widgets import SearchSelect
 
+META_KEYS = {
+    "tab", "title", "through", "window_label", "prev_label", "custom", "period",
+    "w_from", "w_to", "snapshot", "snapshots",
+    "edit_url", "manage_url", "can_manage",
+}
+
+EDITABLE_KEYS = {
+    "sales": ["kpis", "products", "low_products"],
+    "customer-profile": [
+        "kpis", "channels", "countries", "cities", "network", "frequency",
+        "biggest", "new_legend", "ret_legend",
+    ],
+    "revenue-and-loss": [
+        "kpis", "mix", "declining", "leaks", "products", "donut_mid",
+    ],
+    "cost": [
+        "kpis", "pipeline", "mix", "vendors", "products", "reasons", "changes",
+        "biggest", "performance", "recommendations", "donut_mid",
+    ],
+}
+
+SECTION_LABELS = {
+    "kpis": "KPI cards",
+    "products": "Product rows",
+    "low_products": "Low-performing product rows",
+    "channels": "Buyer channels",
+    "countries": "Countries",
+    "cities": "Cities",
+    "network": "Store network",
+    "frequency": "Purchase frequency",
+    "biggest": "Largest rows",
+    "new_legend": "New-buyer legend",
+    "ret_legend": "Returning-buyer legend",
+    "mix": "Category mix",
+    "declining": "Declining products",
+    "leaks": "Below-cost products",
+    "pipeline": "Buy / make / waste / sell",
+    "vendors": "Vendors",
+    "reasons": "Scrap reasons",
+    "changes": "Standard-cost changes",
+    "performance": "Cost performance",
+    "recommendations": "Recommendations",
+    "donut_mid": "Donut centre",
+}
 
 # ---------------------------------------------------------------------------
-# Pages: home, the central dashboard, the four reports (below), and the generic table
-# browser further down. Each report is one view: it builds its own data and template.
+# Pages: home, the central dashboard, the four report panels, and the generic table
+# browser for the remaining source tables. Each report is one view: it builds its own
+# data and template.
 
 def home(request):
     """Open the central dashboard, or explain that the user has no report access."""
@@ -64,6 +115,189 @@ class PrivacyLogin(LoginView):
             defaults={"version": PRIVACY_NOTICE_VERSION, "acknowledged_at": timezone.now()},
         )
         return response
+
+
+def _render_snapshot(request, module, template, snapshot):
+    context = copy.deepcopy(snapshot.payload or {})
+    if module == "cost":
+        for row in context.get("biggest", []):
+            value = row.get("date")
+            if isinstance(value, str):
+                try:
+                    row["date"] = date.fromisoformat(value)
+                except ValueError:
+                    pass
+    context.update({
+        "tab": module,
+        "title": snapshot.title or module,
+        "through": snapshot.source_through,
+        "window_label": snapshot.window_label,
+        "prev_label": snapshot.prev_label,
+        "custom": snapshot.custom,
+        "period": snapshot.period,
+        "w_from": snapshot.range_start.isoformat(),
+        "w_to": snapshot.range_end.isoformat(),
+        "snapshot": snapshot,
+    })
+    if request.GET.get("export") == "csv":
+        filename, header, rows = _csv_for(module, context)
+        return csv_response(filename, header, rows)
+    context["snapshots"] = list(Report.objects.filter(module=module))
+    can_manage = request.user.has_perm("core.change_report")
+    context["can_manage"] = can_manage
+    context["edit_url"] = (reverse("snapshot_edit", args=[module, snapshot.pk])
+                           if can_manage else "")
+    context["manage_url"] = reverse("snapshot_list", args=[module])
+    return render(request, template, context)
+
+
+def _empty_report(request, module, template, title):
+    return render(request, template, {
+        "tab": module,
+        "title": title,
+        "snapshots": list(Report.objects.filter(module=module)),
+        "can_manage": request.user.has_perm("core.change_report"),
+        "manage_url": reverse("snapshot_list", args=[module]),
+    })
+
+
+def _report_response(request, module, template, context, window):
+    """Save when this request is a Generate action, otherwise render the live data."""
+    if getattr(request, "_capture_snapshot", None) == module:
+        user = getattr(request, "user", None)
+        generated_by = user if user is not None and getattr(user, "pk", None) else None
+        payload = json.loads(json.dumps(
+            {key: value for key, value in context.items() if key not in META_KEYS},
+            cls=DjangoJSONEncoder))
+        try:
+            compare_end = (window.trend_start - timedelta(seconds=1)).date()
+        except OverflowError:
+            compare_end = window.trend_start.date()
+        defaults = {
+            "title": context.get("title", ""),
+            "compare_start": window.window_start.date(),
+            "compare_end": compare_end,
+            "source_through": window.last.date(),
+            "window_label": context.get("window_label", ""),
+            "prev_label": context.get("prev_label", ""),
+            "period": context.get("period", ""),
+            "custom": bool(context.get("custom")),
+            "payload": payload,
+            "schema_version": 2,
+            "generated_by": generated_by,
+            "generated_at": timezone.now(),
+        }
+        snapshot, _ = Report.objects.update_or_create(
+            module=module,
+            range_start=window.trend_start.date(),
+            range_end=window.last.date(),
+            defaults=defaults,
+        )
+        request._captured_snapshot = snapshot
+        return redirect(f"{reverse(module)}?report={snapshot.pk}")
+    context["snapshots"] = list(Report.objects.filter(module=module))
+    context["can_manage"] = request.user.has_perm("core.change_report")
+    context["manage_url"] = reverse("snapshot_list", args=[module])
+    return render(request, template, context)
+
+
+def _saved_report(request, module, template):
+    if getattr(request, "_capture_snapshot", None):
+        return None
+    pk = request.GET.get("report")
+    if not pk:
+        return None
+    try:
+        snapshot = Report.objects.get(pk=pk, module=module)
+    except (ValueError, Report.DoesNotExist):
+        return None
+    return _render_snapshot(request, module, template, snapshot)
+
+
+def _saved_range(request, module, window):
+    if getattr(request, "_capture_snapshot", None):
+        return None
+    return Report.objects.filter(
+        module=module,
+        range_start=window.trend_start.date(),
+        range_end=window.last.date(),
+    ).first()
+
+
+def _csv_for(module, context):
+    """Return (filename, header, rows) for the CSV export of a saved report."""
+    label = context.get("window_label", "")
+    prev_label = context.get("prev_label", "")
+    rows = [["Period", label, "compare", prev_label]]
+    rows += [["KPI", k.get("label", ""), k.get("value", ""),
+              f"{k.get('delta')} \u00b7 {k.get('cap', '')}" if k.get("delta") else k.get("cap", "")]
+             for k in context.get("kpis", [])]
+
+    if module == "sales":
+        rows += [["Sales trend", t.get("full", ""), t.get("money", ""),
+                  f"{t.get('orders', '')} orders"] for t in context.get("trend", [])]
+        rows += [["Sales trend (previous)", t.get("prev_full", ""), t.get("prev_money", ""),
+                  f"{t.get('prev_orders', '')} orders"]
+                 for t in context.get("trend", []) if t.get("prev_full")]
+        rows += [["High-performing product", r.get("name", ""), r.get("value", ""),
+                  f"{r.get('pct', '')}% of top product"] for r in context.get("products", [])]
+        rows += [["Low-performing product", r.get("name", ""), r.get("value", ""),
+                  f"{r.get('pct', '')}% of low list top"] for r in context.get("low_products", [])]
+        return "sales.csv", ["Section", "Item", "Value", "Detail"], rows
+
+    if module == "customer-profile":
+        rows += [["Country", r.get("name", ""), r.get("value", ""), ""]
+                 for r in context.get("countries", [])]
+        rows += [["City", r.get("name", ""), r.get("value", ""), ""]
+                 for r in context.get("cities", [])]
+        rows += [["Store type", r.get("name", ""), r.get("value", ""), r.get("note", "")]
+                 for r in context.get("network", [])]
+        rows += [["Orders per customer", r.get("name", ""), r.get("value", ""), ""]
+                 for r in context.get("frequency", [])]
+        rows += [["Top customer", r.get("name", ""), r.get("rev", ""),
+                  f"{r.get('orders', '')} orders \u00b7 {'store' if r.get('store') else 'individual'}"]
+                 for r in context.get("biggest", [])]
+        return "customer-profile.csv", ["Section", "Item", "Value", "Detail"], rows
+
+    if module == "revenue-and-loss":
+        rows += [["Revenue trend", t.get("full", ""), t.get("money", ""),
+                  f"previous {t.get('prev_full', '')}: {t.get('prev_money', '')}"]
+                 for t in context.get("rev_trend", []) if t.get("prev_full")]
+        rows += [["Category", r.get("name", ""), r.get("money", ""),
+                  f"{r.get('pct', '')}% of revenue \u00b7 {r.get('margin', '')}% margin"]
+                 for r in context.get("mix", [])]
+        rows += [["Declining product", r.get("name", ""), r.get("value", ""), r.get("note", "")]
+                 for r in context.get("declining", [])]
+        rows += [["Below-cost product", r.get("name", ""), r.get("value", ""), r.get("note", "")]
+                 for r in context.get("leaks", [])]
+        rows += [["Product", r.get("name", ""), r.get("rev", ""),
+                  f"cost {r.get('cost', '')} \u00b7 profit {r.get('profit', '')} \u00b7 {r.get('margin', '')} margin"]
+                 for r in context.get("products", [])]
+        return "revenue-and-loss.csv", ["Section", "Item", "Value", "Detail"], rows
+
+    rows += [["Pipeline", p.get("k", ""), p.get("big", ""), p.get("cap", "")]
+             for p in context.get("pipeline", [])]
+    rows += [["Category", r.get("name", ""), r.get("money", ""),
+              f"{r.get('pct', '')}% of cost \u00b7 {r.get('margin', '')}% margin"]
+             for r in context.get("mix", [])]
+    rows += [["Vendor", r.get("name", ""), r.get("value", ""), r.get("note", "")]
+             for r in context.get("vendors", [])]
+    rows += [["Product", r.get("name", ""), r.get("value", ""), r.get("note", "")]
+             for r in context.get("products", [])]
+    rows += [["Scrap reason", r.get("name", ""), r.get("value", ""), r.get("note", "")]
+             for r in context.get("reasons", [])]
+    rows += [["Cost change", r.get("name", ""), r.get("value", ""), r.get("note", "")]
+             for r in context.get("changes", [])]
+    performance = context.get("performance")
+    if performance:
+        rows += [["Performance", "Cost of goods", performance.get("cost", ""), "share of revenue"],
+                 ["Performance", "Gross margin", performance.get("margin", ""), "share of revenue"]]
+    rows += [["Recommendation", r.get("title", ""), "", r.get("text", "")]
+             for r in context.get("recommendations", [])]
+    rows += [["Purchase order", f"PO{r.get('id', '')}", r.get("total", ""),
+              f"{r.get('date', '')} \u00b7 {r.get('vendor', '')} \u00b7 {r.get('status', '')}"]
+             for r in context.get("biggest", [])]
+    return "cost.csv", ["Section", "Item", "Value", "Detail"], rows
 
 
 @login_required
@@ -123,10 +357,7 @@ def dashboard(request):
         "categories": categories,
         "category_id": category_id,
         "selected_category": selected_category,
-        "show_revenue": show_revenue,
         "show_profit": show_profit,
-        "show_cost": show_cost,
-        "show_customer": show_customer,
         "has_data": False,
     }
     w = window_for(request, SalesOrderHeader)
@@ -531,10 +762,15 @@ def dashboard(request):
 def sales(request):
     """Sales report: one aggregate query per panel, all windows anchored to the
     data's own last order date (the sample data is historical, so "today" would be empty)."""
+    saved = _saved_report(request, "sales", "core/sales/report.html")
+    if saved:
+        return saved
     w = window_for(request, SalesOrderHeader)
     if w is None:
-        return render(request, "core/sales/report.html",
-                      {"tab": "sales", "title": "Sales report"})
+        return _empty_report(request, "sales", "core/sales/report.html", "Sales report")
+    saved = _saved_range(request, "sales", w)
+    if saved:
+        return _render_snapshot(request, "sales", "core/sales/report.html", saved)
 
     cur_lo, cur_hi = w.trend_start, w.last
     prev_lo, prev_hi = w.window_start, w.trend_start
@@ -661,7 +897,7 @@ def sales(request):
                  for r in low_products]
         return csv_response("sales.csv", ["Section", "Item", "Value", "Detail"], rows)
 
-    return render(request, "core/sales/report.html", {
+    return _report_response(request, "sales", "core/sales/report.html", {
         "tab": "sales",
         "title": "Sales report",
         "kpis": kpis,
@@ -675,17 +911,24 @@ def sales(request):
         "period": "the selected range" if w.custom else "the last 12 months",
         "w_from": w.trend_start.strftime("%Y-%m-%d"),
         "w_to": w.last.strftime("%Y-%m-%d"),
-    })
+    }, w)
 
 
 @permission_required("core.access_customer_profile", raise_exception=True)
 def customer_profile(request):
     """Customer profile report: who buys (individuals vs stores), how often they come
     back, where they are, and which stores make up the B2B side."""
+    saved = _saved_report(request, "customer-profile", "core/customer-profile/report.html")
+    if saved:
+        return saved
     w = window_for(request, SalesOrderHeader)
     if w is None:
-        return render(request, "core/customer-profile/report.html",
-                      {"tab": "customer-profile", "title": "Customer profile report"})
+        return _empty_report(request, "customer-profile", "core/customer-profile/report.html",
+                             "Customer profile report")
+    saved = _saved_range(request, "customer-profile", w)
+    if saved:
+        return _render_snapshot(request, "customer-profile",
+                                "core/customer-profile/report.html", saved)
 
     cur_lo, cur_hi = w.trend_start, w.last
     prev_lo, prev_hi = w.window_start, w.trend_start
@@ -1037,7 +1280,7 @@ def customer_profile(request):
                   f"{r['orders']} orders · {'store' if r['store'] else 'individual'}"] for r in biggest]
         return csv_response("customer-profile.csv", ["Section", "Item", "Value", "Detail"], rows)
 
-    return render(request, "core/customer-profile/report.html", {
+    return _report_response(request, "customer-profile", "core/customer-profile/report.html", {
         "tab": "customer-profile",
         "title": "Customer profile report",
         "kpis": kpis,
@@ -1058,17 +1301,22 @@ def customer_profile(request):
         "period": "the selected range" if w.custom else "the last 12 months",
         "w_from": w.trend_start.strftime("%Y-%m-%d"),
         "w_to": w.last.strftime("%Y-%m-%d"),
-    })
+    }, w)
 
 
 @permission_required("core.access_cost", raise_exception=True)
 def cost(request):
     """Cost report: what the merchandise cost us (standard cost), what we spent
     buying it (purchase orders), and what manufacturing wasted (work order scrap)."""
+    saved = _saved_report(request, "cost", "core/cost/report.html")
+    if saved:
+        return saved
     w = window_for(request, SalesOrderHeader)
     if w is None:
-        return render(request, "core/cost/report.html",
-                      {"tab": "cost", "title": "Cost report"})
+        return _empty_report(request, "cost", "core/cost/report.html", "Cost report")
+    saved = _saved_range(request, "cost", w)
+    if saved:
+        return _render_snapshot(request, "cost", "core/cost/report.html", saved)
 
     cur_lo, cur_hi = w.trend_start, w.last
     prev_lo, prev_hi = w.window_start, w.trend_start
@@ -1442,7 +1690,7 @@ def cost(request):
                   f"{r['date']:%Y-%m-%d} · {r['vendor']} · {r['status']}"] for r in biggest]
         return csv_response("cost.csv", ["Section", "Item", "Value", "Detail"], rows)
 
-    return render(request, "core/cost/report.html", {
+    return _report_response(request, "cost", "core/cost/report.html", {
         "tab": "cost",
         "title": "Cost report",
         "kpis": kpis,
@@ -1465,17 +1713,24 @@ def cost(request):
         "period": "the selected range" if w.custom else "the last 12 months",
         "w_from": w.trend_start.strftime("%Y-%m-%d"),
         "w_to": w.last.strftime("%Y-%m-%d"),
-    })
+    }, w)
 
 
 @permission_required("core.access_revenue_and_loss", raise_exception=True)
 def revenue_and_loss(request):
     """Revenue and loss report: revenue, cost, gross profit and where the money leaks
     (below-cost wholesale lines); the page also states how each figure is calculated."""
+    saved = _saved_report(request, "revenue-and-loss", "core/revenue-and-loss/report.html")
+    if saved:
+        return saved
     w = window_for(request, SalesOrderHeader)
     if w is None:
-        return render(request, "core/revenue-and-loss/report.html",
-                      {"tab": "revenue-and-loss", "title": "Revenue and loss report"})
+        return _empty_report(request, "revenue-and-loss",
+                             "core/revenue-and-loss/report.html", "Revenue and loss report")
+    saved = _saved_range(request, "revenue-and-loss", w)
+    if saved:
+        return _render_snapshot(request, "revenue-and-loss",
+                                "core/revenue-and-loss/report.html", saved)
 
     cur_lo, cur_hi = w.trend_start, w.last
     prev_lo, prev_hi = w.window_start, w.trend_start
@@ -1808,7 +2063,8 @@ def revenue_and_loss(request):
                  for r in products]
         return csv_response("revenue-and-loss.csv", ["Section", "Item", "Value", "Detail"], rows)
 
-    return render(request, "core/revenue-and-loss/report.html", {
+    return _report_response(request, "revenue-and-loss",
+                            "core/revenue-and-loss/report.html", {
         "tab": "revenue-and-loss",
         "title": "Revenue and loss report",
         "kpis": kpis,
@@ -1827,11 +2083,271 @@ def revenue_and_loss(request):
         "period": "the selected range" if w.custom else "the last 12 months",
         "w_from": w.trend_start.strftime("%Y-%m-%d"),
         "w_to": w.last.strftime("%Y-%m-%d"),
-    })
+    }, w)
+
+
+REPORT_VIEWS = {
+    "sales": sales,
+    "customer-profile": customer_profile,
+    "revenue-and-loss": revenue_and_loss,
+    "cost": cost,
+}
+
+
+@require_POST
+def report_generate(request, tab):
+    """Save or replace the snapshot for this report range."""
+    if tab not in REPORT_VIEWS:
+        raise Http404
+    if not (request.user.has_perm(f"core.access_{tab.replace('-', '_')}")
+            and request.user.has_perm("core.change_report")):
+        raise PermissionDenied
+    request._range_params = request.POST
+    request._capture_snapshot = tab
+    return REPORT_VIEWS[tab](request)
+
+
+def capture_snapshot(request, module, start, end, default=False):
+    """Rebuild one snapshot in place; used by the seed command."""
+    if module not in REPORT_VIEWS:
+        return None
+    old_params = getattr(request, "_range_params", None)
+    old_capture = getattr(request, "_capture_snapshot", None)
+    old_captured = getattr(request, "_captured_snapshot", None)
+    request._range_params = {} if default else {
+        "from": start.isoformat(), "to": end.isoformat(),
+    }
+    request._capture_snapshot = module
+    request._captured_snapshot = None
+    try:
+        REPORT_VIEWS[module](request)
+    finally:
+        request._range_params = old_params
+        request._capture_snapshot = old_capture
+    snapshot = getattr(request, "_captured_snapshot", None)
+    request._captured_snapshot = old_captured
+    return snapshot
 
 
 # ---------------------------------------------------------------------------
-# The generic table browser: one set of views drives every table in every tab.
+# Saved-report editor: list, edit and delete one module's snapshots. The report
+# itself is still generated by the report view, so there is no blank create form.
+
+class SnapshotMixin(PermissionRequiredMixin):
+    perm = None
+    page_title = "Saved reports"
+
+    def setup(self, request, *args, **kwargs):
+        super().setup(request, *args, **kwargs)
+        self.tab = kwargs["tab"]
+        if self.tab not in REPORT_VIEWS:
+            raise Http404
+        self.model = Report
+
+    def get_permission_required(self):
+        required = [f"core.access_{self.tab.replace('-', '_')}"]
+        if self.perm:
+            required.append(f"core.{self.perm}_report")
+        return required
+
+    def get_success_url(self):
+        return reverse("snapshot_list", args=[self.tab])
+
+    def get_context_data(self, **kw):
+        user = self.request.user
+        return super().get_context_data(
+            tab=self.tab, title=self.page_title,
+            can_change=user.has_perm("core.change_report"),
+            can_delete=user.has_perm("core.delete_report"), **kw)
+
+
+class SnapshotList(SnapshotMixin, ListView):
+    page_title = "Saved reports"
+    template_name = "core/snapshot_list.html"
+    context_object_name = "snapshots"
+    paginate_by = 50
+
+    def get_queryset(self):
+        return self.model._default_manager.filter(module=self.tab)
+
+    def get_context_data(self, **kw):
+        ctx = super().get_context_data(**kw)
+        rows, headers = [], []
+        for snapshot in ctx["object_list"]:
+            kpis = (snapshot.payload or {}).get("kpis", [])
+            if not headers:
+                headers = [kpi.get("label", "") for kpi in kpis]
+            rows.append({
+                "snapshot": snapshot,
+                "cells": [kpi.get("value", "") for kpi in kpis],
+            })
+        ctx["rows"] = rows
+        ctx["kpi_headers"] = headers
+        return ctx
+
+
+class SnapshotEdit(SnapshotMixin, UpdateView):
+    perm = "change"
+    page_title = "Edit saved report"
+    template_name = "core/snapshot_form.html"
+    context_object_name = "snapshot"
+
+    def get_form_class(self):
+        return ReportEditForm
+
+    def get_context_data(self, **kw):
+        ctx = super().get_context_data(**kw)
+        sections = []
+        for key in EDITABLE_KEYS.get(self.tab, []):
+            value = (self.object.payload or {}).get(key)
+            label = SECTION_LABELS.get(key, key.replace("_", " ").title())
+            if isinstance(value, list) and all(isinstance(row, dict) for row in value):
+                columns = []
+                for row in value:
+                    for field, field_value in row.items():
+                        if not isinstance(field_value, (dict, list)) and field not in columns:
+                            columns.append(field)
+                sections.append({
+                    "key": key,
+                    "label": label,
+                    "kind": "table",
+                    "columns": [{"name": c, "label": c.replace("_", " ").title()}
+                                for c in columns],
+                    "rows": [
+                        {
+                            "index": index,
+                            "fields": [
+                                {
+                                    "name": c,
+                                    "label": c.replace("_", " ").title(),
+                                    "value": "" if row.get(c) is None else row.get(c),
+                                }
+                                for c in columns
+                            ],
+                        }
+                        for index, row in enumerate(value)
+                    ],
+                })
+            elif isinstance(value, dict):
+                sections.append({
+                    "key": key,
+                    "label": label,
+                    "kind": "dict",
+                    "items": [
+                        {
+                            "name": field,
+                            "label": field.replace("_", " ").title(),
+                            "value": "" if field_value is None else field_value,
+                        }
+                        for field, field_value in value.items()
+                        if not isinstance(field_value, (dict, list))
+                    ],
+                })
+            else:
+                sections.append({
+                    "key": key,
+                    "label": label,
+                    "kind": "scalar",
+                    "value": "" if value is None else value,
+                })
+        ctx["editor_sections"] = sections
+        return ctx
+
+    def form_valid(self, form):
+        old = self.model._default_manager.filter(pk=self.object.pk).first()
+        payload = copy.deepcopy(self.object.payload or {})
+        edits = []
+        for key in EDITABLE_KEYS.get(self.tab, []):
+            original = payload.get(key)
+            if isinstance(original, list) and all(isinstance(row, dict) for row in original):
+                for index, row in enumerate(original):
+                    for field, field_value in list(row.items()):
+                        if isinstance(field_value, (dict, list)):
+                            continue
+                        edits.append((row, field, field_value,
+                                      f"editor-{key}-{index}-{field}"))
+            elif isinstance(original, dict):
+                for field, field_value in list(original.items()):
+                    if isinstance(field_value, (dict, list)):
+                        continue
+                    edits.append((original, field, field_value, f"editor-{key}-{field}"))
+            else:
+                edits.append((payload, key, original, f"editor-{key}"))
+        errors = []
+        for container, field, original_value, name in edits:
+            if name not in self.request.POST:
+                continue
+            value = self.request.POST[name]
+            if isinstance(original_value, bool):
+                new_value = str(value).lower() in {"1", "true", "on", "yes"}
+            elif isinstance(original_value, int):
+                try:
+                    new_value = int(value)
+                except (TypeError, ValueError):
+                    errors.append(f"{field.replace('_', ' ').capitalize()} must be a whole number.")
+                    continue
+            elif isinstance(original_value, float):
+                try:
+                    new_value = float(value)
+                except (TypeError, ValueError):
+                    errors.append(f"{field.replace('_', ' ').capitalize()} must be a number.")
+                    continue
+            elif original_value is None:
+                new_value = value or None
+            else:
+                new_value = value
+            container[field] = new_value
+
+        if errors:
+            for message in dict.fromkeys(errors):
+                form.add_error(None, message)
+            return self.form_invalid(form)
+
+        changes = {}
+        if old is not None:
+            for field in form.changed_data:
+                before = getattr(old, field)
+                after = form.cleaned_data.get(field)
+                changes[field] = [
+                    str(before) if before is not None else None,
+                    str(after) if after is not None else None,
+                ]
+            if payload != old.payload:
+                changes["payload"] = ["edited", "edited"]
+
+        form.instance.payload = payload
+        messages.success(self.request, f"Saved {form.instance}.")
+        response = super().form_valid(form)
+        if changes:
+            AuditLog.objects.create(
+                user=self.request.user, username=self.request.user.get_username(),
+                action="update", model=self.model.__name__,
+                object_pk=str(form.instance.pk), object_repr=str(form.instance)[:255],
+                changes=changes, ip_address=self.request.META.get("REMOTE_ADDR"))
+        return response
+
+
+class SnapshotDelete(SnapshotMixin, DeleteView):
+    perm = "delete"
+    page_title = "Delete saved report"
+    template_name = "core/snapshot_confirm_delete.html"
+    context_object_name = "snapshot"
+
+    def post(self, request, *args, **kwargs):
+        obj = self.get_object()
+        audit = {
+            f.name: str(getattr(obj, f.name)) if getattr(obj, f.name) is not None else None
+            for f in obj._meta.fields
+            if f.name != "payload" and f.get_internal_type() != "BinaryField"
+        }
+        pk, repr_ = str(obj.pk), str(obj)[:255]
+        response = super().post(request, *args, **kwargs)
+        AuditLog.objects.create(
+            user=request.user, username=request.user.get_username(), action="delete",
+            model=self.model.__name__, object_pk=pk, object_repr=repr_, changes=audit,
+            ip_address=request.META.get("REMOTE_ADDR"))
+        return response
+
 
 def shown(model):
     """Fields worth showing in tables: skip blobs (all other columns are kept)."""
@@ -2023,7 +2539,6 @@ class TableEdit(TableMixin, UpdateView):
                 if rel.__name__ in LABEL_COLUMNS:
                     qs = qs.only(*LABEL_COLUMNS[rel.__name__])
                 widget = SearchSelect(attrs=field.widget.attrs)
-                widget.is_required = field.required
                 widget.queryset = qs
                 widget.url = reverse("table_autocomplete", args=[self.tab, self.model.__name__, name])
                 field.widget = widget

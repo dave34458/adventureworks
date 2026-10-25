@@ -121,9 +121,11 @@ def range_window(model, start, end, date_field="order_date"):
 
 def window_for(request, model, date_field="order_date"):
     """The rolling 12-month default, or the ?from=/?to= range when the user applied one."""
+    params = getattr(request, "_range_params", request.GET)
+
     def pick(key):
         try:
-            return datetime.strptime(request.GET.get(key, ""), "%Y-%m-%d").date()
+            return datetime.strptime(params.get(key, ""), "%Y-%m-%d").date()
         except ValueError:
             return None
     start, end = pick("from"), pick("to")

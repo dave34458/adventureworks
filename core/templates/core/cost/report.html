@@ -118,7 +118,7 @@
    <tr><th>PO</th><th>Vendor</th><th class="d-hide-m">Ordered</th><th class="num">Lines</th><th>Status</th><th class="num">Total</th></tr>
    {% for o in biggest %}
    <tr>
-    <td><a href="{% url 'table_detail' tab 'PurchasingPurchaseOrderHeader' o.id %}">PO{{ o.id }}</a></td>
+    <td>PO{{ o.id }}</td>
     <td>{{ o.vendor }}</td>
     <td class="d-hide-m">{{ o.date|date:"M j, Y" }}</td>
     <td class="num">{{ o.lines }}</td>
