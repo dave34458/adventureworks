@@ -4,10 +4,15 @@ from io import StringIO
 
 from django.contrib.auth.models import Group, User
 from django.core.management import call_command
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 
 from .models import PRIVACY_NOTICE_VERSION, PrivacyAcknowledgment, Report
 from .roles import ROLES, TABLES, apply_roles
+from .views import (
+    PayloadValidationError,
+    humanize_payload_error,
+    validate_report_payload,
+)
 
 ALL_TABS = ["sales", "customer-profile", "revenue-and-loss", "cost"]
 
@@ -27,6 +32,100 @@ for _department, _tab in DEPARTMENTS.items():
         [_tab], _tables | {"view_report"}, set(), set())
     MATRIX[f"{_department} Employee"] = (
         [_tab], {"view_report"}, set(), set())
+
+
+def kpi_row(label="Revenue", value=100.0, kind="money"):
+    return {
+        "label": label,
+        "value": value,
+        "value_kind": kind,
+        "delta": 1.0,
+        "dir": "up",
+        "cap": "test",
+    }
+
+
+def sales_payload():
+    return {
+        "kpis": [kpi_row()],
+        "trend": [{
+            "label": "Jan",
+            "full": "Jan 2024",
+            "money": 100.0,
+            "orders": 1,
+            "height": 50,
+            "prev_full": "Jan 2023",
+            "prev_money": 90.0,
+            "prev_orders": 1,
+            "prev_h": 40,
+        }],
+        "products": [{"name": "Product", "value": 100.0, "pct": 100}],
+        "low_products": [{"name": "Product", "value": 10.0, "pct": 10}],
+    }
+
+
+def customer_payload():
+    return {
+        "kpis": [kpi_row()],
+        "growth": [],
+        "channels": [],
+        "countries": [],
+        "bubbles": [],
+        "cities": [],
+        "network": [],
+        "frequency": [{"name": "1 order", "value": 1, "pct": 100}],
+        "biggest": [],
+        "new_legend": {"n": 0, "rev": 0.0},
+        "ret_legend": {"n": 0, "rev": 0.0},
+    }
+
+
+def revenue_payload():
+    return {
+        "kpis": [kpi_row()],
+        "combo": {
+            "bars": [],
+            "cur_pts": "",
+            "prev_pts": "",
+            "dots": [],
+            "xticks": [],
+            "lticks": [],
+            "rticks": [],
+        },
+        "donut": [],
+        "donut_mid": {"big": 0.0, "small": "revenue"},
+        "mix": [],
+        "rev_trend": [],
+        "declining": [],
+        "leaks": [],
+        "products": [],
+    }
+
+
+def cost_payload():
+    return {
+        "kpis": [kpi_row()],
+        "pipeline": [],
+        "trend": [],
+        "mix": [],
+        "donut": [],
+        "donut_mid": {"big": 0.0, "small": "cost of goods"},
+        "vendors": [],
+        "products": [],
+        "reasons": [],
+        "changes": [],
+        "biggest": [],
+        "performance": None,
+        "recommendations": [],
+    }
+
+
+VALID_PAYLOADS = {
+    "sales": sales_payload,
+    "customer-profile": customer_payload,
+    "revenue-and-loss": revenue_payload,
+    "cost": cost_payload,
+}
 
 
 def username_for(role):
@@ -127,7 +226,7 @@ class HttpTests(TestCase):
             "window_label": "Jan-Jun 2024",
             "prev_label": "Jan-Dec 2023",
             "period": "the selected range",
-            "payload": {"kpis": [{"label": "Revenue", "value": "100", "score": 5}]},
+            "payload": sales_payload(),
         }
         values.update(overrides)
         return Report.objects.create(**values)
@@ -163,7 +262,7 @@ class HttpTests(TestCase):
                 window_label="Feb-Jul 2024",
                 prev_label="Feb 2023-Jan 2024",
                 custom="on",
-                **{"editor-kpis-0-score": "7"},
+                **{"editor-products-0-pct": "55"},
             ),
         )
         self.assertEqual(response.status_code, 302)
@@ -171,7 +270,7 @@ class HttpTests(TestCase):
         self.assertEqual(report.title, "Updated snapshot")
         self.assertEqual(report.range_start, date(2024, 2, 1))
         self.assertEqual(report.range_end, date(2024, 7, 31))
-        self.assertEqual(report.payload["kpis"][0]["score"], 7)
+        self.assertEqual(report.payload["products"][0]["pct"], 55)
 
     def test_snapshot_edit_rejects_invalid_range(self):
         report = self.make_report()
@@ -184,6 +283,30 @@ class HttpTests(TestCase):
         self.assertContains(response, "End date must be on or after the start date.")
         report.refresh_from_db()
         self.assertEqual(report.range_start, date(2024, 1, 1))
+
+    def test_snapshot_edit_rejects_blank_label(self):
+        report = self.make_report()
+        self.client.force_login(self.users["Sales Manager"])
+        response = self.client.post(
+            f"/sales/reports/{report.pk}/edit/",
+            self.edit_data(report, title="   "),
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "This field is required.")
+        report.refresh_from_db()
+        self.assertEqual(report.title, "Sales snapshot")
+
+    def test_snapshot_edit_rejects_comparison_after_range_start(self):
+        report = self.make_report()
+        self.client.force_login(self.users["Sales Manager"])
+        response = self.client.post(
+            f"/sales/reports/{report.pk}/edit/",
+            self.edit_data(report, compare_end="2024-02-01"),
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Comparison end must be before the report start.")
+        report.refresh_from_db()
+        self.assertEqual(report.compare_end, date(2023, 12, 31))
 
     def test_snapshot_edit_rejects_duplicate_range(self):
         report = self.make_report()
@@ -204,12 +327,238 @@ class HttpTests(TestCase):
         self.client.force_login(self.users["Sales Manager"])
         response = self.client.post(
             f"/sales/reports/{report.pk}/edit/",
-            self.edit_data(report, **{"editor-kpis-0-score": "not a number"}),
+            self.edit_data(report, **{"editor-products-0-pct": "not a number"}),
         )
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Score must be a whole number.")
+        self.assertContains(response, "Product rows, row 1, Percent: must be a number.")
         report.refresh_from_db()
-        self.assertEqual(report.payload["kpis"][0]["score"], 5)
+        self.assertEqual(report.payload["products"][0]["pct"], 100)
+
+    def test_snapshot_edit_rejects_percentage_over_100(self):
+        report = self.make_report()
+        self.client.force_login(self.users["Sales Manager"])
+        response = self.client.post(
+            f"/sales/reports/{report.pk}/edit/",
+            self.edit_data(report, **{"editor-products-0-pct": "900"}),
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Product rows, row 1, Percent: must be at most 100")
+        report.refresh_from_db()
+        self.assertEqual(report.payload["products"][0]["pct"], 100)
+
+    def cost_report(self):
+        payload = cost_payload()
+        payload["biggest"] = [{
+            "id": 1,
+            "vendor": "Vendor",
+            "date": "2024-01-01",
+            "lines": 1,
+            "total": 1.0,
+            "status": "Approved",
+            "cls": "online",
+        }]
+        return self.make_report(module="cost", payload=payload)
+
+    def test_snapshot_editor_uses_numeric_and_date_inputs(self):
+        report = self.cost_report()
+        self.client.force_login(User.objects.create_superuser("cost-root", password="x"))
+        response = self.client.get(f"/cost/reports/{report.pk}/edit/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'type="number"')
+        self.assertContains(response, 'type="date"')
+        self.assertContains(response, '<select name="editor-kpis-0-value_kind">')
+        self.assertContains(response, '<select name="editor-biggest-0-status">')
+
+    def test_snapshot_edit_keeps_date_only(self):
+        report = self.cost_report()
+        self.client.force_login(User.objects.create_superuser("cost-root", password="x"))
+        response = self.client.post(
+            f"/cost/reports/{report.pk}/edit/",
+            self.edit_data(report, **{"editor-biggest-0-date": "2024-02-03"}),
+        )
+        self.assertEqual(response.status_code, 302)
+        report.refresh_from_db()
+        self.assertEqual(report.payload["biggest"][0]["date"], "2024-02-03")
+
+
+class PayloadValidationTests(SimpleTestCase):
+    def test_valid_payloads(self):
+        for module, factory in VALID_PAYLOADS.items():
+            with self.subTest(module=module):
+                validate_report_payload(module, factory())
+
+    def test_rejects_non_object(self):
+        with self.assertRaisesMessage(PayloadValidationError, "payload: must be an object"):
+            validate_report_payload("sales", [])
+
+    def test_rejects_unknown_key(self):
+        payload = sales_payload()
+        payload["extra"] = 1
+        with self.assertRaisesMessage(PayloadValidationError, "unexpected key"):
+            validate_report_payload("sales", payload)
+
+    def test_rejects_percentage_over_100(self):
+        payload = sales_payload()
+        payload["products"][0]["pct"] = 900
+        with self.assertRaisesMessage(PayloadValidationError, "must be at most 100"):
+            validate_report_payload("sales", payload)
+
+    def test_rejects_non_finite_number(self):
+        payload = sales_payload()
+        payload["products"][0]["pct"] = float("nan")
+        with self.assertRaisesMessage(PayloadValidationError, "must be finite"):
+            validate_report_payload("sales", payload)
+
+    def test_rejects_mix_not_100(self):
+        payload = revenue_payload()
+        payload["mix"] = [{
+            "name": "Bikes",
+            "cls": "c1",
+            "pct": 90,
+            "money": 90.0,
+            "margin": 10,
+        }]
+        with self.assertRaisesMessage(PayloadValidationError, "pct values must add up to 100"):
+            validate_report_payload("revenue-and-loss", payload)
+
+    def test_rejects_donut_not_100(self):
+        payload = revenue_payload()
+        payload["donut"] = [{
+            "cls": "c1",
+            "pct": 90,
+            "t": "Bikes",
+            "dash": 300,
+            "off": 0,
+        }]
+        with self.assertRaisesMessage(PayloadValidationError, "pct values must add up to 100"):
+            validate_report_payload("revenue-and-loss", payload)
+
+    def test_rejects_channel_shares_not_100(self):
+        payload = customer_payload()
+        payload["channels"] = [{
+            "name": "Individuals",
+            "pct": 100,
+            "cust_pct": 90,
+            "cls": "online",
+            "money": 100.0,
+            "customers": 1,
+            "aov": 100.0,
+        }]
+        with self.assertRaisesMessage(PayloadValidationError, "cust_pct values must add up to 100"):
+            validate_report_payload("customer-profile", payload)
+
+    def test_accepts_performance_values_summing_to_100(self):
+        payload = cost_payload()
+        payload["performance"] = {
+            "cost": 80.0,
+            "margin": 20.0,
+            "note": "test",
+        }
+        validate_report_payload("cost", payload)
+
+    def test_rejects_performance_values_not_100(self):
+        payload = cost_payload()
+        payload["performance"] = {
+            "cost": 80.0,
+            "margin": 10.0,
+            "note": "test",
+        }
+        with self.assertRaisesMessage(
+                PayloadValidationError, "cost and margin must add up to 100"):
+            validate_report_payload("cost", payload)
+
+    def test_humanizes_payload_path(self):
+        message = "payload.mix[0].pct: must be at least 0"
+        self.assertEqual(
+            humanize_payload_error(message),
+            "Category mix, row 1, Percent: must be at least 0",
+        )
+
+    def test_rejects_formatted_percentage_string(self):
+        payload = revenue_payload()
+        payload["products"] = [{
+            "id": 1,
+            "name": "Product",
+            "rev": 100.0,
+            "cost": 90.0,
+            "profit": 10.0,
+            "margin": "900%",
+        }]
+        with self.assertRaisesMessage(PayloadValidationError, "must be a number"):
+            validate_report_payload("revenue-and-loss", payload)
+
+    def test_rejects_formatted_money_string(self):
+        payload = sales_payload()
+        payload["products"][0]["value"] = "$100"
+        with self.assertRaisesMessage(PayloadValidationError, "must be a number"):
+            validate_report_payload("sales", payload)
+
+    def test_rejects_bad_class(self):
+        payload = customer_payload()
+        payload["channels"] = [{
+            "name": "Individuals",
+            "pct": 100,
+            "cust_pct": 100,
+            "cls": "bad",
+            "money": 100.0,
+            "customers": 1,
+            "aov": 100.0,
+        }]
+        with self.assertRaisesMessage(PayloadValidationError, "must be one of"):
+            validate_report_payload("customer-profile", payload)
+
+    def test_rejects_bad_date(self):
+        payload = cost_payload()
+        payload["biggest"] = [{
+            "id": 1,
+            "vendor": "Vendor",
+            "date": "not-a-date",
+            "lines": 1,
+            "total": 1.0,
+            "status": "Approved",
+            "cls": "",
+        }]
+        with self.assertRaisesMessage(PayloadValidationError, "must be an ISO date"):
+            validate_report_payload("cost", payload)
+
+    def test_rejects_datetime_date(self):
+        payload = cost_payload()
+        payload["biggest"] = [{
+            "id": 1,
+            "vendor": "Vendor",
+            "date": "2025-06-23T00:00:00",
+            "lines": 1,
+            "total": 1.0,
+            "status": "Approved",
+            "cls": "",
+        }]
+        with self.assertRaisesMessage(PayloadValidationError, "must be an ISO date"):
+            validate_report_payload("cost", payload)
+
+    def test_rejects_negative_cost_kpi(self):
+        payload = cost_payload()
+        payload["kpis"][0]["label"] = "Cost of goods sold"
+        payload["kpis"][0]["value"] = -1
+        with self.assertRaisesMessage(PayloadValidationError, "must be at least 0"):
+            validate_report_payload("cost", payload)
+
+    def test_allows_negative_gross_profit(self):
+        payload = revenue_payload()
+        payload["kpis"][0]["label"] = "Gross profit"
+        payload["kpis"][0]["value"] = -1
+        validate_report_payload("revenue-and-loss", payload)
+
+    def test_rejects_negative_mix_money(self):
+        payload = revenue_payload()
+        payload["mix"] = [{
+            "name": "Bikes",
+            "cls": "c1",
+            "pct": 100,
+            "money": -1,
+            "margin": 10,
+        }]
+        with self.assertRaisesMessage(PayloadValidationError, "must be at least 0"):
+            validate_report_payload("revenue-and-loss", payload)
 
 
 class SeedUsersTests(TestCase):

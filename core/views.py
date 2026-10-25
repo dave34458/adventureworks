@@ -2,13 +2,18 @@
 editor, and the generic table browser (list / detail / edit / delete / autocomplete)."""
 import copy
 import json
+import math
 import re
 from datetime import date, datetime, time, timedelta
 
 from django import forms
 from django.apps import apps
 from django.contrib import messages
-from django.contrib.auth.decorators import login_not_required, login_required, permission_required
+from django.contrib.auth.decorators import (
+    login_not_required,
+    login_required,
+    permission_required,
+)
 from django.contrib.auth.mixins import PermissionRequiredMixin
 from django.contrib.auth.views import LoginView
 from django.core.exceptions import FieldDoesNotExist, PermissionDenied
@@ -20,21 +25,34 @@ from django.http import Http404, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils import timezone
-from django.views.decorators.http import require_POST
 from django.views import View
+from django.views.decorators.http import require_POST
 from django.views.generic import DeleteView, DetailView, ListView, UpdateView
-
-from .widgets import SearchSelect
 
 from .forms import PrivacyAuthenticationForm, ReportEditForm
 from .models import (
-    AuditLog,
     PRIVACY_NOTICE_VERSION,
+    AuditLog,
     PrivacyAcknowledgment,
     Report,
     SalesOrderHeader,
 )
-from .utils import csv_response, delta, money, rank, ring, window_for
+from .utils import (
+    count,
+    csv_response,
+    delta,
+    delta_pct,
+    delta_text,
+    metric,
+    money,
+    money_exact,
+    percent,
+    rank,
+    ring,
+    units,
+    window_for,
+)
+from .widgets import SearchSelect
 
 META_KEYS = {
     "tab", "title", "through", "window_label", "prev_label", "custom", "period",
@@ -80,6 +98,506 @@ SECTION_LABELS = {
     "recommendations": "Recommendations",
     "donut_mid": "Donut centre",
 }
+
+FIELD_LABELS = {
+    "act": "Active customers",
+    "aov": "Average order value",
+    "big": "Value",
+    "cap": "Caption",
+    "cls": "Style",
+    "cost": "Cost",
+    "cust_pct": "Buyer share",
+    "customers": "Customers",
+    "date": "Date",
+    "delta": "Change",
+    "dir": "Direction",
+    "full": "Full label",
+    "height": "Bar height",
+    "id": "ID",
+    "kind": "Unit",
+    "label": "Label",
+    "lines": "Lines",
+    "margin": "Margin",
+    "money": "Amount",
+    "n": "Count",
+    "name": "Name",
+    "new_h": "New-customer height",
+    "note": "Note",
+    "now": "New cost",
+    "nw": "New customers",
+    "old": "Old cost",
+    "orders": "Orders",
+    "pct": "Percent",
+    "prev_full": "Previous label",
+    "prev_h": "Previous height",
+    "prev_money": "Previous amount",
+    "prev_orders": "Previous orders",
+    "profit": "Profit",
+    "ret": "Returning customers",
+    "ret_h": "Returning height",
+    "rev": "Revenue",
+    "small": "Small label",
+    "status": "Status",
+    "store": "Store customer",
+    "territory": "Territory",
+    "text": "Text",
+    "title": "Title",
+    "total": "Total",
+    "value": "Value",
+    "value_kind": "Unit",
+    "vendor": "Vendor",
+}
+
+EDITOR_INTEGER_FIELDS = {
+    "act", "customers", "id", "lines", "n", "nw", "orders", "prev_orders", "ret",
+}
+EDITOR_NUMBER_FIELDS = {
+    "aov", "big", "cost", "cust_pct", "delta", "height", "margin", "money", "new_h",
+    "old", "now", "pct", "prev_h", "prev_money", "profit", "ret_h", "rev", "total",
+    "value",
+}
+EDITOR_CHECKBOX_FIELDS = {"store"}
+EDITOR_DATE_FIELDS = {"date"}
+EDITOR_SELECTS = {
+    "value_kind": (("money", "Money"), ("count", "Count"), ("percent", "Percent"),
+                   ("units", "Units"), ("cents", "Cents")),
+    "kind": (("money", "Money"), ("count", "Count"), ("percent", "Percent"),
+             ("units", "Units"), ("cents", "Cents")),
+    "dir": (("", "No change"), ("up", "Up"), ("down", "Down"), ("flat", "Flat")),
+    "status": (("Pending", "Pending"), ("Approved", "Approved"),
+               ("Rejected", "Rejected"), ("Complete", "Complete")),
+}
+
+
+def humanize_payload_error(message):
+    match = re.match(r"payload((?:\.[A-Za-z_]\w*|\[\d+\])+):\s*(.*)", message)
+    if match is None:
+        return message
+    tokens = re.findall(r"\.([A-Za-z_]\w*)|\[(\d+)\]", match.group(1))
+    keys = [key for key, _ in tokens if key]
+    row = next((int(index) + 1 for _, index in tokens if index), None)
+    bits = []
+    if keys:
+        bits.append(SECTION_LABELS.get(keys[0], keys[0].replace("_", " ").title()))
+    if row is not None:
+        bits.append(f"row {row}")
+    if len(keys) > 1:
+        field = keys[-1]
+        bits.append(FIELD_LABELS.get(field, field.replace("_", " ").title()))
+    return f"{', '.join(bits)}: {match.group(2)}" if bits else match.group(2)
+
+
+class PayloadValidationError(ValueError):
+    pass
+
+
+MAX_PAYLOAD_BYTES = 256_000
+
+
+def _invalid(path, message):
+    raise PayloadValidationError(f"{path}: {message}")
+
+
+def _text(max_len=300, min_len=0):
+    def check(value, path):
+        if not isinstance(value, str):
+            _invalid(path, "must be text")
+        if len(value) < min_len:
+            _invalid(path, "must not be empty")
+        if len(value) > max_len:
+            _invalid(path, f"must be at most {max_len} characters")
+        if any(ord(char) < 32 or ord(char) == 127 for char in value):
+            _invalid(path, "must not contain control characters")
+    return check
+
+
+def _optional(rule):
+    def check(value, path):
+        if value is not None:
+            rule(value, path)
+    return check
+
+
+def _integer(min_value=0, max_value=1_000_000_000):
+    def check(value, path):
+        if not isinstance(value, int) or isinstance(value, bool):
+            _invalid(path, "must be a whole number")
+        if not min_value <= value <= max_value:
+            _invalid(path, f"must be between {min_value} and {max_value}")
+    return check
+
+
+def _number(min_value=None, max_value=None):
+    def check(value, path):
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            _invalid(path, "must be a number")
+        if not math.isfinite(value):
+            _invalid(path, "must be finite")
+        if min_value is not None and value < min_value:
+            _invalid(path, f"must be at least {min_value}")
+        if max_value is not None and value > max_value:
+            _invalid(path, f"must be at most {max_value}")
+    return check
+
+
+def _choice(*allowed, nullable=False):
+    allowed = tuple(allowed)
+
+    def check(value, path):
+        if value is None and nullable:
+            return
+        if value not in allowed:
+            options = ", ".join(repr(item) for item in allowed)
+            _invalid(path, f"must be one of {options}")
+    return check
+
+
+def _boolean(value, path):
+    if not isinstance(value, bool):
+        _invalid(path, "must be true or false")
+
+
+def _pattern(pattern, message):
+    def check(value, path):
+        if not isinstance(value, str) or not re.fullmatch(pattern, value):
+            _invalid(path, message)
+    return check
+
+
+def _date(value, path):
+    if not isinstance(value, str):
+        _invalid(path, "must be an ISO date")
+    try:
+        date.fromisoformat(value)
+    except ValueError:
+        _invalid(path, "must be an ISO date")
+
+
+def _points(value, path):
+    if not isinstance(value, str):
+        _invalid(path, "must be a points string")
+    if len(value) > 10_000:
+        _invalid(path, "must be at most 10000 characters")
+    for pair in value.split():
+        parts = pair.split(",")
+        if len(parts) != 2:
+            _invalid(path, "must contain x,y pairs")
+        try:
+            x, y = float(parts[0]), float(parts[1])
+        except ValueError:
+            _invalid(path, "must contain x,y pairs")
+        if not math.isfinite(x) or not math.isfinite(y):
+            _invalid(path, "must contain finite coordinates")
+        if not 0 <= x <= 960 or not 0 <= y <= 260:
+            _invalid(path, "coordinates must fit the chart")
+
+
+def _object(fields, nullable=False):
+    expected = set(fields)
+
+    def check(value, path):
+        if value is None and nullable:
+            return
+        if not isinstance(value, dict):
+            _invalid(path, "must be an object")
+        missing = expected - set(value)
+        extra = set(value) - expected
+        if missing:
+            _invalid(path, f"missing key(s): {', '.join(sorted(missing))}")
+        if extra:
+            _invalid(path, f"unexpected key(s): {', '.join(sorted(extra))}")
+        for name, rule in fields.items():
+            rule(value[name], f"{path}.{name}")
+    return check
+
+
+def _rows(fields, max_rows=50):
+    row = _object(fields)
+
+    def check(value, path):
+        if not isinstance(value, list):
+            _invalid(path, "must be a list")
+        if len(value) > max_rows:
+            _invalid(path, f"must contain at most {max_rows} rows")
+        for index, item in enumerate(value):
+            row(item, f"{path}[{index}]")
+    return check
+
+
+def _kpis(value, path):
+    _rows(KPI_FIELDS, 20)(value, path)
+    for index, kpi in enumerate(value):
+        value_path = f"{path}[{index}].value"
+        number = kpi["value"]
+        if number is not None:
+            if kpi["value_kind"] == "percent" and not 0 <= number <= 100:
+                _invalid(value_path, "must be between 0 and 100")
+            if number < 0 and kpi["label"] not in KPI_NEGATIVE_LABELS:
+                _invalid(value_path, "must be at least 0")
+        delta, direction = kpi["delta"], kpi["dir"]
+        if delta is None:
+            if direction not in (None, ""):
+                _invalid(f"{path}[{index}].dir", "must be empty when delta is empty")
+            continue
+        expected = "up" if delta > 0 else "down" if delta < 0 else "flat"
+        if direction != expected:
+            _invalid(f"{path}[{index}].dir", f"must be {expected} for this delta")
+
+
+def _total_100(rows, field, path):
+    if not rows:
+        return
+    total = sum(float(row[field]) for row in rows)
+    if abs(total - 100) > 0.5:
+        _invalid(path, f"{field} values must add up to 100 (got {total:.1f})")
+
+
+KPI_KINDS = ("money", "count", "percent", "units", "cents")
+KPI_NEGATIVE_LABELS = {"Gross profit"}
+KPI_FIELDS = {
+    "label": _text(120, 1),
+    "value": _optional(_number()),
+    "value_kind": _choice(*KPI_KINDS),
+    "delta": _optional(_number(-1_000_000_000, 1_000_000_000)),
+    "dir": _choice("", "up", "down", "flat", nullable=True),
+    "cap": _text(300),
+}
+RANK_FIELDS = {
+    "name": _text(200, 1),
+    "value": _number(0, 1_000_000_000_000),
+    "pct": _number(0, 100),
+}
+RANK_NOTE_FIELDS = {**RANK_FIELDS, "note": _text(300)}
+SALES_TREND_FIELDS = {
+    "label": _text(20, 1),
+    "full": _text(40, 1),
+    "money": _number(0),
+    "orders": _integer(),
+    "height": _number(0, 100),
+    "prev_full": _text(40),
+    "prev_money": _optional(_number(0)),
+    "prev_orders": _optional(_integer()),
+    "prev_h": _number(0, 100),
+}
+CUSTOMER_GROWTH_FIELDS = {
+    "label": _text(20, 1),
+    "full": _text(40, 1),
+    "act": _integer(),
+    "nw": _integer(),
+    "ret": _integer(),
+    "new_h": _number(0, 100),
+    "ret_h": _number(0, 100),
+}
+CUSTOMER_CHANNEL_FIELDS = {
+    "name": _text(80, 1),
+    "pct": _number(0, 100),
+    "cust_pct": _number(0, 100),
+    "cls": _choice("online", "store"),
+    "money": _number(0),
+    "customers": _integer(),
+    "aov": _optional(_number(0)),
+}
+BUBBLE_FIELDS = {
+    "code": _pattern(r"[A-Z]{2,3}", "must be a country code"),
+    "lat": _number(-90, 90),
+    "lon": _number(-180, 180),
+    "r": _number(0, 100),
+    "title": _text(300, 1),
+}
+CUSTOMER_BIGGEST_FIELDS = {
+    "id": _integer(),
+    "name": _text(200, 1),
+    "store": _boolean,
+    "territory": _text(100),
+    "orders": _integer(),
+    "rev": _number(0),
+}
+LEGEND_FIELDS = {
+    "n": _integer(),
+    "rev": _number(0),
+}
+COMBO_BAR_FIELDS = {
+    "x": _number(0, 960),
+    "y": _number(0, 260),
+    "h": _number(0, 260),
+    "w": _number(0, 960),
+    "t": _text(300, 1),
+}
+COMBO_DOT_FIELDS = {
+    "cls": _choice("dotp", "dotc"),
+    "x": _number(0, 960),
+    "y": _number(0, 260),
+    "t": _text(300, 1),
+}
+COMBO_XTICK_FIELDS = {
+    "x": _number(0, 960),
+    "lab": _text(20, 1),
+}
+COMBO_YTICK_FIELDS = {
+    "y": _number(0, 260),
+    "lab": _text(40, 1),
+}
+COMBO_FIELDS = {
+    "bars": _rows(COMBO_BAR_FIELDS, 36),
+    "cur_pts": _points,
+    "prev_pts": _points,
+    "dots": _rows(COMBO_DOT_FIELDS, 72),
+    "xticks": _rows(COMBO_XTICK_FIELDS, 36),
+    "lticks": _rows(COMBO_YTICK_FIELDS, 12),
+    "rticks": _rows(COMBO_YTICK_FIELDS, 12),
+}
+DONUT_FIELDS = {
+    "cls": _pattern(r"c[1-9]\d?", "must be a chart colour class"),
+    "pct": _number(0, 100),
+    "t": _text(300, 1),
+    "dash": _number(0, 1000),
+    "off": _number(-1000, 0),
+}
+DONUT_MID_FIELDS = {
+    "big": _number(0),
+    "small": _text(80, 1),
+}
+MIX_FIELDS = {
+    "name": _text(200, 1),
+    "cls": _pattern(r"c[1-9]\d?", "must be a chart colour class"),
+    "pct": _number(0, 100),
+    "money": _number(0),
+    "margin": _number(-100, 100),
+}
+REV_TREND_FIELDS = {
+    "label": _text(20, 1),
+    "full": _text(40, 1),
+    "money": _number(0),
+    "height": _number(0, 100),
+    "prev_full": _text(40),
+    "prev_money": _optional(_number(0)),
+    "prev_h": _number(0, 100),
+}
+REV_PRODUCT_FIELDS = {
+    "id": _integer(),
+    "name": _text(200, 1),
+    "rev": _number(0),
+    "cost": _number(0),
+    "profit": _number(),
+    "margin": _number(-100, 100),
+}
+COST_PIPELINE_FIELDS = {
+    "k": _text(80, 1),
+    "big": _number(0),
+    "kind": _choice(*KPI_KINDS),
+    "cap": _text(300),
+    "cls": _choice("", "bad"),
+}
+COST_TREND_FIELDS = {
+    "label": _text(20, 1),
+    "full": _text(40, 1),
+    "money": _number(0),
+    "margin": _number(-100, 100),
+    "height": _number(0, 100),
+    "prev_full": _text(40),
+    "prev_money": _optional(_number(0)),
+    "prev_h": _number(0, 100),
+}
+COST_BIGGEST_FIELDS = {
+    "id": _integer(),
+    "vendor": _text(200, 1),
+    "date": _date,
+    "lines": _integer(),
+    "total": _number(0),
+    "status": _choice("Pending", "Approved", "Rejected", "Complete"),
+    "cls": _choice("", "online", "bad"),
+}
+COST_CHANGE_FIELDS = {
+    "name": _text(200, 1),
+    "old": _number(0),
+    "now": _number(0),
+    "pct": _number(-100, 1_000),
+    "note": _text(300),
+}
+PERFORMANCE_FIELDS = {
+    "cost": _number(0, 1_000),
+    "margin": _number(-1_000, 100),
+    "note": _text(1000),
+}
+RECOMMENDATION_FIELDS = {
+    "title": _text(200, 1),
+    "text": _text(1000, 1),
+}
+REPORT_PAYLOADS = {
+    "sales": {
+        "kpis": _kpis,
+        "trend": _rows(SALES_TREND_FIELDS, 36),
+        "products": _rows(RANK_FIELDS, 50),
+        "low_products": _rows(RANK_FIELDS, 50),
+    },
+    "customer-profile": {
+        "kpis": _kpis,
+        "growth": _rows(CUSTOMER_GROWTH_FIELDS, 36),
+        "channels": _rows(CUSTOMER_CHANNEL_FIELDS, 10),
+        "countries": _rows(RANK_FIELDS, 50),
+        "bubbles": _rows(BUBBLE_FIELDS, 50),
+        "cities": _rows(RANK_FIELDS, 50),
+        "network": _rows(RANK_NOTE_FIELDS, 50),
+        "frequency": _rows(RANK_FIELDS, 50),
+        "biggest": _rows(CUSTOMER_BIGGEST_FIELDS, 20),
+        "new_legend": _object(LEGEND_FIELDS),
+        "ret_legend": _object(LEGEND_FIELDS),
+    },
+    "revenue-and-loss": {
+        "kpis": _kpis,
+        "combo": _object(COMBO_FIELDS),
+        "donut": _rows(DONUT_FIELDS, 20),
+        "donut_mid": _object(DONUT_MID_FIELDS),
+        "mix": _rows(MIX_FIELDS, 20),
+        "rev_trend": _rows(REV_TREND_FIELDS, 36),
+        "declining": _rows(RANK_NOTE_FIELDS, 50),
+        "leaks": _rows(RANK_NOTE_FIELDS, 50),
+        "products": _rows(REV_PRODUCT_FIELDS, 20),
+    },
+    "cost": {
+        "kpis": _kpis,
+        "pipeline": _rows(COST_PIPELINE_FIELDS, 10),
+        "trend": _rows(COST_TREND_FIELDS, 36),
+        "mix": _rows(MIX_FIELDS, 20),
+        "donut": _rows(DONUT_FIELDS, 20),
+        "donut_mid": _object(DONUT_MID_FIELDS),
+        "vendors": _rows(RANK_NOTE_FIELDS, 50),
+        "products": _rows(RANK_NOTE_FIELDS, 50),
+        "reasons": _rows(RANK_NOTE_FIELDS, 50),
+        "changes": _rows(COST_CHANGE_FIELDS, 50),
+        "biggest": _rows(COST_BIGGEST_FIELDS, 20),
+        "performance": _object(PERFORMANCE_FIELDS, nullable=True),
+        "recommendations": _rows(RECOMMENDATION_FIELDS, 20),
+    },
+}
+
+
+def validate_report_payload(module, payload):
+    if not isinstance(payload, dict):
+        _invalid("payload", "must be an object")
+    try:
+        encoded = json.dumps(payload, cls=DjangoJSONEncoder, ensure_ascii=False)
+    except (TypeError, ValueError):
+        _invalid("payload", "must be JSON-serializable")
+    if len(encoded.encode("utf-8")) > MAX_PAYLOAD_BYTES:
+        _invalid("payload", f"must be at most {MAX_PAYLOAD_BYTES} bytes")
+    schema = REPORT_PAYLOADS.get(module)
+    if schema is None:
+        _invalid("module", "is not a report module")
+    _object(schema)(payload, "payload")
+
+    if module in ("revenue-and-loss", "cost"):
+        _total_100(payload["mix"], "pct", "payload.mix")
+        _total_100(payload["donut"], "pct", "payload.donut")
+    if module == "customer-profile":
+        _total_100(payload["channels"], "pct", "payload.channels")
+        _total_100(payload["channels"], "cust_pct", "payload.channels")
+    if module == "cost" and payload["performance"]:
+        performance = payload["performance"]
+        total = performance["cost"] + performance["margin"]
+        if abs(total - 100) > 0.5:
+            _invalid("payload.performance", f"cost and margin must add up to 100 (got {total:.1f})")
+
 
 # ---------------------------------------------------------------------------
 # Pages: home, the central dashboard, the four report panels, and the generic table
@@ -170,6 +688,10 @@ def _report_response(request, module, template, context, window):
             {key: value for key, value in context.items() if key not in META_KEYS},
             cls=DjangoJSONEncoder))
         try:
+            validate_report_payload(module, payload)
+        except PayloadValidationError as exc:
+            raise RuntimeError(f"{module} report payload is invalid: {exc}") from exc
+        try:
             compare_end = (window.trend_start - timedelta(seconds=1)).date()
         except OverflowError:
             compare_end = window.trend_start.date()
@@ -183,7 +705,7 @@ def _report_response(request, module, template, context, window):
             "period": context.get("period", ""),
             "custom": bool(context.get("custom")),
             "payload": payload,
-            "schema_version": 2,
+            "schema_version": 3,
             "generated_by": generated_by,
             "generated_at": timezone.now(),
         }
@@ -229,72 +751,76 @@ def _csv_for(module, context):
     label = context.get("window_label", "")
     prev_label = context.get("prev_label", "")
     rows = [["Period", label, "compare", prev_label]]
-    rows += [["KPI", k.get("label", ""), k.get("value", ""),
-              f"{k.get('delta')} \u00b7 {k.get('cap', '')}" if k.get("delta") else k.get("cap", "")]
+    rows += [["KPI", k.get("label", ""), metric(k.get("value"), k.get("value_kind")),
+              f"{delta_text(k.get('delta'))} \u00b7 {k.get('cap', '')}"
+              if k.get("delta") is not None else k.get("cap", "")]
              for k in context.get("kpis", [])]
 
     if module == "sales":
-        rows += [["Sales trend", t.get("full", ""), t.get("money", ""),
-                  f"{t.get('orders', '')} orders"] for t in context.get("trend", [])]
-        rows += [["Sales trend (previous)", t.get("prev_full", ""), t.get("prev_money", ""),
-                  f"{t.get('prev_orders', '')} orders"]
+        rows += [["Sales trend", t.get("full", ""), money(t.get("money")),
+                  f"{count(t.get('orders'))} orders"] for t in context.get("trend", [])]
+        rows += [["Sales trend (previous)", t.get("prev_full", ""), money(t.get("prev_money")),
+                  f"{count(t.get('prev_orders'))} orders"]
                  for t in context.get("trend", []) if t.get("prev_full")]
-        rows += [["High-performing product", r.get("name", ""), r.get("value", ""),
-                  f"{r.get('pct', '')}% of top product"] for r in context.get("products", [])]
-        rows += [["Low-performing product", r.get("name", ""), r.get("value", ""),
-                  f"{r.get('pct', '')}% of low list top"] for r in context.get("low_products", [])]
+        rows += [["High-performing product", r.get("name", ""), money(r.get("value")),
+                  f"{percent(r.get('pct'))} of top product"] for r in context.get("products", [])]
+        rows += [["Low-performing product", r.get("name", ""), money(r.get("value")),
+                  f"{percent(r.get('pct'))} of low list top"] for r in context.get("low_products", [])]
         return "sales.csv", ["Section", "Item", "Value", "Detail"], rows
 
     if module == "customer-profile":
-        rows += [["Country", r.get("name", ""), r.get("value", ""), ""]
+        rows += [["Country", r.get("name", ""), money(r.get("value")), ""]
                  for r in context.get("countries", [])]
-        rows += [["City", r.get("name", ""), r.get("value", ""), ""]
+        rows += [["City", r.get("name", ""), money(r.get("value")), ""]
                  for r in context.get("cities", [])]
-        rows += [["Store type", r.get("name", ""), r.get("value", ""), r.get("note", "")]
+        rows += [["Store type", r.get("name", ""), money(r.get("value")), r.get("note", "")]
                  for r in context.get("network", [])]
-        rows += [["Orders per customer", r.get("name", ""), r.get("value", ""), ""]
+        rows += [["Orders per customer", r.get("name", ""), count(r.get("value")), ""]
                  for r in context.get("frequency", [])]
-        rows += [["Top customer", r.get("name", ""), r.get("rev", ""),
-                  f"{r.get('orders', '')} orders \u00b7 {'store' if r.get('store') else 'individual'}"]
+        rows += [["Top customer", r.get("name", ""), money(r.get("rev")),
+                  (f"{count(r.get('orders'))} orders \u00b7 "
+                   f"{'store' if r.get('store') else 'individual'}")]
                  for r in context.get("biggest", [])]
         return "customer-profile.csv", ["Section", "Item", "Value", "Detail"], rows
 
     if module == "revenue-and-loss":
-        rows += [["Revenue trend", t.get("full", ""), t.get("money", ""),
-                  f"previous {t.get('prev_full', '')}: {t.get('prev_money', '')}"]
+        rows += [["Revenue trend", t.get("full", ""), money(t.get("money")),
+                  f"previous {t.get('prev_full', '')}: {money(t.get('prev_money'))}"]
                  for t in context.get("rev_trend", []) if t.get("prev_full")]
-        rows += [["Category", r.get("name", ""), r.get("money", ""),
-                  f"{r.get('pct', '')}% of revenue \u00b7 {r.get('margin', '')}% margin"]
+        rows += [["Category", r.get("name", ""), money(r.get("money")),
+                  f"{percent(r.get('pct'))} of revenue \u00b7 {percent(r.get('margin'))} margin"]
                  for r in context.get("mix", [])]
-        rows += [["Declining product", r.get("name", ""), r.get("value", ""), r.get("note", "")]
+        rows += [["Declining product", r.get("name", ""), money(r.get("value")), r.get("note", "")]
                  for r in context.get("declining", [])]
-        rows += [["Below-cost product", r.get("name", ""), r.get("value", ""), r.get("note", "")]
+        rows += [["Below-cost product", r.get("name", ""), money(r.get("value")), r.get("note", "")]
                  for r in context.get("leaks", [])]
-        rows += [["Product", r.get("name", ""), r.get("rev", ""),
-                  f"cost {r.get('cost', '')} \u00b7 profit {r.get('profit', '')} \u00b7 {r.get('margin', '')} margin"]
+        rows += [["Product", r.get("name", ""), money(r.get("rev")),
+                  (f"cost {money(r.get('cost'))} \u00b7 profit {money(r.get('profit'))} \u00b7 "
+                   f"{percent(r.get('margin'))} margin")]
                  for r in context.get("products", [])]
         return "revenue-and-loss.csv", ["Section", "Item", "Value", "Detail"], rows
 
-    rows += [["Pipeline", p.get("k", ""), p.get("big", ""), p.get("cap", "")]
+    rows += [["Pipeline", p.get("k", ""), metric(p.get("big"), p.get("kind")), p.get("cap", "")]
              for p in context.get("pipeline", [])]
-    rows += [["Category", r.get("name", ""), r.get("money", ""),
-              f"{r.get('pct', '')}% of cost \u00b7 {r.get('margin', '')}% margin"]
+    rows += [["Category", r.get("name", ""), money(r.get("money")),
+              f"{percent(r.get('pct'))} of cost \u00b7 {percent(r.get('margin'))} margin"]
              for r in context.get("mix", [])]
-    rows += [["Vendor", r.get("name", ""), r.get("value", ""), r.get("note", "")]
+    rows += [["Vendor", r.get("name", ""), money(r.get("value")), r.get("note", "")]
              for r in context.get("vendors", [])]
-    rows += [["Product", r.get("name", ""), r.get("value", ""), r.get("note", "")]
+    rows += [["Product", r.get("name", ""), money(r.get("value")), r.get("note", "")]
              for r in context.get("products", [])]
-    rows += [["Scrap reason", r.get("name", ""), r.get("value", ""), r.get("note", "")]
+    rows += [["Scrap reason", r.get("name", ""), units(r.get("value")), r.get("note", "")]
              for r in context.get("reasons", [])]
-    rows += [["Cost change", r.get("name", ""), r.get("value", ""), r.get("note", "")]
+    rows += [["Cost change", r.get("name", ""),
+              f"{money_exact(r.get('old'))} \u2192 {money_exact(r.get('now'))}", r.get("note", "")]
              for r in context.get("changes", [])]
     performance = context.get("performance")
     if performance:
-        rows += [["Performance", "Cost of goods", performance.get("cost", ""), "share of revenue"],
-                 ["Performance", "Gross margin", performance.get("margin", ""), "share of revenue"]]
+        rows += [["Performance", "Cost of goods", percent(performance.get("cost")), "share of revenue"],
+                 ["Performance", "Gross margin", percent(performance.get("margin")), "share of revenue"]]
     rows += [["Recommendation", r.get("title", ""), "", r.get("text", "")]
              for r in context.get("recommendations", [])]
-    rows += [["Purchase order", f"PO{r.get('id', '')}", r.get("total", ""),
+    rows += [["Purchase order", f"PO{r.get('id', '')}", money(r.get("total")),
               f"{r.get('date', '')} \u00b7 {r.get('vendor', '')} \u00b7 {r.get('status', '')}"]
              for r in context.get("biggest", [])]
     return "cost.csv", ["Section", "Item", "Value", "Detail"], rows
@@ -803,13 +1329,18 @@ def sales(request):
     aov_prev = (rev_prev / orders_prev) if orders_prev else None
 
     kpis = []
-    for label, value, change, cap in (
-        ("Total sales", money(rev), delta(rev, rev_prev), "merchandise, excl. tax & freight"),
-        ("Orders", f"{orders:,}", delta(orders, orders_prev), "sales orders placed"),
-        ("Avg order value", money(aov), delta(aov, aov_prev), "sales per order"),
-        ("Customers", f"{customers or 0:,}", delta(customers, customers_prev), "distinct buyers"),
+    for label, value, kind, change, cap in (
+        ("Total sales", float(rev or 0), "money", delta_pct(rev, rev_prev),
+         "merchandise, excl. tax & freight"),
+        ("Orders", int(orders or 0), "count", delta_pct(orders, orders_prev),
+         "sales orders placed"),
+        ("Avg order value", float(aov or 0), "money", delta_pct(aov, aov_prev),
+         "sales per order"),
+        ("Customers", int(customers or 0), "count", delta_pct(customers, customers_prev),
+         "distinct buyers"),
     ):
-        kpis.append({"label": label, "value": value, "delta": change[0], "dir": change[1], "cap": cap})
+        kpis.append({"label": label, "value": value, "value_kind": kind,
+                     "delta": change[0], "dir": change[1], "cap": cap})
 
     with connection.cursor() as c:  # chart 2: sales trend and distribution, current vs previous window
         c.execute(
@@ -837,12 +1368,14 @@ def sales(request):
         {
             "label": m["month"].strftime("%b"),
             "full": m["month"].strftime("%b %Y"),
-            "money": money(m["rev"]),
-            "orders": f"{m['orders']:,}",
+            "money": float(m["rev"] or 0),
+            "orders": int(m["orders"] or 0),
             "height": max(round(float(m["rev"] or 0) / top * 100), 2) if top else 0,
             "prev_full": prev_months[i]["month"].strftime("%b %Y") if i < len(prev_months) else "",
-            "prev_money": money(prev_months[i]["rev"]) if i < len(prev_months) else "\u2014",
-            "prev_orders": f"{prev_months[i]['orders']:,}" if i < len(prev_months) else "\u2014",
+            "prev_money": (float(prev_months[i]["rev"] or 0)
+                           if i < len(prev_months) else None),
+            "prev_orders": (int(prev_months[i]["orders"] or 0)
+                            if i < len(prev_months) else None),
             "prev_h": (max(round(float(prev_months[i]["rev"] or 0) / top * 100), 2)
                        if i < len(prev_months) and prev_months[i]["rev"] and top else 0),
         }
@@ -864,7 +1397,7 @@ def sales(request):
             [cur_lo, cur_hi],
         )
         products = rank([{"name": name, "rev": rev} for name, rev in c.fetchall()],
-                        "name", "rev", money)
+                        "name", "rev")
 
     with connection.cursor() as c:  # chart 4: sales by product, low performers
         c.execute(
@@ -881,20 +1414,22 @@ def sales(request):
             [cur_lo, cur_hi],
         )
         low_products = rank([{"name": name, "rev": rev} for name, rev in c.fetchall()],
-                            "name", "rev", money)
+                            "name", "rev")
 
     if request.GET.get("export") == "csv":
         rows = [["Period", w.label, "compare", w.prev_label]]
-        rows += [["KPI", k["label"], k["value"], f"{k['delta']} \u00b7 {k['cap']}" if k["delta"] else k["cap"]]
+        rows += [["KPI", k["label"], metric(k["value"], k["value_kind"]),
+                  f"{delta_text(k['delta'])} \u00b7 {k['cap']}" if k["delta"] is not None else k["cap"]]
                  for k in kpis]
-        rows += [["Sales trend", t["full"], t["money"], f"{t['orders']} orders"]
+        rows += [["Sales trend", t["full"], money(t["money"]), f"{count(t['orders'])} orders"]
                  for t in trend]
-        rows += [["Sales trend (previous)", t["prev_full"], t["prev_money"], f"{t['prev_orders']} orders"]
+        rows += [["Sales trend (previous)", t["prev_full"], money(t["prev_money"]),
+                  f"{count(t['prev_orders'])} orders"]
                  for t in trend if t["prev_full"]]
-        rows += [["High-performing product", r["name"], r["value"], f"{r['pct']}% of top product"]
-                 for r in products]
-        rows += [["Low-performing product", r["name"], r["value"], f"{r['pct']}% of low list top"]
-                 for r in low_products]
+        rows += [["High-performing product", r["name"], money(r["value"]),
+                  f"{percent(r['pct'])} of top product"] for r in products]
+        rows += [["Low-performing product", r["name"], money(r["value"]),
+                  f"{percent(r['pct'])} of low list top"] for r in low_products]
         return csv_response("sales.csv", ["Section", "Item", "Value", "Detail"], rows)
 
     return _report_response(request, "sales", "core/sales/report.html", {
@@ -1032,10 +1567,11 @@ def customer_profile(request):
     growth = [
         {
             "label": m["month"].strftime("%b"), "full": m["month"].strftime("%b %Y"),
-            "act": f"{m['act']:,}", "nw": f"{new_per_month.get(m['month'], 0):,}",
-            "ret": f"{m['act'] - new_per_month.get(m['month'], 0):,}",
+            "act": int(m["act"] or 0), "nw": int(new_per_month.get(m["month"], 0)),
+            "ret": int((m["act"] or 0) - new_per_month.get(m["month"], 0)),
             "new_h": round(new_per_month.get(m["month"], 0) / top * 100, 2) if top else 0,
-            "ret_h": round((m["act"] - new_per_month.get(m["month"], 0)) / top * 100, 2) if top else 0,
+            "ret_h": round(((m["act"] or 0) - new_per_month.get(m["month"], 0)) / top * 100, 2)
+                     if top else 0,
         }
         for m in months
     ]
@@ -1068,11 +1604,11 @@ def customer_profile(request):
     ind_buyers = round(ind_n / buyers * 100)
     channels = [
         {"name": "Individuals", "pct": 100 - st_share, "cust_pct": ind_buyers, "cls": "online",
-         "money": money(ind_rev), "customers": f"{ind_n:,}",
-         "aov": money((ind_rev / ind_orders) if ind_orders else None)},
+         "money": float(ind_rev or 0), "customers": int(ind_n or 0),
+         "aov": float(ind_rev / ind_orders) if ind_orders else None},
         {"name": "Stores", "pct": st_share, "cust_pct": 100 - ind_buyers, "cls": "store",
-         "money": money(st_rev), "customers": f"{st_n:,}",
-         "aov": money((st_rev / st_orders) if st_orders else None)},
+         "money": float(st_rev or 0), "customers": int(st_n or 0),
+         "aov": float(st_rev / st_orders) if st_orders else None},
     ]
 
     with connection.cursor() as c:  # chart 4: revenue by country (feeds the map and the list)
@@ -1094,7 +1630,7 @@ def customer_profile(request):
         )
         country_rows = [{"name": name, "rev": rev, "orders": orders}
                         for name, rev, orders in c.fetchall()]
-    countries = rank(country_rows, "name", "rev", money)
+    countries = rank(country_rows, "name", "rev")
     geo = {
         "United States": ("US", 39.8, -98.6),
         "Canada": ("CA", 56.1, -106.3),
@@ -1131,7 +1667,7 @@ def customer_profile(request):
             [cur_lo, cur_hi],
         )
         cities = rank([{"name": city, "rev": rev} for city, rev in c.fetchall()],
-                      "name", "rev", money)
+                      "name", "rev")
 
     type_stats, store_rev = {}, {}
     with connection.cursor() as c:  # chart 6: the store network (all stores, not windowed)
@@ -1170,7 +1706,7 @@ def customer_profile(request):
         for t, b in type_stats.items()
     ]
     network_rows.sort(key=lambda r: -r["rev"])
-    network = rank(network_rows, "name", "rev", money)
+    network = rank(network_rows, "name", "rev")
     for r, s in zip(network, network_rows):
         r["note"] = f"{s['n']} stores · avg {s['sqft']:,} sq ft"
 
@@ -1196,7 +1732,7 @@ def customer_profile(request):
         counts = dict(c.fetchall())
     buckets = {k: counts.get(k, 0) for k in
                ("1 order", "2 orders", "3–4 orders", "5–9 orders", "10+ orders")}
-    frequency = rank([{"name": k, "n": v} for k, v in buckets.items()], "name", "n", lambda v: f"{int(v):,}")
+    frequency = rank([{"name": k, "n": v} for k, v in buckets.items()], "name", "n")
 
     biggest = []
     with connection.cursor() as c:  # chart 8: biggest buyers (stores, then individuals)
@@ -1245,7 +1781,8 @@ def customer_profile(request):
             name = store_name or " ".join(x for x in (first, last) if x)
             biggest.append({
                 "id": customer_id, "name": name or f"Customer {customer_id}", "store": is_store,
-                "territory": territory or "—", "orders": orders, "rev": money(buyer_total),
+                "territory": territory or "\u2014", "orders": int(orders or 0),
+                "rev": float(buyer_total or 0),
             })
 
     avg_spend = (rev / actives) if actives else None
@@ -1255,29 +1792,35 @@ def customer_profile(request):
     retention = round(kept / actives_prev * 100) if actives_prev else 0
 
     kpis = []
-    for label, value, change, cap in (
-        ("Active customers", f"{actives:,}", delta(actives, actives_prev), "distinct buyers in the window"),
-        ("New customers", f"{new_count:,}", delta(new_count, prev_new),
-         f"{money(new_rev)} · {round(new_count / actives * 100) if actives else 0}% of buyers"),
-        ("Repeat revenue share", f"{round(float(repeat_rev) / float(rev) * 100) if rev else 0}%", (None, None),
+    for label, value, kind, change, cap in (
+        ("Active customers", int(actives or 0), "count", delta_pct(actives, actives_prev),
+         "distinct buyers in the window"),
+        ("New customers", int(new_count or 0), "count", delta_pct(new_count, prev_new),
+         f"{money(new_rev)} \u00b7 {round(new_count / actives * 100) if actives else 0}% of buyers"),
+        ("Repeat revenue share",
+         round(float(repeat_rev) / float(rev) * 100) if rev else 0, "percent", (None, None),
          f"{money(repeat_rev)} from {repeat:,} returning buyers"),
-        ("Avg spend per customer", money(avg_spend), delta(avg_spend, prev_spend),
-         f"individual {money(ind_avg)} · store {money(st_avg)}"),
-        ("Retention", f"{retention}%", (None, None),
+        ("Avg spend per customer", float(avg_spend) if avg_spend is not None else None,
+         "money", delta_pct(avg_spend, prev_spend),
+         f"individual {money(ind_avg)} \u00b7 store {money(st_avg)}"),
+        ("Retention", int(retention or 0), "percent", (None, None),
          f"{kept:,} of {actives_prev:,} last-year buyers returned"),
     ):
-        kpis.append({"label": label, "value": value, "delta": change[0], "dir": change[1], "cap": cap})
+        kpis.append({"label": label, "value": value, "value_kind": kind,
+                     "delta": change[0], "dir": change[1], "cap": cap})
 
     if request.GET.get("export") == "csv":
         rows = [["Period", w.label, "compare", w.prev_label]]
-        rows += [["KPI", k["label"], k["value"], f"{k['delta']} · {k['cap']}" if k["delta"] else k["cap"]]
+        rows += [["KPI", k["label"], metric(k["value"], k["value_kind"]),
+                  f"{delta_text(k['delta'])} \u00b7 {k['cap']}" if k["delta"] is not None else k["cap"]]
                  for k in kpis]
-        rows += [["Country", r["name"], r["value"], ""] for r in countries]
-        rows += [["City", r["name"], r["value"], ""] for r in cities]
-        rows += [["Store type", r["name"], r["value"], r["note"]] for r in network]
-        rows += [["Orders per customer", r["name"], r["value"], ""] for r in frequency]
-        rows += [["Top customer", r["name"], r["rev"],
-                  f"{r['orders']} orders · {'store' if r['store'] else 'individual'}"] for r in biggest]
+        rows += [["Country", r["name"], money(r["value"]), ""] for r in countries]
+        rows += [["City", r["name"], money(r["value"]), ""] for r in cities]
+        rows += [["Store type", r["name"], money(r["value"]), r["note"]] for r in network]
+        rows += [["Orders per customer", r["name"], count(r["value"]), ""] for r in frequency]
+        rows += [["Top customer", r["name"], money(r["rev"]),
+                  f"{count(r['orders'])} orders \u00b7 {'store' if r['store'] else 'individual'}"]
+                 for r in biggest]
         return csv_response("customer-profile.csv", ["Section", "Item", "Value", "Detail"], rows)
 
     return _report_response(request, "customer-profile", "core/customer-profile/report.html", {
@@ -1292,8 +1835,8 @@ def customer_profile(request):
         "network": network,
         "frequency": frequency,
         "biggest": biggest,
-        "new_legend": {"n": f"{new_count:,}", "rev": money(new_rev)},
-        "ret_legend": {"n": f"{repeat:,}", "rev": money(repeat_rev)},
+        "new_legend": {"n": int(new_count or 0), "rev": float(new_rev or 0)},
+        "ret_legend": {"n": int(repeat or 0), "rev": float(repeat_rev or 0)},
         "through": w.last,
         "window_label": w.label,
         "prev_label": w.prev_label,
@@ -1400,28 +1943,33 @@ def cost(request):
     rate_prev = (scrap["scr_prev"] or 0) / (scrap["qty_prev"] or 1) * 100
 
     pipeline = [
-        {"k": "Buy", "big": money(proc["spend"]),
-         "cap": f"{proc['orders']:,} purchase orders · merchandise, excl. rejected", "cls": ""},
-        {"k": "Make", "big": f"{scrap['qty']:,}", "cap": "units started on work orders", "cls": ""},
-        {"k": "Waste", "big": f"{scrap['scr']:,}", "cap": f"units scrapped · {rate:.2f}%", "cls": "bad"},
-        {"k": "Sell", "big": money(cogs), "cap": "cost of goods sold to customers", "cls": ""},
+        {"k": "Buy", "big": float(proc["spend"] or 0), "kind": "money",
+         "cap": f"{proc['orders']:,} purchase orders \u00b7 merchandise, excl. rejected", "cls": ""},
+        {"k": "Make", "big": int(scrap["qty"] or 0), "kind": "count",
+         "cap": "units started on work orders", "cls": ""},
+        {"k": "Waste", "big": int(scrap["scr"] or 0), "kind": "count",
+         "cap": f"units scrapped \u00b7 {rate:.2f}%", "cls": "bad"},
+        {"k": "Sell", "big": float(cogs or 0), "kind": "money",
+         "cap": "cost of goods sold to customers", "cls": ""},
     ]
 
     kpis = []
-    for label, value, change, cap in (
-        ("Cost of goods sold", money(cogs), delta(cogs, cogs_prev),
+    for label, value, kind, change, cap in (
+        ("Cost of goods sold", float(cogs or 0), "money", delta_pct(cogs, cogs_prev),
          "standard cost effective on the sale date"),
-        ("Cost per $1 revenue", f"{ratio:.0f}¢" if ratio is not None else "—",
-         delta(ratio, ratio_prev),
-         f"was {ratio_prev:.0f}¢ last year" if ratio_prev is not None else "no revenue last year"),
-        ("Procurement spend", money(proc["spend"]), delta(proc["spend"], proc_prev["spend"]),
-         f"{proc['orders']:,} non-rejected POs · merchandise, excl. tax & freight"),
-        ("Scrap rate", f"{rate:.2f}%", delta(rate, rate_prev),
+        ("Cost per $1 revenue", float(ratio) if ratio is not None else None, "cents",
+         delta_pct(ratio, ratio_prev),
+         f"was {ratio_prev:.0f}\u00a2 last year" if ratio_prev is not None else "no revenue last year"),
+        ("Procurement spend", float(proc["spend"] or 0), "money",
+         delta_pct(proc["spend"], proc_prev["spend"]),
+         f"{proc['orders']:,} non-rejected POs \u00b7 merchandise, excl. tax & freight"),
+        ("Scrap rate", float(rate or 0), "percent", delta_pct(rate, rate_prev),
          f"{scrap['scr']:,} units of {scrap['qty']:,} started"),
-        ("Rejected receipts", f"{rej_pct:.1f}%", (None, None),
-         f"{rec['rej']:,.0f} units of {rec['rec']:,.0f} received · all POs"),
+        ("Rejected receipts", float(rej_pct or 0), "percent", (None, None),
+         f"{rec['rej']:,.0f} units of {rec['rec']:,.0f} received \u00b7 all POs"),
     ):
-        kpis.append({"label": label, "value": value, "delta": change[0], "dir": change[1], "cap": cap})
+        kpis.append({"label": label, "value": value, "value_kind": kind,
+                     "delta": change[0], "dir": change[1], "cap": cap})
 
     with connection.cursor() as c:  # chart 2: monthly cost of goods sold
         c.execute(
@@ -1453,11 +2001,12 @@ def cost(request):
     trend = [
         {
             "label": m["month"].strftime("%b"), "full": m["month"].strftime("%b %Y"),
-            "money": money(m["cogs"]),
+            "money": float(m["cogs"] or 0),
             "margin": round((float(m["rev"]) - float(m["cogs"])) / float(m["rev"]) * 100, 1) if m["rev"] else 0,
             "height": round(float(m["cogs"]) / top * 100, 2) if top else 0,
             "prev_full": prev_months[i]["month"].strftime("%b %Y") if i < len(prev_months) else "",
-            "prev_money": money(prev_months[i]["cogs"]) if i < len(prev_months) else "—",
+            "prev_money": (float(prev_months[i]["cogs"] or 0)
+                           if i < len(prev_months) else None),
             "prev_h": (max(round(float(prev_months[i]["cogs"]) / top * 100), 2)
                        if i < len(prev_months) and prev_months[i]["cogs"] and top else 0),
         }
@@ -1492,13 +2041,14 @@ def cost(request):
             "name": r["name"],
             "cls": f"c{i}",
             "pct": round(float(r["cogs"]) / total_cogs * 100, 1),
-            "money": money(r["cogs"]),
+            "money": float(r["cogs"] or 0),
             "margin": round((float(r["rev"]) - float(r["cogs"])) / float(r["rev"]) * 100, 1) if r["rev"] else 0,
         }
         for i, r in enumerate(cats, 1)
     ]
     donut = ring([{"cls": m["cls"], "pct": m["pct"],
-                   "t": f"{m['name']} · {m['money']} · {m['pct']}% of cost · {m['margin']}% margin"}
+                   "t": f"{m['name']} \u00b7 {money(m['money'])} \u00b7 "
+                        f"{percent(m['pct'])} of cost \u00b7 {percent(m['margin'])} margin"}
                   for m in mix])
 
     with connection.cursor() as c:  # chart 4: top vendors by procurement spend
@@ -1517,7 +2067,7 @@ def cost(request):
         vendor_rows = [{"name": name, "spend": vendor_spend, "orders": orders,
                         "active": bool(active)}
                        for name, vendor_spend, orders, active in c.fetchall()]
-    vendors = rank(vendor_rows, "name", "spend", money)
+    vendors = rank(vendor_rows, "name", "spend")
     for r, s in zip(vendors, vendor_rows):
         r["note"] = f"{s['orders']:,} non-rejected purchase orders"
         if not s["active"]:
@@ -1544,7 +2094,7 @@ def cost(request):
         )
         costly = [{"name": name, "cogs": product_cogs, "units": units}
                   for name, product_cogs, units in c.fetchall()]
-    products = rank(costly, "name", "cogs", money)
+    products = rank(costly, "name", "cogs")
     for r, s in zip(products, costly):
         r["note"] = f"{s['units']:,} units"
 
@@ -1563,7 +2113,7 @@ def cost(request):
         )
         reason_rows = [{"name": name, "scr": scrapped, "orders": orders}
                        for name, scrapped, orders in c.fetchall()]
-    reasons = rank(reason_rows, "name", "scr", lambda v: f"{int(v):,} units")
+    reasons = rank(reason_rows, "name", "scr")
     for r, s in zip(reasons, reason_rows):
         r["note"] = f"{s['orders']:,} work orders"
 
@@ -1596,10 +2146,16 @@ def cost(request):
                           "pct": round((now - r["standard_cost"]) / r["standard_cost"] * 100, 1)})
     hikes.sort(key=lambda h: -h["pct"])
     hikes = hikes[:6]
-    changes = rank(hikes, "name", "pct", lambda v: f"+{v:.1f}%")
-    for row, h in zip(changes, hikes):
-        row["value"] = f"${h['old']:,.2f} → ${h['now']:,.2f}"
-        row["note"] = "standard cost per unit"
+    changes = [
+        {
+            "name": h["name"],
+            "old": float(h["old"]),
+            "now": float(h["now"]),
+            "pct": float(h["pct"]),
+            "note": "standard cost per unit",
+        }
+        for h in hikes
+    ]
 
     statuses = {1: ("Pending", ""), 2: ("Approved", "online"), 3: ("Rejected", "bad"), 4: ("Complete", "")}
     with connection.cursor() as c:  # chart 8: largest purchase orders
@@ -1618,9 +2174,10 @@ def cost(request):
         )
         biggest = [
             {
-                "id": order_id, "vendor": vendor, "date": order_date,
-                "lines": lines, "total": money(total),
-                "status": statuses.get(status, ("—", ""))[0], "cls": statuses.get(status, ("", ""))[1],
+                "id": order_id, "vendor": vendor,
+                "date": order_date.date().isoformat() if hasattr(order_date, "date") else str(order_date),
+                "lines": int(lines or 0), "total": float(total or 0),
+                "status": statuses.get(status, ("\u2014", ""))[0], "cls": statuses.get(status, ("", ""))[1],
             }
             for order_id, vendor, order_date, total, status, lines in c.fetchall()
         ]
@@ -1637,9 +2194,8 @@ def cost(request):
         if ratio_prev is not None:
             note += f" Last year cost was {ratio_prev:.0f}\u00a2 per revenue dollar."
         performance = {
-            "cost": f"{ratio:.1f}%", "margin": f"{margin_ratio:.1f}%",
-            "cost_w": min(max(round(ratio, 1), 0), 100),
-            "margin_w": max(margin_ratio, 0),
+            "cost": round(float(ratio), 1),
+            "margin": round(float(margin_ratio), 1),
             "note": note,
         }
 
@@ -1673,21 +2229,23 @@ def cost(request):
 
     if request.GET.get("export") == "csv":
         rows = [["Period", w.label, "compare", w.prev_label]]
-        rows += [["KPI", k["label"], k["value"], f"{k['delta']} · {k['cap']}" if k["delta"] else k["cap"]]
+        rows += [["KPI", k["label"], metric(k["value"], k["value_kind"]),
+                  f"{delta_text(k['delta'])} \u00b7 {k['cap']}" if k["delta"] is not None else k["cap"]]
                  for k in kpis]
-        rows += [["Pipeline", p["k"], p["big"], p["cap"]] for p in pipeline]
-        rows += [["Category", m["name"], m["money"], f"{m['pct']}% of cost · {m['margin']}% margin"]
-                 for m in mix]
-        rows += [["Vendor", r["name"], r["value"], r["note"]] for r in vendors]
-        rows += [["Product", r["name"], r["value"], r["note"]] for r in products]
-        rows += [["Scrap reason", r["name"], r["value"], r["note"]] for r in reasons]
-        rows += [["Cost change", r["name"], r["value"], r["note"]] for r in changes]
+        rows += [["Pipeline", p["k"], metric(p["big"], p["kind"]), p["cap"]] for p in pipeline]
+        rows += [["Category", m["name"], money(m["money"]),
+                  f"{percent(m['pct'])} of cost \u00b7 {percent(m['margin'])} margin"] for m in mix]
+        rows += [["Vendor", r["name"], money(r["value"]), r["note"]] for r in vendors]
+        rows += [["Product", r["name"], money(r["value"]), r["note"]] for r in products]
+        rows += [["Scrap reason", r["name"], units(r["value"]), r["note"]] for r in reasons]
+        rows += [["Cost change", r["name"], f"{money_exact(r['old'])} \u2192 {money_exact(r['now'])}",
+                  r["note"]] for r in changes]
         if performance:
-            rows += [["Performance", "Cost of goods", performance["cost"], "share of revenue"],
-                     ["Performance", "Gross margin", performance["margin"], "share of revenue"]]
+            rows += [["Performance", "Cost of goods", percent(performance["cost"]), "share of revenue"],
+                     ["Performance", "Gross margin", percent(performance["margin"]), "share of revenue"]]
         rows += [["Recommendation", r["title"], "", r["text"]] for r in recommendations]
-        rows += [["Purchase order", f"PO{r['id']}", r["total"],
-                  f"{r['date']:%Y-%m-%d} · {r['vendor']} · {r['status']}"] for r in biggest]
+        rows += [["Purchase order", f"PO{r['id']}", money(r["total"]),
+                  f"{r['date']} \u00b7 {r['vendor']} \u00b7 {r['status']}"] for r in biggest]
         return csv_response("cost.csv", ["Section", "Item", "Value", "Detail"], rows)
 
     return _report_response(request, "cost", "core/cost/report.html", {
@@ -1698,7 +2256,7 @@ def cost(request):
         "trend": trend,
         "mix": mix,
         "donut": donut,
-        "donut_mid": {"big": money(cogs), "small": "cost of goods"},
+        "donut_mid": {"big": float(cogs or 0), "small": "cost of goods"},
         "vendors": vendors,
         "products": products,
         "reasons": reasons,
@@ -1808,17 +2366,20 @@ def revenue_and_loss(request):
     short = (loss_cost or 0) - (loss_rev or 0)
 
     kpis = []
-    for label, value, change, cap in (
-        ("Total revenue", money(rev), delta(rev, rev_prev), "merchandise, excl. tax & freight"),
-        ("Cost of goods", money(cogs), delta(cogs, cogs_prev),
+    for label, value, kind, change, cap in (
+        ("Total revenue", float(rev or 0), "money", delta_pct(rev, rev_prev),
+         "merchandise, excl. tax & freight"),
+        ("Cost of goods", float(cogs or 0), "money", delta_pct(cogs, cogs_prev),
          "at standard cost on the sale date"),
-        ("Gross profit", money(profit), delta(profit, profit_prev),
-         f"{margin}% margin \u00b7 was {prev_margin}%"),
-        ("Invoiced total", money(due), delta(due, due_prev),
-         f"incl. {money(tax)} tax · {money(freight)} freight"),
-        ("Below-cost sales", money(short), (None, None), f"{loss_n:,} sales lines below standard cost"),
+        ("Gross profit", float(profit or 0), "money", delta_pct(profit, profit_prev),
+         f"{percent(margin)} margin \u00b7 was {percent(prev_margin)}"),
+        ("Invoiced total", float(due or 0), "money", delta_pct(due, due_prev),
+         f"incl. {money(tax)} tax \u00b7 {money(freight)} freight"),
+        ("Below-cost sales", float(short or 0), "money", (None, None),
+         f"{count(loss_n)} sales lines below standard cost"),
     ):
-        kpis.append({"label": label, "value": value, "delta": change[0], "dir": change[1], "cap": cap})
+        kpis.append({"label": label, "value": value, "value_kind": kind,
+                     "delta": change[0], "dir": change[1], "cap": cap})
 
     with connection.cursor() as c:  # chart 2: revenue trend, current vs previous window
         c.execute(
@@ -1843,10 +2404,11 @@ def revenue_and_loss(request):
         {
             "label": m["month"].strftime("%b"),
             "full": m["month"].strftime("%b %Y"),
-            "money": money(m["rev"]),
+            "money": float(m["rev"] or 0),
             "height": max(round(float(m["rev"] or 0) / rev_top * 100), 2) if rev_top else 0,
             "prev_full": prev_rev_months[i]["month"].strftime("%b %Y") if i < len(prev_rev_months) else "",
-            "prev_money": money(prev_rev_months[i]["rev"]) if i < len(prev_rev_months) else "\u2014",
+            "prev_money": (float(prev_rev_months[i]["rev"] or 0)
+                           if i < len(prev_rev_months) else None),
             "prev_h": (max(round(float(prev_rev_months[i]["rev"] or 0) / rev_top * 100), 2)
                        if i < len(prev_rev_months) and prev_rev_months[i]["rev"] and rev_top else 0),
         }
@@ -1952,14 +2514,15 @@ def revenue_and_loss(request):
             "name": r["name"],
             "cls": f"c{i}",
             "pct": round(float(r["rev"]) / total_rev * 100, 1),
-            "money": money(r["rev"]),
+            "money": float(r["rev"] or 0),
             "margin": round((float(r["rev"]) - float(r["cogs"])) / float(r["rev"]) * 100, 1) if r["rev"] else 0,
         }
         for i, r in enumerate(cats, 1)
     ]
 
     donut = ring([{"cls": m["cls"], "pct": m["pct"],
-                   "t": f"{m['name']} · {m['money']} · {m['pct']}% of revenue · {m['margin']}% margin"}
+                   "t": f"{m['name']} \u00b7 {money(m['money'])} \u00b7 "
+                        f"{percent(m['pct'])} of revenue \u00b7 {percent(m['margin'])} margin"}
                   for m in mix])
 
     with connection.cursor() as c:  # chart 5: products with declining revenue vs previous window
@@ -1984,10 +2547,10 @@ def revenue_and_loss(request):
         decline_rows = [{"name": name, "cur": cur_rev, "prev": prev_rev,
                          "drop": float(prev_rev) - float(cur_rev)}
                         for name, cur_rev, prev_rev in c.fetchall()]
-    declining = rank(decline_rows, "name", "drop", lambda v: f"-{money(v)}")
+    declining = rank(decline_rows, "name", "drop")
     for r, s_row in zip(declining, decline_rows):
         pct = round(s_row["drop"] / float(s_row["prev"]) * 100, 1)
-        r["note"] = f"{money(s_row['cur'])} vs {money(s_row['prev'])} \u00b7 -{pct}%"
+        r["note"] = f"{money(s_row['cur'])} vs {money(s_row['prev'])} \u00b7 -{percent(pct)}"
 
     with connection.cursor() as c:  # chart 6: below-cost products
         c.execute(
@@ -2013,9 +2576,9 @@ def revenue_and_loss(request):
             [cur_lo, cur_hi],
         )
         leak_rows = [{"name": name, "gap": gap, "n": n} for name, gap, n in c.fetchall()]
-    leaks = rank(leak_rows, "name", "gap", lambda v: f"-{money(v)}")
+    leaks = rank(leak_rows, "name", "gap")
     for r, s in zip(leaks, leak_rows):
-        r["note"] = f"{s['n']:,} lines"
+        r["note"] = f"{count(s['n'])} lines"
 
     with connection.cursor() as c:  # chart 7: product profitability table
         c.execute(
@@ -2042,25 +2605,29 @@ def revenue_and_loss(request):
     products = [
         {
             "id": r["product_id"], "name": r["name"],
-            "rev": money(r["rev"]), "cost": money(r["cogs"]),
-            "profit": money(float(r["rev"]) - float(r["cogs"])),
-            "margin": f"{round((float(r['rev']) - float(r['cogs'])) / float(r['rev']) * 100, 1)}%",
+            "rev": float(r["rev"] or 0), "cost": float(r["cogs"] or 0),
+            "profit": float(r["rev"] or 0) - float(r["cogs"] or 0),
+            "margin": round((float(r["rev"]) - float(r["cogs"])) / float(r["rev"]) * 100, 1)
+                      if r["rev"] else 0,
         }
         for r in prods[:8]
     ]
 
     if request.GET.get("export") == "csv":
         rows = [["Period", w.label, "compare", w.prev_label]]
-        rows += [["KPI", k["label"], k["value"], f"{k['delta']} \u00b7 {k['cap']}" if k["delta"] else k["cap"]]
+        rows += [["KPI", k["label"], metric(k["value"], k["value_kind"]),
+                  f"{delta_text(k['delta'])} \u00b7 {k['cap']}" if k["delta"] is not None else k["cap"]]
                  for k in kpis]
-        rows += [["Revenue trend", t["full"], t["money"], f"previous {t['prev_full']}: {t['prev_money']}"]
+        rows += [["Revenue trend", t["full"], money(t["money"]),
+                  f"previous {t['prev_full']}: {money(t['prev_money'])}"]
                  for t in rev_trend if t["prev_full"]]
-        rows += [["Category", m["name"], m["money"], f"{m['pct']}% of revenue \u00b7 {m['margin']}% margin"]
-                 for m in mix]
-        rows += [["Declining product", r["name"], r["value"], r["note"]] for r in declining]
-        rows += [["Below-cost product", r["name"], r["value"], r["note"]] for r in leaks]
-        rows += [["Product", r["name"], r["rev"], f"cost {r['cost']} \u00b7 profit {r['profit']} \u00b7 {r['margin']} margin"]
-                 for r in products]
+        rows += [["Category", m["name"], money(m["money"]),
+                  f"{percent(m['pct'])} of revenue \u00b7 {percent(m['margin'])} margin"] for m in mix]
+        rows += [["Declining product", r["name"], money(r["value"]), r["note"]] for r in declining]
+        rows += [["Below-cost product", r["name"], money(r["value"]), r["note"]] for r in leaks]
+        rows += [["Product", r["name"], money(r["rev"]),
+                  (f"cost {money(r['cost'])} \u00b7 profit {money(r['profit'])} \u00b7 "
+                   f"{percent(r['margin'])} margin")] for r in products]
         return csv_response("revenue-and-loss.csv", ["Section", "Item", "Value", "Detail"], rows)
 
     return _report_response(request, "revenue-and-loss",
@@ -2070,7 +2637,7 @@ def revenue_and_loss(request):
         "kpis": kpis,
         "combo": combo,
         "donut": donut,
-        "donut_mid": {"big": money(rev), "small": "revenue"},
+        "donut_mid": {"big": float(rev or 0), "small": "revenue"},
         "mix": mix,
         "rev_trend": rev_trend,
         "declining": declining,
@@ -2179,7 +2746,8 @@ class SnapshotList(SnapshotMixin, ListView):
                 headers = [kpi.get("label", "") for kpi in kpis]
             rows.append({
                 "snapshot": snapshot,
-                "cells": [kpi.get("value", "") for kpi in kpis],
+                "cells": [metric(kpi.get("value"), kpi.get("value_kind", "count"))
+                          for kpi in kpis],
             })
         ctx["rows"] = rows
         ctx["kpi_headers"] = headers
@@ -2194,6 +2762,52 @@ class SnapshotEdit(SnapshotMixin, UpdateView):
 
     def get_form_class(self):
         return ReportEditForm
+
+    def _select_options(self, section, name, current):
+        pairs = EDITOR_SELECTS.get(name)
+        if name == "cls":
+            if section == "channels":
+                pairs = (("online", "Individuals"), ("store", "Stores"))
+            elif self.tab == "cost" and section == "biggest":
+                pairs = (("", "None"), ("online", "Online"), ("bad", "Rejected"))
+        if pairs is None:
+            return None
+        current = "" if current is None else str(current)
+        return [
+            {"value": value, "label": label, "selected": value == current}
+            for value, label in pairs
+        ]
+
+    def _editor_type(self, section, name, value):
+        if name in EDITOR_DATE_FIELDS:
+            return "date"
+        if name in EDITOR_CHECKBOX_FIELDS:
+            return "checkbox"
+        if self._select_options(section, name, value) is not None:
+            return "select"
+        if name in EDITOR_INTEGER_FIELDS:
+            return "integer"
+        if name in EDITOR_NUMBER_FIELDS or isinstance(value, (int, float)):
+            return "number"
+        return "text"
+
+    def _editor_field(self, section, name, value):
+        field_type = self._editor_type(section, name, value)
+        if field_type == "date" and value is not None:
+            value = value.date().isoformat() if hasattr(value, "date") else str(value)[:10]
+        field = {
+            "name": name,
+            "label": FIELD_LABELS.get(name, name.replace("_", " ").title()),
+            "type": field_type,
+            "value": "" if value is None else value,
+        }
+        if field_type == "number":
+            field["step"] = "any"
+        elif field_type == "integer":
+            field["step"] = "1"
+        elif field_type == "select":
+            field["options"] = self._select_options(section, name, value)
+        return field
 
     def get_context_data(self, **kw):
         ctx = super().get_context_data(**kw)
@@ -2217,11 +2831,7 @@ class SnapshotEdit(SnapshotMixin, UpdateView):
                         {
                             "index": index,
                             "fields": [
-                                {
-                                    "name": c,
-                                    "label": c.replace("_", " ").title(),
-                                    "value": "" if row.get(c) is None else row.get(c),
-                                }
+                                self._editor_field(key, c, row.get(c))
                                 for c in columns
                             ],
                         }
@@ -2234,11 +2844,7 @@ class SnapshotEdit(SnapshotMixin, UpdateView):
                     "label": label,
                     "kind": "dict",
                     "items": [
-                        {
-                            "name": field,
-                            "label": field.replace("_", " ").title(),
-                            "value": "" if field_value is None else field_value,
-                        }
+                        self._editor_field(key, field, field_value)
                         for field, field_value in value.items()
                         if not isinstance(field_value, (dict, list))
                     ],
@@ -2265,35 +2871,49 @@ class SnapshotEdit(SnapshotMixin, UpdateView):
                         if isinstance(field_value, (dict, list)):
                             continue
                         edits.append((row, field, field_value,
-                                      f"editor-{key}-{index}-{field}"))
+                                      f"editor-{key}-{index}-{field}", key, index))
             elif isinstance(original, dict):
                 for field, field_value in list(original.items()):
                     if isinstance(field_value, (dict, list)):
                         continue
-                    edits.append((original, field, field_value, f"editor-{key}-{field}"))
+                    edits.append((original, field, field_value,
+                                  f"editor-{key}-{field}", key, None))
             else:
-                edits.append((payload, key, original, f"editor-{key}"))
+                edits.append((payload, key, original, f"editor-{key}", key, None))
         errors = []
-        for container, field, original_value, name in edits:
-            if name not in self.request.POST:
+        for container, field, original_value, name, section, index in edits:
+            field_type = self._editor_type(section, field, original_value)
+            if name not in self.request.POST and field_type != "checkbox":
                 continue
-            value = self.request.POST[name]
-            if isinstance(original_value, bool):
+            value = self.request.POST.get(name, "")
+            where = SECTION_LABELS.get(section, section.replace("_", " ").title())
+            if index is not None:
+                where += f", row {index + 1}"
+            where += f", {FIELD_LABELS.get(field, field.replace('_', ' ').title())}"
+            if field_type == "checkbox":
                 new_value = str(value).lower() in {"1", "true", "on", "yes"}
-            elif isinstance(original_value, int):
-                try:
-                    new_value = int(value)
-                except (TypeError, ValueError):
-                    errors.append(f"{field.replace('_', ' ').capitalize()} must be a whole number.")
-                    continue
-            elif isinstance(original_value, float):
-                try:
-                    new_value = float(value)
-                except (TypeError, ValueError):
-                    errors.append(f"{field.replace('_', ' ').capitalize()} must be a number.")
-                    continue
-            elif original_value is None:
+            elif field_type == "integer":
+                if value.strip() == "":
+                    new_value = None
+                else:
+                    try:
+                        new_value = int(value)
+                    except (TypeError, ValueError):
+                        errors.append(f"{where}: must be a whole number.")
+                        continue
+            elif field_type == "number":
+                if value.strip() == "":
+                    new_value = None
+                else:
+                    try:
+                        new_value = float(value)
+                    except (TypeError, ValueError):
+                        errors.append(f"{where}: must be a number.")
+                        continue
+            elif field_type == "date":
                 new_value = value or None
+            elif field_type == "select":
+                new_value = value
             else:
                 new_value = value
             container[field] = new_value
@@ -2301,6 +2921,12 @@ class SnapshotEdit(SnapshotMixin, UpdateView):
         if errors:
             for message in dict.fromkeys(errors):
                 form.add_error(None, message)
+            return self.form_invalid(form)
+
+        try:
+            validate_report_payload(self.tab, payload)
+        except PayloadValidationError as exc:
+            form.add_error(None, humanize_payload_error(str(exc)))
             return self.form_invalid(form)
 
         changes = {}

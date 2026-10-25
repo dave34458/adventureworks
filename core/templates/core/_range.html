@@ -20,13 +20,31 @@
  <a href="{{ manage_url }}">Manage saved reports</a>
  {% endif %}
 </form>
-<form class="d-filter" method="get">
+<form class="d-filter" method="get" id="report-range">
  <label>From <input type="date" name="from" value="{{ w_from }}"></label>
  <label>To <input type="date" name="to" value="{{ w_to }}"></label>
  <button type="submit">Apply</button>
  <a class="d-btn" href="{% if snapshot %}?report={{ snapshot.pk }}&amp;export=csv{% else %}?from={{ w_from }}&amp;to={{ w_to }}&amp;export=csv{% endif %}">Export CSV</a>
  {% if can_manage %}
- <button type="submit" formaction="{% url 'report_generate' tab %}" formmethod="post">{% if snapshot %}Regenerate report{% else %}Generate report{% endif %}</button>
+ <button type="submit" form="report-generate">{% if snapshot %}Regenerate report{% else %}Generate report{% endif %}</button>
  {% endif %}
  <a href="?">Live / reset</a>
 </form>
+{% if can_manage %}
+<form id="report-generate" method="post" action="{% url 'report_generate' tab %}" hidden>
+ {% csrf_token %}
+ <input type="hidden" name="from" value="{{ w_from }}">
+ <input type="hidden" name="to" value="{{ w_to }}">
+</form>
+<script>
+(function () {
+ var generate = document.getElementById("report-generate");
+ var range = document.getElementById("report-range");
+ if (!generate || !range) return;
+ generate.addEventListener("submit", function () {
+  generate.querySelector('[name="from"]').value = range.querySelector('[name="from"]').value;
+  generate.querySelector('[name="to"]').value = range.querySelector('[name="to"]').value;
+ });
+})();
+</script>
+{% endif %}

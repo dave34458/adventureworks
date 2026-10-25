@@ -23,32 +23,94 @@ def shift_months(dt, months):
 
 
 def money(value):
-    if value is None:
+    if value is None or value == "":
         return "—"
     value = float(value)
+    sign = "-" if value < 0 else ""
+    value = abs(value)
     for threshold, divisor, suffix in ((1e9, 1e9, "B"), (1e6, 1e6, "M"), (1e4, 1e3, "K")):
-        if abs(value) >= threshold:
-            return f"${value / divisor:,.1f}{suffix}"
-    return f"${value:,.0f}"
+        if value >= threshold:
+            return f"{sign}${value / divisor:,.1f}{suffix}"
+    return f"{sign}${value:,.0f}"
 
 
-def delta(cur, prev):
-    """Percent change and direction, or (None, None) when the baseline is non-positive."""
+def money_exact(value):
+    if value is None or value == "":
+        return "—"
+    value = float(value)
+    sign = "-" if value < 0 else ""
+    return f"{sign}${abs(value):,.2f}"
+
+
+def count(value):
+    if value is None or value == "":
+        return "—"
+    return f"{int(value):,}"
+
+
+def percent(value, digits=None):
+    if value is None or value == "":
+        return "—"
+    if digits is None:
+        text = f"{float(value):,.2f}".rstrip("0").rstrip(".")
+    else:
+        text = f"{float(value):,.{int(digits)}f}"
+    return f"{text}%"
+
+
+def units(value):
+    if value is None or value == "":
+        return "—"
+    return f"{int(value):,} units"
+
+
+def cents(value):
+    if value is None or value == "":
+        return "—"
+    return f"{round(float(value)):,}¢"
+
+
+def metric(value, kind):
+    formatters = {
+        "money": money,
+        "count": count,
+        "percent": percent,
+        "units": units,
+        "cents": cents,
+    }
+    return formatters.get(kind, count)(value)
+
+
+def delta_pct(cur, prev):
+    """Percent change as a number and direction, or (None, None) without a baseline."""
     if cur is None or prev is None or float(prev) <= 0:
         return None, None
     change = round((float(cur) - float(prev)) / float(prev) * 100, 1)
-    return f"{change:+.1f}%", "up" if change > 0 else "down" if change < 0 else "flat"
+    return change, "up" if change > 0 else "down" if change < 0 else "flat"
 
 
-def rank(rows, name_key, value_key, fmt):
-    """Rows with a display value and a bar width (percent of the largest row)."""
+def delta(cur, prev):
+    change, direction = delta_pct(cur, prev)
+    return (f"{change:+.1f}%" if change is not None else None), direction
+
+
+def delta_text(value):
+    if value is None:
+        return ""
+    return f"{float(value):+.1f}%"
+
+
+def rank(rows, name_key, value_key):
+    """Rows with a raw numeric value and a bar width (percent of the largest row)."""
     top = max((float(r[value_key] or 0) for r in rows), default=0)
     ranked = []
     for row in rows:
         value = row[value_key] or 0
+        if not isinstance(value, (int, float)):
+            value = float(value)
         ranked.append({
             "name": row[name_key] or "—",
-            "value": fmt(value),
+            "value": value,
             "pct": max(round(float(value) / top * 100), 2) if top else 0,
         })
     return ranked

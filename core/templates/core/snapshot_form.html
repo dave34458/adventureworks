@@ -11,13 +11,41 @@
  <div class="scroll"><table>
   <tr>{% for column in section.columns %}<th>{{ column.label }}</th>{% endfor %}</tr>
   {% for row in section.rows %}
-  <tr>{% for field in row.fields %}<td><input name="editor-{{ section.key }}-{{ row.index }}-{{ field.name }}" value="{{ field.value }}"></td>{% endfor %}</tr>
+  <tr>{% for field in row.fields %}<td>
+   {% if field.type == "select" %}
+   <select name="editor-{{ section.key }}-{{ row.index }}-{{ field.name }}">
+    {% for option in field.options %}<option value="{{ option.value }}"{% if option.selected %} selected{% endif %}>{{ option.label }}</option>{% endfor %}
+   </select>
+   {% elif field.type == "checkbox" %}
+   <input type="checkbox" name="editor-{{ section.key }}-{{ row.index }}-{{ field.name }}"{% if field.value %} checked{% endif %}>
+   {% elif field.type == "number" or field.type == "integer" %}
+   <input type="number" step="{{ field.step }}" name="editor-{{ section.key }}-{{ row.index }}-{{ field.name }}" value="{{ field.value }}">
+   {% elif field.type == "date" %}
+   <input type="date" name="editor-{{ section.key }}-{{ row.index }}-{{ field.name }}" value="{{ field.value }}">
+   {% else %}
+   <input name="editor-{{ section.key }}-{{ row.index }}-{{ field.name }}" value="{{ field.value }}">
+   {% endif %}
+  </td>{% endfor %}</tr>
   {% endfor %}
  </table></div>
  {% elif section.kind == "dict" %}
  <table>
   {% for field in section.items %}
-  <tr><th>{{ field.label }}</th><td><input name="editor-{{ section.key }}-{{ field.name }}" value="{{ field.value }}"></td></tr>
+  <tr><th>{{ field.label }}</th><td>
+   {% if field.type == "select" %}
+   <select name="editor-{{ section.key }}-{{ field.name }}">
+    {% for option in field.options %}<option value="{{ option.value }}"{% if option.selected %} selected{% endif %}>{{ option.label }}</option>{% endfor %}
+   </select>
+   {% elif field.type == "checkbox" %}
+   <input type="checkbox" name="editor-{{ section.key }}-{{ field.name }}"{% if field.value %} checked{% endif %}>
+   {% elif field.type == "number" or field.type == "integer" %}
+   <input type="number" step="{{ field.step }}" name="editor-{{ section.key }}-{{ field.name }}" value="{{ field.value }}">
+   {% elif field.type == "date" %}
+   <input type="date" name="editor-{{ section.key }}-{{ field.name }}" value="{{ field.value }}">
+   {% else %}
+   <input name="editor-{{ section.key }}-{{ field.name }}" value="{{ field.value }}">
+   {% endif %}
+  </td></tr>
   {% endfor %}
  </table>
  {% else %}

@@ -1,5 +1,5 @@
 {% extends "core/base.html" %}
-{% load static %}
+{% load static report_format %}
 {% block extra_head %}<link rel="stylesheet" href="{% static 'core/leaflet/leaflet.css' %}">{% endblock %}
 {% block content %}
 <h2>{{ title }}</h2>
@@ -10,7 +10,7 @@
   {% for k in kpis %}
   <div class="d-kpi">
    <div class="lab">{{ k.label }}</div>
-   <div class="val">{{ k.value }}{% if k.delta %} <span class="d-chip {{ k.dir }}">{{ k.delta }}</span>{% endif %}</div>
+   <div class="val">{{ k.value|fmt_metric:k.value_kind }}{% if k.delta is not None %} <span class="d-chip {{ k.dir }}">{{ k.delta|fmt_delta }}</span>{% endif %}</div>
    <div class="cap">{{ k.cap }}</div>
   </div>
   {% endfor %}
@@ -30,11 +30,11 @@
    </div>
    <div class="d-legend">
     <span class="dot ret"></span><span class="nm">Returning</span>
-    <span class="vl">{{ ret_legend.n }}</span><span class="mt">· {{ ret_legend.rev }} revenue</span>
+    <span class="vl">{{ ret_legend.n|fmt_count }}</span><span class="mt">· {{ ret_legend.rev|fmt_money }} revenue</span>
    </div>
    <div class="d-legend">
     <span class="dot new"></span><span class="nm">New</span>
-    <span class="vl">{{ new_legend.n }}</span><span class="mt">· {{ new_legend.rev }} revenue</span>
+    <span class="vl">{{ new_legend.n|fmt_count }}</span><span class="mt">· {{ new_legend.rev|fmt_money }} revenue</span>
    </div>
   </div>
   <div class="d-panel">
@@ -52,8 +52,8 @@
    <div class="d-legend">
     <span class="dot {{ c.cls }}"></span>
     <span class="nm">{{ c.name }}</span>
-    <span class="vl">{{ c.pct }}%</span>
-    <span class="mt">· {{ c.money }} · {{ c.customers }} customers ({{ c.cust_pct }}% of buyers) · {{ c.aov }} avg order</span>
+    <span class="vl">{{ c.pct|fmt_percent }}</span>
+    <span class="mt">· {{ c.money|fmt_money }} · {{ c.customers|fmt_count }} customers ({{ c.cust_pct|fmt_percent }} of buyers) · {{ c.aov|fmt_money }} avg order</span>
    </div>
    {% endfor %}
   </div>
@@ -68,7 +68,7 @@
    <div>
     <p class="sub">Revenue by country · {{ period }}</p>
     <ul class="d-rank">
-     {% for r in countries %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div></li>{% endfor %}
+     {% for r in countries %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value|fmt_money }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div></li>{% endfor %}
     </ul>
    </div>
   </div>
@@ -79,21 +79,21 @@
    <h3>Customer distribution by city</h3>
    <p class="sub">Revenue by shipping city · {{ period }}</p>
    <ul class="d-rank">
-    {% for r in cities %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
+    {% for r in cities %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value|fmt_money }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
    </ul>
   </div>
   <div class="d-panel">
    <h3>Customer segmentation by business type</h3>
    <p class="sub">The B2B side by business type · revenue {{ period }}</p>
    <ul class="d-rank">
-    {% for r in network %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
+    {% for r in network %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value|fmt_money }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
    </ul>
   </div>
   <div class="d-panel">
    <h3>Purchase frequency</h3>
    <p class="sub">Buyers by how many orders they placed · {{ period }}</p>
    <ul class="d-rank">
-    {% for r in frequency %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
+    {% for r in frequency %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value|fmt_count }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
    </ul>
   </div>
  </section>
@@ -109,8 +109,8 @@
     <td>{{ c.name }}</td>
     <td><span class="d-tag {% if c.store %}store{% else %}online{% endif %}">{% if c.store %}Store{% else %}Individual{% endif %}</span></td>
     <td class="d-hide-m">{{ c.territory }}</td>
-    <td class="num">{{ c.orders }}</td>
-    <td class="num">{{ c.rev }}</td>
+    <td class="num">{{ c.orders|fmt_count }}</td>
+    <td class="num">{{ c.rev|fmt_money }}</td>
    </tr>
    {% endfor %}
   </table>

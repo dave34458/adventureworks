@@ -1,4 +1,5 @@
 {% extends "core/base.html" %}
+{% load report_format %}
 {% block content %}
 <h2>{{ title }}</h2>
 <p class="muted d-sub">{% if custom %}Selected range{% else %}Rolling 12 months{% endif %} · {{ window_label }} · compared with {{ prev_label }} · USD · through {{ through|date:"M j, Y" }}</p>
@@ -8,7 +9,7 @@
   {% for k in kpis %}
   <div class="d-kpi">
    <div class="lab">{{ k.label }}</div>
-   <div class="val">{{ k.value }}{% if k.delta %} <span class="d-chip {{ k.dir }}">{{ k.delta }}</span>{% endif %}</div>
+   <div class="val">{{ k.value|fmt_metric:k.value_kind }}{% if k.delta is not None %} <span class="d-chip {{ k.dir }}">{{ k.delta|fmt_delta }}</span>{% endif %}</div>
    <div class="cap">{{ k.cap }}</div>
   </div>
   {% endfor %}
@@ -19,7 +20,7 @@
   <p class="sub">Revenue in dollars · solid bars: {{ period }} · faded bars: {{ prev_label }}</p>
   <div class="d-bars">
    {% for t in rev_trend %}
-   <div class="d-bar" title="{{ t.full }} · {{ t.money }}{% if t.prev_full %} · previous {{ t.prev_full }}: {{ t.prev_money }}{% endif %}">
+   <div class="d-bar" title="{{ t.full }} · {{ t.money|fmt_money }}{% if t.prev_full %} · previous {{ t.prev_full }}: {{ t.prev_money|fmt_money }}{% endif %}">
     <span class="bw"><i class="prev" style="height:{{ t.prev_h }}%"></i><i class="cur" style="height:{{ t.height }}%"></i></span>
     <b>{{ t.label }}</b>
    </div>
@@ -56,15 +57,15 @@
       {% for s in donut %}<circle class="{{ s.cls }}" cx="80" cy="80" r="60" fill="none" stroke-width="30" stroke-dasharray="{{ s.dash }} 1000" stroke-dashoffset="{{ s.off }}"><title>{{ s.t }}</title></circle>{% endfor %}
      </g>
     </svg>
-    <div class="mid"><b>{{ donut_mid.big }}</b><span>{{ donut_mid.small }}</span></div>
+    <div class="mid"><b>{{ donut_mid.big|fmt_money }}</b><span>{{ donut_mid.small }}</span></div>
    </div>
    <div>
     {% for c in mix %}
     <div class="d-legend">
      <span class="dot {{ c.cls }}"></span>
      <span class="nm">{{ c.name }}</span>
-     <span class="vl">{{ c.pct }}%</span>
-     <span class="mt">· {{ c.money }} revenue · {{ c.margin }}% margin</span>
+     <span class="vl">{{ c.pct|fmt_percent }}</span>
+     <span class="mt">· {{ c.money|fmt_money }} revenue · {{ c.margin|fmt_percent }} margin</span>
     </div>
     {% endfor %}
    </div>
@@ -76,14 +77,14 @@
    <h3>Declining revenue by product</h3>
    <p class="sub">Largest drops versus {{ prev_label }} · {{ period }}</p>
    <ul class="d-rank">
-    {% for r in declining %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% empty %}<li class="note">No product sold less than in the previous period.</li>{% endfor %}
+    {% for r in declining %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value|fmt_money }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% empty %}<li class="note">No product sold less than in the previous period.</li>{% endfor %}
    </ul>
   </div>
   <div class="d-panel">
    <h3>Below-cost sales</h3>
    <p class="sub">Negative financial performance: products sold under standard cost · {{ period }}</p>
    <ul class="d-rank">
-    {% for r in leaks %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% empty %}<li class="note">No line was sold below standard cost.</li>{% endfor %}
+    {% for r in leaks %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value|fmt_money }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% empty %}<li class="note">No line was sold below standard cost.</li>{% endfor %}
    </ul>
   </div>
  </section>
@@ -97,10 +98,10 @@
    {% for p in products %}
    <tr>
     <td>{{ p.name }}</td>
-    <td class="num">{{ p.rev }}</td>
-    <td class="num">{{ p.cost }}</td>
-    <td class="num">{{ p.profit }}</td>
-    <td class="num">{{ p.margin }}</td>
+    <td class="num">{{ p.rev|fmt_money }}</td>
+    <td class="num">{{ p.cost|fmt_money }}</td>
+    <td class="num">{{ p.profit|fmt_money }}</td>
+    <td class="num">{{ p.margin|fmt_percent }}</td>
    </tr>
    {% endfor %}
   </table>

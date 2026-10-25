@@ -1,4 +1,5 @@
 {% extends "core/base.html" %}
+{% load report_format %}
 {% block content %}
 <h2>{{ title }}</h2>
 <p class="muted d-sub">{% if custom %}Selected range{% else %}Rolling 12 months{% endif %} · {{ window_label }} · compared with {{ prev_label }} · USD · through {{ through|date:"M j, Y" }}</p>
@@ -8,7 +9,7 @@
   {% for k in kpis %}
   <div class="d-kpi">
    <div class="lab">{{ k.label }}</div>
-   <div class="val">{{ k.value }}{% if k.delta %} <span class="d-chip {{ k.dir }}">{{ k.delta }}</span>{% endif %}</div>
+   <div class="val">{{ k.value|fmt_metric:k.value_kind }}{% if k.delta is not None %} <span class="d-chip {{ k.dir }}">{{ k.delta|fmt_delta }}</span>{% endif %}</div>
    <div class="cap">{{ k.cap }}</div>
   </div>
   {% endfor %}
@@ -22,7 +23,7 @@
    {% if not forloop.first %}<div class="arrow" aria-hidden="true">→</div>{% endif %}
    <div class="step">
     <div class="k">{{ p.k }}</div>
-    <div class="big {{ p.cls }}">{{ p.big }}</div>
+    <div class="big {{ p.cls }}">{{ p.big|fmt_metric:p.kind }}</div>
     <div class="cap">{{ p.cap }}</div>
    </div>
    {% endfor %}
@@ -35,7 +36,7 @@
    <p class="sub">Monthly cost of goods sold · solid bars: {{ period }} · faded bars: {{ prev_label }} · hover for margin</p>
    <div class="d-bars">
     {% for t in trend %}
-    <div class="d-bar" title="{{ t.full }} · cost {{ t.money }} · {{ t.margin }}% margin{% if t.prev_full %} · previous {{ t.prev_full }}: {{ t.prev_money }}{% endif %}">
+    <div class="d-bar" title="{{ t.full }} · cost {{ t.money|fmt_money }} · {{ t.margin|fmt_percent }} margin{% if t.prev_full %} · previous {{ t.prev_full }}: {{ t.prev_money|fmt_money }}{% endif %}">
      <span class="bw"><i class="prev" style="height:{{ t.prev_h }}%"></i><i class="cur" style="height:{{ t.height }}%"></i></span>
      <b>{{ t.label }}</b>
     </div>
@@ -53,14 +54,14 @@
       {% for s in donut %}<circle class="{{ s.cls }}" cx="80" cy="80" r="60" fill="none" stroke-width="30" stroke-dasharray="{{ s.dash }} 1000" stroke-dashoffset="{{ s.off }}"><title>{{ s.t }}</title></circle>{% endfor %}
      </g>
     </svg>
-    <div class="mid"><b>{{ donut_mid.big }}</b><span>{{ donut_mid.small }}</span></div>
+    <div class="mid"><b>{{ donut_mid.big|fmt_money }}</b><span>{{ donut_mid.small }}</span></div>
    </div>
    {% for c in mix %}
    <div class="d-legend">
     <span class="dot {{ c.cls }}"></span>
     <span class="nm">{{ c.name }}</span>
-    <span class="vl">{{ c.money }}</span>
-    <span class="mt">· {{ c.pct }}% of cost · {{ c.margin }}% margin</span>
+    <span class="vl">{{ c.money|fmt_money }}</span>
+    <span class="mt">· {{ c.pct|fmt_percent }} of cost · {{ c.margin|fmt_percent }} margin</span>
    </div>
    {% endfor %}
   </div>
@@ -70,9 +71,9 @@
   <h3>Costs and business performance</h3>
   <p class="sub">How much of each revenue dollar is absorbed by cost of goods · {{ period }}</p>
   {% if performance %}
-  <div class="d-splitbar"><i class="cost" style="width:{{ performance.cost_w }}%"></i><i class="margin" style="width:{{ performance.margin_w }}%"></i></div>
-  <div class="d-legend"><span class="dot cost"></span><span class="nm">Cost of goods</span><span class="vl">{{ performance.cost }}</span><span class="mt">of revenue</span></div>
-  <div class="d-legend"><span class="dot margin"></span><span class="nm">Gross margin</span><span class="vl">{{ performance.margin }}</span><span class="mt">of revenue</span></div>
+  <div class="d-splitbar"><i class="cost" style="width:{{ performance.cost|fmt_pct_width }}%"></i><i class="margin" style="width:{{ performance.margin|fmt_pct_width }}%"></i></div>
+  <div class="d-legend"><span class="dot cost"></span><span class="nm">Cost of goods</span><span class="vl">{{ performance.cost|fmt_percent }}</span><span class="mt">of revenue</span></div>
+  <div class="d-legend"><span class="dot margin"></span><span class="nm">Gross margin</span><span class="vl">{{ performance.margin|fmt_percent }}</span><span class="mt">of revenue</span></div>
   <p class="d-note">{{ performance.note }}</p>
   {% else %}
   <p class="d-note">No revenue in this period, so no cost-to-revenue comparison is possible.</p>
@@ -84,28 +85,28 @@
    <h3>Significant cost contributors: vendors</h3>
    <p class="sub">Merchandise purchase spend, excl. tax &amp; freight · {{ period }}</p>
    <ul class="d-rank">
-    {% for r in vendors %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
+    {% for r in vendors %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value|fmt_money }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
    </ul>
   </div>
   <div class="d-panel">
    <h3>Significant cost contributors: products</h3>
    <p class="sub">Cost of goods sold by product · {{ period }}</p>
    <ul class="d-rank">
-    {% for r in products %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
+    {% for r in products %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value|fmt_money }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
    </ul>
   </div>
   <div class="d-panel">
    <h3>Significant cost contributors: scrap</h3>
    <p class="sub">Units scrapped in manufacturing · {{ period }}</p>
    <ul class="d-rank">
-    {% for r in reasons %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
+    {% for r in reasons %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value|fmt_units }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
    </ul>
   </div>
   <div class="d-panel">
    <h3>Significant cost contributors: repricing</h3>
    <p class="sub">Earliest recorded standard cost vs today</p>
    <ul class="d-rank">
-    {% for r in changes %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
+    {% for r in changes %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.old|fmt_money_exact }} &rarr; {{ r.now|fmt_money_exact }}</span><span class="d-chip up">{{ r.pct|fmt_signed_percent }}</span></div><div class="tbar"><i style="width:{{ r.pct|fmt_pct_width }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
    </ul>
   </div>
  </section>
@@ -123,7 +124,7 @@
     <td class="d-hide-m">{{ o.date|date:"M j, Y" }}</td>
     <td class="num">{{ o.lines }}</td>
     <td><span class="d-tag {{ o.cls }}">{{ o.status }}</span></td>
-    <td class="num">{{ o.total }}</td>
+    <td class="num">{{ o.total|fmt_money }}</td>
    </tr>
    {% endfor %}
   </table>
