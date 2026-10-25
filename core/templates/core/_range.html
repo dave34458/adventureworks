@@ -24,11 +24,10 @@
  <label>From <input type="date" name="from" value="{{ w_from }}"></label>
  <label>To <input type="date" name="to" value="{{ w_to }}"></label>
  <button type="submit">Apply</button>
- <a class="d-btn" href="{% if snapshot %}?report={{ snapshot.pk }}&amp;export=csv{% else %}?from={{ w_from }}&amp;to={{ w_to }}&amp;export=csv{% endif %}">Export CSV</a>
  {% if can_manage %}
  <button type="submit" form="report-generate">{% if snapshot %}Regenerate report{% else %}Generate report{% endif %}</button>
  {% endif %}
- <a href="?">Live / reset</a>
+ <a href="?report=">Live / reset</a>
 </form>
 {% if can_manage %}
 <form id="report-generate" method="post" action="{% url 'report_generate' tab %}" hidden>

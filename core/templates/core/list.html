@@ -6,9 +6,7 @@
 {% for label, name in columns %}<option value="{{ name }}" {% if name == col %}selected{% endif %}>{{ label }}</option>{% endfor %}
 </select>
 <button>Search</button></form>
-<p class="muted">{{ page_obj.paginator.count }} record{{ page_obj.paginator.count|pluralize }} ·
-<a href="?q={{ request.GET.q }}&col={{ request.GET.col }}&sort={{ request.GET.sort }}&page={{ page_obj.number }}&export=page">Export page ({{ rows|length }})</a> ·
-<a href="?q={{ request.GET.q }}&col={{ request.GET.col }}&sort={{ request.GET.sort }}&export=all">Export all ({{ page_obj.paginator.count }})</a></p>
+<p class="muted">{{ page_obj.paginator.count }} record{{ page_obj.paginator.count|pluralize }}</p>
 <div class="scroll"><table><tr>{% for label, fname in headers %}<th><a href="?q={{ request.GET.q }}&col={{ request.GET.col }}&sort={% if sort == fname and not sort_desc %}-{% endif %}{{ fname }}">{{ label }}{% if sort == fname %} {% if sort_desc %}&#9660;{% else %}&#9650;{% endif %}{% endif %}</a></th>{% endfor %}<th></th></tr>
 {% for r in rows %}<tr>{% for c in r.cells %}<td>{% if c.url %}<a href="{{ c.url }}">{{ c.text }}</a>{% else %}{{ c.text }}{% endif %}</td>{% endfor %}
 <td><a href="{% url 'table_detail' tab name r.obj.pk %}">view</a>

@@ -34,10 +34,6 @@ LEGACY_DEMO_USERS = {
 }
 
 
-def username_for(role):
-    return role.lower().replace(" and ", " ").replace(" ", ".")
-
-
 class Command(BaseCommand):
     help = "Create one demo user per role in core.roles.ROLES (username = password)."
 
@@ -52,7 +48,7 @@ class Command(BaseCommand):
         created = reset = 0
         usernames = []
         for role in ROLES:
-            username = username_for(role)
+            username = role.lower().replace(" and ", " ").replace(" ", ".")
             usernames.append(username)
             user, is_new = User.objects.get_or_create(username=username)
             if is_new:

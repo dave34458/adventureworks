@@ -1,18 +1,45 @@
-"""Fast RBAC and access tests."""
-from datetime import date
+"""Fast RBAC, access, and report-semantics tests."""
+from datetime import date, datetime, timedelta
+from decimal import Decimal
 from io import StringIO
 
 from django.contrib.auth.models import Group, User
 from django.core.management import call_command
-from django.test import SimpleTestCase, TestCase
+from django.test import RequestFactory, SimpleTestCase, TestCase
 
-from .models import PRIVACY_NOTICE_VERSION, PrivacyAcknowledgment, Report
+from .models import (
+    PRIVACY_NOTICE_VERSION,
+    PersonAddress,
+    PersonBusinessEntity,
+    PersonCountryRegion,
+    PersonStateProvince,
+    PrivacyAcknowledgment,
+    ProductionProduct,
+    ProductionProductCategory,
+    ProductionProductSubcategory,
+    PurchasingPurchaseOrderDetail,
+    PurchasingPurchaseOrderHeader,
+    PurchasingVendor,
+    Report,
+    SalesCustomer,
+    SalesOrderDetail,
+    SalesOrderHeader,
+    SalesStore,
+    SalesTerritory,
+)
 from .roles import ROLES, TABLES, apply_roles
-from .views import (
+from .services import (
     PayloadValidationError,
     humanize_payload_error,
+    report_generate,
     validate_report_payload,
 )
+from .services.cost import cost
+from .services.customer_profile import customer_profile
+from .services.dashboard import dashboard
+from .services.revenue_and_loss import revenue_and_loss
+from .services.sales import sales
+from .utils import range_window, rank, rolling_window
 
 ALL_TABS = ["sales", "customer-profile", "revenue-and-loss", "cost"]
 
@@ -199,6 +226,22 @@ class HttpTests(TestCase):
         self.assertEqual(self.client.get("/sales/reports/1/edit/").status_code, 403)
         self.assertEqual(self.client.get("/sales/reports/1/delete/").status_code, 403)
 
+    def test_report_tab_opens_latest_snapshot_but_live_link_is_live(self):
+        self.make_report(title="Older")
+        latest = self.make_report(
+            title="Latest", range_start=date(2024, 8, 1), range_end=date(2024, 9, 30))
+        self.client.force_login(self.users["Sales Manager"])
+
+        response = self.client.get("/sales/")
+        self.assertEqual(response.context["snapshot"].pk, latest.pk)
+
+        response = self.client.get("/sales/?report=")
+        self.assertNotIn("snapshot", response.context)
+        self.assertContains(response, "Live data")
+
+        response = self.client.get("/sales/?from=2024-01-01&to=2024-06-30")
+        self.assertNotIn("snapshot", response.context)
+
     def test_administrator_has_full_access(self):
         root = User.objects.create_superuser("root", password="x")
         self.client.force_login(root)
@@ -379,6 +422,440 @@ class HttpTests(TestCase):
         self.assertEqual(response.status_code, 302)
         report.refresh_from_db()
         self.assertEqual(report.payload["biggest"][0]["date"], "2024-02-03")
+
+
+class ReportDataTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        apply_roles(ROLES)
+        us = PersonCountryRegion.objects.create(country_region_code="US", name="United States")
+        canada = PersonCountryRegion.objects.create(country_region_code="CA", name="Canada")
+        west = SalesTerritory.objects.create(name="Northwest", country_region=us, group="North America")
+        canada_west = SalesTerritory.objects.create(
+            name="Canada West", country_region=canada, group="North America")
+        wa = PersonStateProvince.objects.create(
+            state_province_code="WA", country_region=us, name="Washington", territory=west)
+        bc = PersonStateProvince.objects.create(
+            state_province_code="BC", country_region=canada, name="British Columbia",
+            territory=canada_west)
+        addr_wa = PersonAddress.objects.create(
+            address_line1="1 Main", city="Springfield", state_province=wa, postal_code="11111")
+        addr_bc = PersonAddress.objects.create(
+            address_line1="2 Main", city="Springfield", state_province=bc, postal_code="22222")
+
+        category = ProductionProductCategory.objects.create(name="Bikes")
+        subcategory = ProductionProductSubcategory.objects.create(
+            product_category=category, name="Road Bikes")
+        product = ProductionProduct.objects.create(
+            name="Test Bike", product_number="TB-1", safety_stock_level=1, reorder_point=1,
+            standard_cost=Decimal(50), list_price=Decimal(100), days_to_manufacture=1,
+            product_subcategory=subcategory, sell_start_date=datetime(2022, 1, 1),
+        )
+
+        active_store = SalesStore.objects.create(
+            business_entity=PersonBusinessEntity.objects.create(), name="Active Store",
+            demographics=("<BusinessType>BS</BusinessType><SquareFeet>1000</SquareFeet>"
+                          "<NumberEmployees>10</NumberEmployees>"))
+        SalesStore.objects.create(
+            business_entity=PersonBusinessEntity.objects.create(), name="Inactive Store",
+            demographics=("<BusinessType>BS</BusinessType><SquareFeet>2000</SquareFeet>"
+                          "<NumberEmployees>20</NumberEmployees>"))
+        SalesStore.objects.create(
+            business_entity=PersonBusinessEntity.objects.create(), name="Specialty Store",
+            demographics=("<BusinessType>OS</BusinessType><SquareFeet>3000</SquareFeet>"
+                          "<NumberEmployees>30</NumberEmployees>"))
+        customer = SalesCustomer.objects.create(
+            store=active_store, territory=west, account_number="AW00000001")
+
+        orders = (
+            (date(2023, 12, 1), addr_wa, "SO0", 100),
+            (date(2024, 5, 15), addr_wa, "SO1", 10),
+            (date(2024, 11, 20), addr_wa, "SO2", 100),
+            (date(2024, 12, 10), addr_bc, "SO3", 100),
+            (date(2025, 1, 5), addr_wa, "SO4", 100),
+            (date(2025, 1, 20), addr_wa, "SO5", 10),
+            (date(2025, 2, 10), addr_bc, "SO6", 100),
+            (date(2025, 3, 5), addr_wa, "SO7", 100),
+        )
+        for order_date, address, number, price in orders:
+            header = SalesOrderHeader.objects.create(
+                order_date=datetime.combine(order_date, datetime.min.time()),
+                due_date=datetime.combine(order_date + timedelta(days=5), datetime.min.time()),
+                customer=customer,
+                bill_to_address=address,
+                ship_to_address=address,
+                sales_order_number=number,
+            )
+            SalesOrderDetail.objects.create(
+                sales_order=header, order_qty=1, product=product, unit_price=Decimal(price))
+
+        vendor = PurchasingVendor.objects.create(
+            business_entity=PersonBusinessEntity.objects.create(),
+            account_number="VEN1", name="Vendor One", credit_rating=1,
+        )
+        cls.po_ok = PurchasingPurchaseOrderHeader.objects.create(
+            vendor=vendor, order_date=datetime(2025, 2, 1), sub_total=Decimal(100),
+            tax_amt=Decimal(10), freight=Decimal(5), status=2,
+        )
+        PurchasingPurchaseOrderDetail.objects.create(
+            purchase_order=cls.po_ok, due_date=datetime(2025, 2, 10), order_qty=1,
+            product=product, unit_price=Decimal(100), received_qty=Decimal(1),
+            rejected_qty=Decimal(0),
+        )
+        cls.po_rejected = PurchasingPurchaseOrderHeader.objects.create(
+            vendor=vendor, order_date=datetime(2025, 2, 2), sub_total=Decimal(1000),
+            tax_amt=Decimal(100), freight=Decimal(50), status=3,
+        )
+        cls.po_future = PurchasingPurchaseOrderHeader.objects.create(
+            vendor=vendor, order_date=datetime(2025, 7, 15), sub_total=Decimal(500),
+            tax_amt=Decimal(50), freight=Decimal(25), status=2,
+        )
+
+        cls.root = User.objects.create_superuser("report-root", password="x")
+        cls.cost_user = User.objects.create_user("report-cost", password="x")
+        cls.cost_user.groups.add(Group.objects.get(name="Production Manager"))
+
+    def report_context(self, service, **params):
+        request = RequestFactory().get("/", {"report": "", **params})
+        request.user = self.root
+        return service(request).context
+
+    def test_custom_cost_range_after_sales_max_includes_purchase_orders(self):
+        context = self.report_context(
+            cost, **{"from": "2025-07-01", "to": "2025-09-30"})
+        self.assertIsNone(context.get("empty_message"))
+        self.assertIn("Sep 30, 2025", context["window_label"])
+        self.assertEqual([row["id"] for row in context["biggest"]], [self.po_future.pk])
+        self.assertAlmostEqual(context["biggest"][0]["total"], 500.0)
+
+    def test_cost_biggest_uses_merchandise_and_excludes_rejected(self):
+        context = self.report_context(cost)
+        ids = [row["id"] for row in context["biggest"]]
+        self.assertIn(self.po_ok.pk, ids)
+        self.assertNotIn(self.po_rejected.pk, ids)
+        row = next(row for row in context["biggest"] if row["id"] == self.po_ok.pk)
+        self.assertAlmostEqual(row["total"], 100.0)
+        cost_kpi = next(
+            kpi for kpi in context["kpis"] if kpi["label"] == "Cost of goods sold")
+        self.assertEqual(cost_kpi["dir"], "down")
+
+    def test_city_grouping_keeps_same_name_cities_separate(self):
+        context = self.report_context(customer_profile)
+        names = [row["name"] for row in context["cities"]]
+        self.assertIn("Springfield, WA", names)
+        self.assertIn("Springfield, BC", names)
+
+    def test_store_network_counts_only_stores_with_sales(self):
+        context = self.report_context(customer_profile)
+        bike_shops = next(row for row in context["network"] if row["name"] == "Bike shops")
+        self.assertIn("1 of 2 stores had sales", bike_shops["note"])
+        specialty = next(
+            row for row in context["network"] if row["name"] == "Other specialty stores")
+        self.assertEqual(specialty["note"], "0 of 1 stores had sales in the period")
+
+    def test_partial_month_combo_keeps_first_month(self):
+        context = self.report_context(
+            revenue_and_loss, **{"from": "2025-01-16", "to": "2025-03-15"})
+        self.assertEqual([tick["lab"] for tick in context["combo"]["xticks"]],
+                         ["Jan", "Feb", "Mar"])
+        self.assertEqual(len(context["combo"]["bars"]), 3)
+
+    def test_margin_chart_compares_selected_and_previous_like_dashboard(self):
+        context = self.report_context(
+            revenue_and_loss, **{"from": "2025-01-01", "to": "2025-09-30"})
+        combo = context["combo"]
+        self.assertEqual(len(combo["xticks"]), 9)
+        self.assertEqual(len(combo["cur_pts"].split()), 3)
+        self.assertEqual(len(combo["prev_pts"].split()), 3)
+        self.assertEqual({dot["cls"] for dot in combo["dots"]}, {"dotc", "dotp"})
+        self.assertTrue(any(tick["lab"].startswith("-") for tick in combo["rticks"]))
+        self.assertIn("May 2024",
+                      next(dot["t"] for dot in combo["dots"] if dot["cls"] == "dotp"))
+
+    def test_empty_months_are_zero_filled(self):
+        sales_context = self.report_context(sales)
+        self.assertEqual(len(sales_context["trend"]), 12)
+        sales_by_full = {row["full"]: row for row in sales_context["trend"]}
+        self.assertEqual(sales_by_full["Apr 2024"]["money"], 0.0)
+        self.assertEqual(sales_by_full["Apr 2024"]["height"], 0)
+        self.assertEqual(sales_by_full["Jun 2024"]["orders"], 0)
+
+        cost_context = self.report_context(cost)
+        self.assertEqual(len(cost_context["trend"]), 12)
+        cost_by_full = {row["full"]: row for row in cost_context["trend"]}
+        self.assertEqual(cost_by_full["Apr 2024"]["money"], 0.0)
+        self.assertEqual(cost_by_full["Apr 2024"]["height"], 0)
+
+        rl_context = self.report_context(revenue_and_loss)
+        self.assertEqual(len(rl_context["rev_trend"]), 12)
+        rl_by_full = {row["full"]: row for row in rl_context["rev_trend"]}
+        self.assertEqual(rl_by_full["Apr 2024"]["money"], 0.0)
+        self.assertEqual(rl_by_full["Apr 2024"]["height"], 0)
+        self.assertEqual(len(rl_context["combo"]["bars"]), 12)
+        self.assertEqual(len(rl_context["combo"]["xticks"]), 12)
+
+        request = RequestFactory().get("/", {"report": ""})
+        request.user = self.root
+        dashboard_context = dashboard(request).context
+        self.assertEqual(len(dashboard_context["trend"]), 12)
+        dashboard_by_full = {row["full"]: row for row in dashboard_context["trend"]}
+        self.assertEqual(dashboard_by_full["Apr 2024"]["height"], 0)
+
+        customer_context = self.report_context(customer_profile)
+        self.assertEqual(len(customer_context["growth"]), 12)
+        customer_by_full = {row["full"]: row for row in customer_context["growth"]}
+        self.assertEqual(customer_by_full["Apr 2024"]["act"], 0)
+        self.assertEqual(customer_by_full["Apr 2024"]["new_h"], 0)
+
+    def test_margin_points_skip_months_without_revenue(self):
+        context = self.report_context(
+            revenue_and_loss, **{"from": "2025-01-01", "to": "2025-09-30"})
+        self.assertEqual(len(context["combo"]["bars"]), 9)
+        self.assertEqual(len(context["combo"]["cur_pts"].split()), 3)
+        current_dots = [d for d in context["combo"]["dots"] if d["cls"] == "dotc"]
+        self.assertEqual(len(current_dots), 3)
+        self.assertEqual(len(context["combo"]["xticks"]), 9)
+
+        request = RequestFactory().get(
+            "/", {"report": "", "from": "2025-01-01", "to": "2025-09-30"})
+        request.user = self.root
+        chart = dashboard(request).context["margin_chart"]
+        self.assertEqual(len(chart["cur_pts"].split()), 3)
+        self.assertEqual(len(chart["dots"]), 3)
+
+    def test_negative_profit_bars_have_a_negative_axis(self):
+        context = self.report_context(revenue_and_loss)
+        labels = [tick["lab"] for tick in context["combo"]["lticks"]]
+        self.assertTrue(any(label.startswith("-") for label in labels))
+        self.assertTrue(any("-$40" in bar["t"] for bar in context["combo"]["bars"]))
+
+    def test_cost_only_dashboard_uses_highest_cost_wording_and_direction(self):
+        request = RequestFactory().get("/", {"report": ""})
+        request.user = self.cost_user
+        context = dashboard(request).context
+        text = " ".join(insight["text"] for insight in context["insights"])
+        self.assertIn("highest-cost month", text)
+        self.assertNotIn("strongest month", text)
+        cost_kpi = next(kpi for kpi in context["kpis"] if kpi["label"] == "Cost of goods")
+        self.assertEqual(cost_kpi["dir"], "down")
+
+    def test_invalid_range_gets_an_empty_message(self):
+        context = self.report_context(
+            cost, **{"from": "2025-07-01", "to": "2025-06-30"})
+        self.assertEqual(context["empty_message"],
+                         "No data is available for the selected range.")
+        self.assertFalse(context["has_data"])
+
+    def test_valid_empty_ranges_show_empty_message(self):
+        for service in (sales, revenue_and_loss, customer_profile):
+            with self.subTest(service=service.__name__):
+                context = self.report_context(
+                    service, **{"from": "2025-07-01", "to": "2025-09-30"})
+                self.assertEqual(context["empty_message"],
+                                 "No data is available for the selected range.")
+                self.assertFalse(context["has_data"])
+
+    def test_valid_empty_cost_range_shows_empty_message(self):
+        context = self.report_context(
+            cost, **{"from": "2025-10-01", "to": "2025-12-31"})
+        self.assertEqual(context["empty_message"],
+                         "No data is available for the selected range.")
+        self.assertFalse(context["has_data"])
+
+    def test_valid_empty_dashboard_range_uses_the_empty_message(self):
+        self.client.force_login(self.root)
+        response = self.client.get(
+            "/dashboard/", {"report": "", "from": "2025-07-01", "to": "2025-09-30"})
+        self.assertContains(response, "No data is available for this report.")
+        self.assertNotContains(response, "No sales data is available in the database.")
+
+    def test_dashboard_invalid_range_uses_the_empty_message(self):
+        self.client.force_login(self.root)
+        response = self.client.get(
+            "/dashboard/", {"report": "", "from": "2025-07-01", "to": "2025-06-30"})
+        self.assertContains(response, "No data is available for this report.")
+        self.assertNotContains(response, "No sales data is available in the database.")
+
+    def test_high_value_panel_is_labeled_as_segmented(self):
+        self.client.force_login(self.root)
+        response = self.client.get("/customer-profile/?report=")
+        self.assertContains(response, "Top customers by segment")
+        self.assertContains(response, "Top 6 stores and top 3 individuals by revenue")
+
+    def test_cost_biggest_panel_labels_merchandise(self):
+        self.client.force_login(self.root)
+        response = self.client.get("/cost/?report=")
+        self.assertContains(response, "Merchandise")
+        self.assertContains(response, "Largest non-rejected purchase orders by merchandise value")
+
+    def test_r_and_l_cost_direction_and_below_cost_label(self):
+        context = self.report_context(revenue_and_loss)
+        cost_kpi = next(kpi for kpi in context["kpis"] if kpi["label"] == "Cost of goods")
+        self.assertEqual(cost_kpi["dir"], "down")
+        labels = [kpi["label"] for kpi in context["kpis"]]
+        self.assertIn("Below-cost shortfall", labels)
+        self.assertNotIn("Below-cost sales", labels)
+        self.client.force_login(self.root)
+        response = self.client.get("/revenue-and-loss/?report=")
+        self.assertContains(response, "Below-cost shortfall")
+        self.assertNotContains(response, "Below-cost sales")
+
+    def test_dashboard_report_link_uses_below_cost_shortfall(self):
+        self.client.force_login(self.root)
+        response = self.client.get("/dashboard/")
+        self.assertContains(response, "below-cost shortfall")
+        self.assertNotContains(response, "below-cost sales")
+
+    def test_negative_margin_lines_fit_the_chart(self):
+        context = self.report_context(revenue_and_loss)
+        ys = [float(point.split(",")[1]) for point in context["combo"]["cur_pts"].split()]
+        self.assertTrue(all(0 <= y <= 260 for y in ys))
+        self.assertTrue(any(tick["lab"].startswith("-") for tick in context["combo"]["rticks"]))
+
+        request = RequestFactory().get("/", {"report": ""})
+        request.user = self.root
+        chart = dashboard(request).context["margin_chart"]
+        ys = [float(point.split(",")[1]) for point in chart["cur_pts"].split()]
+        self.assertTrue(all(0 <= y <= 260 for y in ys))
+        self.assertTrue(any(tick["label"].startswith("-") for tick in chart["ticks"]))
+
+    def test_margin_comparison_handles_missing_previous_revenue(self):
+        rl_context = self.report_context(
+            revenue_and_loss, **{"from": "2024-05-01", "to": "2024-05-31"})
+        cap = next(kpi for kpi in rl_context["kpis"]
+                   if kpi["label"] == "Gross profit")["cap"]
+        self.assertIn("no revenue in", cap)
+        self.assertNotIn("was 0%", cap)
+
+        request = RequestFactory().get(
+            "/", {"report": "", "from": "2024-05-01", "to": "2024-05-31"})
+        request.user = self.root
+        context = dashboard(request).context
+        cap = next(kpi for kpi in context["kpis"] if kpi["label"] == "Gross profit")["cap"]
+        self.assertIn("no revenue in", cap)
+        text = " ".join(insight["text"] for insight in context["insights"])
+        self.assertIn("no revenue in", text)
+        self.assertNotIn("pts versus", text)
+
+    def test_margin_comparison_handles_missing_current_revenue(self):
+        source = SalesOrderHeader.objects.get(sales_order_number="SO1")
+        header = SalesOrderHeader.objects.create(
+            order_date=datetime(2024, 6, 15),
+            due_date=datetime(2024, 6, 20),
+            customer=source.customer,
+            bill_to_address=source.bill_to_address,
+            ship_to_address=source.ship_to_address,
+            sales_order_number="SOZ",
+        )
+        SalesOrderDetail.objects.create(
+            sales_order=header, order_qty=1,
+            product=ProductionProduct.objects.get(name="Test Bike"),
+            unit_price=Decimal(0),
+        )
+
+        rl_context = self.report_context(
+            revenue_and_loss, **{"from": "2024-06-01", "to": "2024-06-30"})
+        cap = next(kpi for kpi in rl_context["kpis"]
+                   if kpi["label"] == "Gross profit")["cap"]
+        self.assertIn("no revenue in", cap)
+        self.assertIn("margin not meaningful", cap)
+
+        request = RequestFactory().get(
+            "/", {"report": "", "from": "2024-06-01", "to": "2024-06-30"})
+        request.user = self.root
+        context = dashboard(request).context
+        cap = next(kpi for kpi in context["kpis"] if kpi["label"] == "Gross profit")["cap"]
+        self.assertIn("no revenue in", cap)
+        text = " ".join(insight["text"] for insight in context["insights"])
+        self.assertIn("gross margin has no meaningful comparison", text)
+        self.assertNotIn("pts versus", text)
+
+    def test_custom_range_labels_name_the_actual_previous_period(self):
+        cost_context = self.report_context(
+            cost, **{"from": "2025-01-01", "to": "2025-03-31"})
+        cap = next(kpi for kpi in cost_context["kpis"]
+                   if kpi["label"] == "Cost per $1 revenue")["cap"]
+        self.assertIn(cost_context["prev_label"], cap)
+        self.assertNotIn("last year", cap.lower())
+        self.assertIn(cost_context["prev_label"], cost_context["performance"]["note"])
+
+        customer_context = self.report_context(
+            customer_profile, **{"from": "2025-01-01", "to": "2025-03-31"})
+        cap = next(kpi for kpi in customer_context["kpis"]
+                   if kpi["label"] == "Retention")["cap"]
+        self.assertIn(customer_context["prev_label"], cap)
+        self.assertNotIn("last-year", cap.lower())
+
+    def test_default_window_ends_at_month_end(self):
+        window = rolling_window(SalesOrderHeader)
+        self.assertEqual(window.last.date(), date(2025, 3, 31))
+        self.assertEqual(window.trend_start.date(), date(2024, 4, 1))
+        self.assertEqual(window.window_start.date(), date(2023, 4, 1))
+
+    def test_custom_range_previous_period_uses_complete_days(self):
+        january = range_window(
+            SalesOrderHeader, date(2025, 1, 1), date(2025, 1, 31))
+        self.assertEqual(january.window_start.date(), date(2024, 12, 1))
+        self.assertEqual(january.prev_label, "Dec 01, 2024 \u2013 Dec 31, 2024")
+
+        quarter = range_window(
+            SalesOrderHeader, date(2025, 1, 1), date(2025, 3, 31))
+        self.assertEqual(quarter.window_start.date(), date(2024, 10, 3))
+        self.assertEqual(quarter.prev_label, "Oct 03, 2024 \u2013 Dec 31, 2024")
+
+    def test_generated_reports_accept_inverted_cost_direction(self):
+        for module in ("revenue-and-loss", "cost"):
+            with self.subTest(module=module):
+                request = RequestFactory().post(
+                    f"/{module}/report/generate/",
+                    {"from": "2024-07-01", "to": "2025-06-29"},
+                )
+                request.user = self.root
+                report_generate(request, module)
+                self.assertIsNotNone(request._captured_snapshot)
+
+    def test_custom_snapshot_compare_start_matches_previous_label(self):
+        request = RequestFactory().post(
+            "/sales/report/generate/",
+            {"from": "2025-01-01", "to": "2025-01-31"},
+        )
+        request.user = self.root
+        report_generate(request, "sales")
+        snapshot = request._captured_snapshot
+        self.assertEqual(snapshot.compare_start, date(2024, 12, 1))
+        self.assertEqual(snapshot.compare_end, date(2024, 12, 31))
+        self.assertEqual(snapshot.prev_label, "Dec 01, 2024 \u2013 Dec 31, 2024")
+
+    def test_previous_series_align_by_month_not_position(self):
+        sales_context = self.report_context(sales)
+        by_full = {row["full"]: row for row in sales_context["trend"]}
+        self.assertEqual(by_full["May 2024"]["prev_full"], "")
+        self.assertEqual(by_full["Dec 2024"]["prev_full"], "Dec 2023")
+
+        rl_context = self.report_context(revenue_and_loss)
+        by_full = {row["full"]: row for row in rl_context["rev_trend"]}
+        self.assertEqual(by_full["May 2024"]["prev_full"], "")
+        self.assertEqual(by_full["Dec 2024"]["prev_full"], "Dec 2023")
+
+        cost_context = self.report_context(cost)
+        by_full = {row["full"]: row for row in cost_context["trend"]}
+        self.assertEqual(by_full["May 2024"]["prev_full"], "")
+        self.assertEqual(by_full["Dec 2024"]["prev_full"], "Dec 2023")
+
+        request = RequestFactory().get("/", {"report": ""})
+        request.user = self.root
+        dashboard_context = dashboard(request).context
+        by_full = {row["full"]: row for row in dashboard_context["trend"]}
+        self.assertNotIn("previous", by_full["May 2024"]["title"])
+        self.assertIn("previous Dec 2023", by_full["Dec 2024"]["title"])
+
+
+class UtilsTests(SimpleTestCase):
+    def test_rank_zero_value_has_no_bar(self):
+        rows = rank([{"name": "zero", "value": 0},
+                     {"name": "ten", "value": 10}], "name", "value")
+        self.assertEqual(rows[0]["pct"], 0)
+        self.assertEqual(rows[1]["pct"], 100)
 
 
 class PayloadValidationTests(SimpleTestCase):

@@ -4,7 +4,7 @@
 {% if has_data %}
 <p class="muted d-sub">{% if custom %}Selected range{% else %}Rolling 12 months{% endif %} · {{ window_label }} · compared with {{ prev_label }} · USD{% if selected_category %} · category: {{ selected_category.name }}{% endif %} · through {{ through|date:"M j, Y" }}</p>
 {% else %}
-<p class="muted d-sub">No sales data is available in the database.</p>
+<p class="muted d-sub">{{ empty_message }}</p>
 {% endif %}
 <form class="d-filter" method="get">
  <label>From <input type="date" name="from" value="{{ w_from }}"></label>
@@ -153,7 +153,7 @@
  {% if not has_data %}
  <section class="d-panel">
   <h3>No dashboard figures</h3>
-  <p class="sub">The database has no sales orders, so the consolidated figures cannot be calculated. The report links below remain available.</p>
+  <p class="sub">{{ empty_message }} The report links below remain available.</p>
  </section>
  {% endif %}
 
@@ -169,7 +169,7 @@
 
  <section class="d-panel">
   <h3>Explore the reports</h3>
-  <p class="sub">Open a module for its full tables, methods and CSV export.</p>
+  <p class="sub">Open a module for its full tables and methods.</p>
   <ul class="d-recs">
    {% for r in reports %}<li><a href="{% url r.url %}"><b>{{ r.name }}</b><span>{{ r.text }}</span></a></li>{% endfor %}
   </ul>

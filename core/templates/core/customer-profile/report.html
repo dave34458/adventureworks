@@ -3,7 +3,11 @@
 {% block extra_head %}<link rel="stylesheet" href="{% static 'core/leaflet/leaflet.css' %}">{% endblock %}
 {% block content %}
 <h2>{{ title }}</h2>
+{% if window_label %}
 <p class="muted d-sub">{% if custom %}Selected range{% else %}Rolling 12 months{% endif %} · {{ window_label }} · compared with {{ prev_label }} · USD · through {{ through|date:"M j, Y" }}</p>
+{% else %}
+<p class="muted d-sub">{{ empty_message }}</p>
+{% endif %}
 {% include "core/_range.html" %}
 <div class="report">
  <section class="d-kpis">
@@ -84,7 +88,7 @@
   </div>
   <div class="d-panel">
    <h3>Customer segmentation by business type</h3>
-   <p class="sub">The B2B side by business type · revenue {{ period }}</p>
+   <p class="sub">The B2B side by business type · stores with sales and revenue · {{ period }}</p>
    <ul class="d-rank">
     {% for r in network %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value|fmt_money }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
    </ul>
@@ -99,8 +103,9 @@
  </section>
 
  <section class="d-panel">
-  <h3>High-value customers</h3>
-  <p class="sub">Highest revenue and order counts · {{ period }}</p>
+  <h3>Top customers by segment</h3>
+  <p class="sub">Top 6 stores and top 3 individuals by revenue · {{ period }}</p>
+  <p class="sub">Stores and individuals are ranked separately; their order sizes are not directly comparable.</p>
   <div class="scroll">
   <table class="d-table">
    <tr><th>Customer</th><th>Type</th><th class="d-hide-m">Territory</th><th class="num">Orders</th><th class="num">Revenue</th></tr>

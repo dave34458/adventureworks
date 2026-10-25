@@ -6,11 +6,7 @@ from django.contrib import admin
 from .models import AuditLog, PrivacyAcknowledgment
 
 
-@admin.register(PrivacyAcknowledgment)
-class PrivacyAcknowledgmentAdmin(admin.ModelAdmin):
-    list_display = ("user", "version", "acknowledged_at")
-    ordering = ("-acknowledged_at",)
-
+class ReadOnlyAdmin(admin.ModelAdmin):
     def has_add_permission(self, request):
         return False
 
@@ -21,19 +17,16 @@ class PrivacyAcknowledgmentAdmin(admin.ModelAdmin):
         return False
 
 
+@admin.register(PrivacyAcknowledgment)
+class PrivacyAcknowledgmentAdmin(ReadOnlyAdmin):
+    list_display = ("user", "version", "acknowledged_at")
+    ordering = ("-acknowledged_at",)
+
+
 @admin.register(AuditLog)
-class AuditLogAdmin(admin.ModelAdmin):
+class AuditLogAdmin(ReadOnlyAdmin):
     list_display = ("created_at", "username", "action", "model", "object_pk", "object_repr")
     list_filter = ("action", "model")
     search_fields = ("username", "object_repr", "model")
     date_hierarchy = "created_at"
     ordering = ("-created_at",)
-
-    def has_add_permission(self, request):
-        return False
-
-    def has_change_permission(self, request, obj=None):
-        return False
-
-    def has_delete_permission(self, request, obj=None):
-        return False

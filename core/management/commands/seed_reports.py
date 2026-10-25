@@ -7,8 +7,8 @@ from django.core.management.base import BaseCommand
 from django.test import RequestFactory
 
 from core.models import Report, SalesOrderHeader
+from core.services import REPORT_VIEWS, capture_snapshot
 from core.utils import rolling_window
-from core.views import REPORT_VIEWS, capture_snapshot
 
 
 class Command(BaseCommand):

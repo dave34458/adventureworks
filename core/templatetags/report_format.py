@@ -1,7 +1,6 @@
 from django import template
 
 from ..utils import (
-    cents,
     count,
     delta_text,
     metric,
@@ -13,45 +12,13 @@ from ..utils import (
 
 register = template.Library()
 
-
-@register.filter
-def fmt_money(value):
-    return money(value)
-
-
-@register.filter
-def fmt_money_exact(value):
-    return money_exact(value)
-
-
-@register.filter
-def fmt_count(value):
-    return count(value)
-
-
-@register.filter
-def fmt_percent(value):
-    return percent(value)
-
-
-@register.filter
-def fmt_units(value):
-    return units(value)
-
-
-@register.filter
-def fmt_cents(value):
-    return cents(value)
-
-
-@register.filter
-def fmt_metric(value, kind):
-    return metric(value, kind)
-
-
-@register.filter
-def fmt_delta(value):
-    return delta_text(value)
+register.filter("fmt_money", money)
+register.filter("fmt_money_exact", money_exact)
+register.filter("fmt_count", count)
+register.filter("fmt_percent", percent)
+register.filter("fmt_units", units)
+register.filter("fmt_metric", metric)
+register.filter("fmt_delta", delta_text)
 
 
 @register.filter

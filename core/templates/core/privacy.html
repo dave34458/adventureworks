@@ -62,7 +62,7 @@
 
  <h2>V. How access is controlled (least privilege)</h2>
  <p>Access is role-based: each of the 17 department roles sees only the tabs and tables it needs, with separate
- view, change, and delete rights per table. All gates are enforced on the server for every page, export, and
+ view, change, and delete rights per table. All gates are enforced on the server for every page and
  action, and are covered by automated tests. Account and role management is restricted to the system
  administrator. No role can create records in this system.</p>
 
@@ -70,7 +70,7 @@
  <p>Technical and organizational measures include: passwords stored only as salted hashes; session-based
  authentication; access revoked through role groups rather than shared accounts; transport encryption (TLS) in
  production deployments; least-privilege access control as described above; and controlled, permission-gated
- export of table data. Access to the database file itself is limited to the system administrator.</p>
+ table access. Access to the database file itself is limited to the system administrator.</p>
 
  <h2>VII. Sharing and disclosure</h2>
  <p>Personal data is not shared with third parties. Within the organization, it is visible only to roles whose

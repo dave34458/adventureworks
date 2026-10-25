@@ -2,7 +2,11 @@
 {% load report_format %}
 {% block content %}
 <h2>{{ title }}</h2>
+{% if window_label %}
 <p class="muted d-sub">{% if custom %}Selected range{% else %}Rolling 12 months{% endif %} · {{ window_label }} · compared with {{ prev_label }} · USD · through {{ through|date:"M j, Y" }}</p>
+{% else %}
+<p class="muted d-sub">{{ empty_message }}</p>
+{% endif %}
 {% include "core/_range.html" %}
 <div class="report">
  <section class="d-kpis">
@@ -113,10 +117,10 @@
 
  <section class="d-panel">
   <h3>Biggest purchase orders</h3>
-  <p class="sub">Largest procurement commitments · {{ period }}</p>
+  <p class="sub">Largest non-rejected purchase orders by merchandise value · excl. tax &amp; freight · {{ period }}</p>
   <div class="scroll">
   <table class="d-table">
-   <tr><th>PO</th><th>Vendor</th><th class="d-hide-m">Ordered</th><th class="num">Lines</th><th>Status</th><th class="num">Total</th></tr>
+   <tr><th>PO</th><th>Vendor</th><th class="d-hide-m">Ordered</th><th class="num">Lines</th><th>Status</th><th class="num">Merchandise</th></tr>
    {% for o in biggest %}
    <tr>
     <td>PO{{ o.id }}</td>

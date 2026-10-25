@@ -5,12 +5,10 @@ order date instead of "today"; all four tabs use the same window so their number
 describe the same period.
 """
 import calendar
-import csv
 from datetime import datetime, time, timedelta
 from typing import NamedTuple
 
 from django.db.models import Max
-from django.http import StreamingHttpResponse
 
 MONTHS = 12
 
@@ -70,15 +68,17 @@ def cents(value):
     return f"{round(float(value)):,}¢"
 
 
+_METRIC_FORMATTERS = {
+    "money": money,
+    "count": count,
+    "percent": percent,
+    "units": units,
+    "cents": cents,
+}
+
+
 def metric(value, kind):
-    formatters = {
-        "money": money,
-        "count": count,
-        "percent": percent,
-        "units": units,
-        "cents": cents,
-    }
-    return formatters.get(kind, count)(value)
+    return _METRIC_FORMATTERS.get(kind, count)(value)
 
 
 def delta_pct(cur, prev):
@@ -111,7 +111,7 @@ def rank(rows, name_key, value_key):
         ranked.append({
             "name": row[name_key] or "—",
             "value": value,
-            "pct": max(round(float(value) / top * 100), 2) if top else 0,
+            "pct": max(round(float(value) / top * 100), 2) if top and value else 0,
         })
     return ranked
 
@@ -130,7 +130,7 @@ def ring(rows):
 
 
 class Window(NamedTuple):
-    last: object            # latest order date in the data
+    last: object            # end of the latest data month
     trend_start: object     # first instant of the current 12-month window
     window_start: object    # 12 months before trend_start (start of the compare window)
     label: str              # e.g. "Jul 2024 – Jun 2025"
@@ -144,31 +144,36 @@ def rolling_window(model, date_field="order_date"):
     if last is None:
         return None
     month_start = last.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    month_end = shift_months(month_start, 1) - timedelta(microseconds=1)
     trend_start = shift_months(month_start, -(MONTHS - 1))
     window_start = shift_months(trend_start, -MONTHS)
     return Window(
-        last=last,
+        last=month_end,
         trend_start=trend_start,
         window_start=window_start,
-        label=f"{trend_start:%b %Y} – {last:%b %Y}",
-        prev_label=f"{window_start:%b %Y} – {shift_months(trend_start, -1):%b %Y}",
+        label=f"{trend_start:%b %Y} \u2013 {month_end:%b %Y}",
+        prev_label=f"{window_start:%b %Y} \u2013 {shift_months(trend_start, -1):%b %Y}",
         custom=False,
     )
 
 
 def range_window(model, start, end, date_field="order_date"):
-    """Explicit [start, end] date range: cur = that range, prev = the same length before it."""
+    """Explicit [start, end] date range: cur = that range, prev = the same length before it.
+
+    The selected end is honored even when it is later than the last row in the table.
+    Callers report empty months as zero rather than silently shrinking the range.
+    """
     last = model.objects.aggregate(last=Max(date_field))["last"]
     if last is None:
         return None
     lo = datetime.combine(start, time.min)
-    hi = min(datetime.combine(end, time.max), last)
+    hi = datetime.combine(end, time.max)
     if hi < lo:
         return None
     span = hi - lo
-    prev_hi = lo - timedelta(seconds=1) if lo > datetime.min else datetime.min
+    prev_hi = lo - timedelta(microseconds=1) if lo > datetime.min else lo
     try:
-        prev_lo = lo - span - timedelta(seconds=1)
+        prev_lo = prev_hi - span
     except OverflowError:  # a range that starts near year 1 has no room for a compare window
         prev_lo = datetime.min
     return Window(
@@ -191,28 +196,8 @@ def window_for(request, model, date_field="order_date"):
         except ValueError:
             return None
     start, end = pick("from"), pick("to")
-    if start and end and start <= end:
+    if start and end:
+        if start > end:
+            return None
         return range_window(model, start, end, date_field)
     return rolling_window(model, date_field)
-
-
-class _Echo:
-    """csv.writer target that just hands each finished line back, so rows can stream out."""
-
-    def write(self, line):
-        return line
-
-
-def csv_response(filename, header, rows):
-    """A spreadsheet-ready CSV download: UTF-8 with BOM so Excel opens it cleanly.
-    Rows stream to the response one at a time, so exports of whole tables stay light."""
-    def emit():
-        yield "\ufeff"
-        writer = csv.writer(_Echo())
-        yield writer.writerow(header)
-        for row in rows:
-            yield writer.writerow(row)
-
-    response = StreamingHttpResponse(emit(), content_type="text/csv; charset=utf-8")
-    response["Content-Disposition"] = f'attachment; filename="{filename}"'
-    return response

@@ -2,7 +2,11 @@
 {% load report_format %}
 {% block content %}
 <h2>{{ title }}</h2>
+{% if window_label %}
 <p class="muted d-sub">{% if custom %}Selected range{% else %}Rolling 12 months{% endif %} · {{ window_label }} · compared with {{ prev_label }} · USD · through {{ through|date:"M j, Y" }}</p>
+{% else %}
+<p class="muted d-sub">{{ empty_message }}</p>
+{% endif %}
 {% include "core/_range.html" %}
 <div class="report">
  <section class="d-kpis">
@@ -31,21 +35,31 @@
  </section>
 
  <section class="d-panel d-line">
-  <h3>Gross profit and margin analysis</h3>
-  <p class="sub">Bars: gross profit, dollars (left axis) · lines: gross margin % (right axis) · solid = {{ period }}, dashed = previous period</p>
-  <svg viewBox="0 0 960 260" role="img" aria-label="Monthly gross profit and gross margin, selected period versus the previous period">
+  <h3>Gross profit · selected period</h3>
+  <p class="sub">Gross profit in dollars · {{ period }}</p>
+  <svg viewBox="0 0 960 260" role="img" aria-label="Monthly gross profit for the selected period">
    {% for t in combo.lticks %}<line class="axis" x1="72" y1="{{ t.y }}" x2="920" y2="{{ t.y }}"/><text class="tick" x="46" y="{{ t.y }}" text-anchor="end" dominant-baseline="central">{{ t.lab }}</text>{% endfor %}
-   {% for t in combo.rticks %}<text class="tick" x="926" y="{{ t.y }}" text-anchor="start" dominant-baseline="central">{{ t.lab }}</text>{% endfor %}
    {% for b in combo.bars %}<rect class="profitbar" x="{{ b.x }}" y="{{ b.y }}" width="{{ b.w }}" height="{{ b.h }}" rx="3"><title>{{ b.t }}</title></rect>{% endfor %}
+   {% for t in combo.xticks %}<text class="tick" x="{{ t.x }}" y="252" text-anchor="middle">{{ t.lab }}</text>{% endfor %}
+  </svg>
+  <div class="d-legend"><span class="sq"></span><span class="nm">Gross profit</span><span class="mt">· dollars, left axis</span></div>
+ </section>
+
+ {% if combo.cur_pts or combo.prev_pts %}
+ <section class="d-panel d-line">
+  <h3>Gross margin by month</h3>
+  <p class="sub">Gross margin percent · solid = {{ period }} · dashed = {{ prev_label }}</p>
+  <svg viewBox="0 0 960 260" role="img" aria-label="Monthly gross margin, selected period versus the previous period">
+   {% for t in combo.rticks %}<line class="axis" x1="72" y1="{{ t.y }}" x2="920" y2="{{ t.y }}"/><text class="tick" x="926" y="{{ t.y }}" text-anchor="start" dominant-baseline="central">{{ t.lab }}</text>{% endfor %}
    <polyline class="prev" points="{{ combo.prev_pts }}"/>
    <polyline class="cur" points="{{ combo.cur_pts }}"/>
    {% for d in combo.dots %}<circle class="{{ d.cls }}" cx="{{ d.x }}" cy="{{ d.y }}" r="3"><title>{{ d.t }}</title></circle>{% endfor %}
    {% for t in combo.xticks %}<text class="tick" x="{{ t.x }}" y="252" text-anchor="middle">{{ t.lab }}</text>{% endfor %}
   </svg>
-  <div class="d-legend"><span class="sq"></span><span class="nm">Gross profit</span><span class="mt">· dollars, left axis</span></div>
-  <div class="d-legend"><span class="sw solid"></span><span class="nm">Margin · selected period</span><span class="mt">· percent, right axis</span></div>
-  <div class="d-legend"><span class="sw"></span><span class="nm">Margin · previous period</span><span class="mt">· the preceding period of equal length</span></div>
+  <div class="d-legend"><span class="sw solid"></span><span class="nm">Margin · selected period</span><span class="mt">· percent</span></div>
+  <div class="d-legend"><span class="sw"></span><span class="nm">Margin · previous period</span></div>
  </section>
+ {% endif %}
 
  <section class="d-panel">
   <h3>Revenue contribution by category</h3>
@@ -81,7 +95,7 @@
    </ul>
   </div>
   <div class="d-panel">
-   <h3>Below-cost sales</h3>
+   <h3>Below-cost shortfall</h3>
    <p class="sub">Negative financial performance: products sold under standard cost · {{ period }}</p>
    <ul class="d-rank">
     {% for r in leaks %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value|fmt_money }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% empty %}<li class="note">No line was sold below standard cost.</li>{% endfor %}

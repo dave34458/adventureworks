@@ -24,13 +24,16 @@ before real use.
                         + PrivacyAcknowledgment and PRIVACY_NOTICE_VERSION (data privacy governance)
                         + AuditLog, the append-only record of every table edit and deletion
                         + Report, the single saved-report table (all four modules)
-      views.py          all views: home, the consolidated dashboard, one report view per module
-                        (sales, customer_profile, revenue_and_loss, cost), saved-report storage
-                        and CSV, the saved-report editor, and the shared list / detail / edit /
-                        delete pages every table uses, plus the JSON autocomplete they call
+      services/         report SQL and context builders (sales, customer_profile,
+                        revenue_and_loss, cost), dashboard, shared snapshot helpers,
+                        payload validation, saved-report editor, table helpers, registry
+      views.py          thin HTTP views: home, report pages, saved-report CRUD, and the
+                        shared list / detail / edit / delete table pages plus autocomplete
+      utils.py          number formatting and date-window helpers
+      constants.py      report labels, editor metadata, and table column hints
       roles.py          ROLES (the 12 department roles) and apply_roles; see core/tests.py
       forms.py          the login form: credentials + the required privacy acknowledgment
-      tests.py          fast RBAC, table-browser and privacy tests
+      tests.py          fast RBAC, table-browser, privacy and report-semantics tests
       admin.py          read-only privacy and audit records (visible at /manage/)
       management/       commands/seed_users.py: one demo login per role (username = password)
                         commands/seed_reports.py: default rolling 12-month snapshots per module
@@ -62,11 +65,12 @@ All panel data lives in `payload` JSON, including the KPI numbers, monthly trend
 product/customer/vendor rows, chart geometry and recommendations. This keeps the schema simple:
 there are no per-module KPI columns.
 
-The report page reads the saved row instead of rerunning the aggregate SQL. If no saved row matches
-the requested range, the page falls back to live SQL and shows a "Live data" banner. Managers can
-press **Generate report** to save the current range or **Regenerate report** to recalculate it.
-Saved rows are edited at `/<tab>/reports/`: the title and the structured payload sections, including
-the KPI values, are editable. Chart geometry is read-only.
+Opening a report tab with no query parameters loads the latest saved row for that module.
+`?report=<id>` opens a specific snapshot; an empty `?report=` or a custom `?from=&to=` range runs
+live SQL and shows the "Live data" banner. If a module has no saved row yet, it also falls back to
+live SQL. Managers can press **Generate report** to save the current range or **Regenerate report**
+to recalculate it. Saved rows are edited at `/<tab>/reports/`: the title and the structured payload
+sections, including the KPI values, are editable. Chart geometry is read-only.
 
 `python manage.py seed_reports` creates the default rolling 12-month snapshot for every module and
 skips ranges that already exist; add `--force` to replace them. The Railway start command runs it on
@@ -115,8 +119,6 @@ The Administrator is the single superuser; there is no Administrator group.
 | Edit/delete a saved report (`change_report`, `delete_report`) | Yes | Yes | No | No |
 | Edit/delete source-table rows (`change_<table>`, `delete_<table>`) | Yes | No | No | No |
 | Open `/manage/` (users, groups, privacy, audit) | Yes | No | No | No |
-| Export report CSV | Yes | Yes | Yes | Yes |
-| Export table CSV | Yes | Own department | Own department | No |
 
 | Department | Tab | Source tables for Manager/Supervisor |
 |---|---|---|
@@ -126,8 +128,7 @@ The Administrator is the single superuser; there is no Administrator group.
 | Production | Cost | `PurchasingPurchaseOrderHeader`, `PurchasingPurchaseOrderDetail`, `PurchasingVendor`, `ProductionWorkOrder`, `ProductionProductCostHistory`, `ProductionScrapReason` |
 
 No role can create source records through the UI. Report pages and saved-report lists are
-gated by `access_<tab>`; table pages and table exports need `view_<table>`. Report exports
-use the same tab gate.
+gated by `access_<tab>`; table pages need `view_<table>`.
 
 ## Data privacy and governance (RA 10173)
 * `/privacy/` is the published, versioned **Data Privacy Notice**: data inventory, legal bases
@@ -140,7 +141,7 @@ use the same tab gate.
   the notice version and the timestamp (audit evidence). Bump `PRIVACY_NOTICE_VERSION` in
   `core/models.py` when the notice changes; users then re-acknowledge at their next login, which
   refreshes the record. The records are visible read-only at `/manage/`.
-* Exports obey the same role gates as the pages, and no role can create records.
+* Every page obeys the same role gates, and no role can create records.
 * Every edit or deletion made through the table pages is written to the **audit trail** (`AuditLog`):
   the account, time, record, changed values (old and new), and IP address. Records are kept twelve
   months per the notice, cannot be changed or deleted from the UI, and are visible read-only at `/manage/`.
@@ -174,13 +175,21 @@ Then `railway up`.
   Sales revenue uses `SalesOrderDetail.LineTotal`, not the header `SubTotal`.
 * Cost of goods is quantity sold × `ProductCostHistory.StandardCost` effective on the order date,
   falling back to `Product.StandardCost` when no history row covers that date.
-* Procurement spend and vendor rankings use purchase-order `SubTotal` (merchandise only) and exclude
-  `Status=3` rejected orders. Receipt rejection includes every PO status: a rejected PO is a fully
-  rejected receipt, so excluding it would hide the quality problem.
-* Previous-period comparisons use the equal-length period immediately before the selected window.
-  A custom window that starts near the first order date has only a partial prior period, so its
-  percentage changes can be extreme.
-* Customer geography is grouped by the order's ship-to address; nearly every order ships to an
-  address already on the customer record.
+* Procurement spend, vendor rankings and biggest purchase orders use purchase-order `SubTotal`
+  (merchandise only) and exclude `Status=3` rejected orders. Receipt rejection includes every PO
+  status: a rejected PO is a fully rejected receipt, so excluding it would hide the quality problem.
+* The default report window ends at the end of the month containing the last sales order. A custom
+  `from`/`to` range is honored exactly, even when it extends past the last sale or purchase order;
+  empty months are zero. Purchase orders after the default sales period are future commitments,
+  not period spend.
+* Previous-period comparisons use the period immediately before the selected window. Custom
+  ranges use the same number of days; the default uses the preceding 12 calendar months. A custom
+  window that starts near the first order date has only a partial prior period, so its percentage
+  changes can be extreme. Gross margin is shown in its own chart, like the dashboard, with the
+  selected period solid and the previous period dashed.
+* Customer geography is grouped by the order's ship-to address; city rows include state/province
+  and country so same-named cities are not merged. Store-network revenue and active counts use only
+  stores with sales in the selected window; store totals remain all stores.
+* High-value customers are shown as the top 6 stores and top 3 individuals, ranked separately.
 * Keep `PersonPassword` and `SalesCreditCard` out of your pages (they are not registered).
 * Before deploying anywhere public: set DJANGO_SECRET_KEY, DJANGO_DEBUG=0 and DJANGO_ALLOWED_HOSTS.
