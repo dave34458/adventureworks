@@ -100,10 +100,10 @@
    </ul>
   </div>
   <div class="d-panel">
-   <h3>Significant cost contributors: scrap</h3>
-   <p class="sub">Units scrapped in manufacturing · {{ period }}</p>
+   <h3>{% if scrap_metric == "cost" %}Significant cost contributors: scrap{% else %}Significant scrap contributors{% endif %}</h3>
+   <p class="sub">{% if scrap_metric == "cost" %}Estimated scrap cost at work-order standard cost{% else %}Units scrapped in manufacturing{% endif %} · {{ period }}</p>
    <ul class="d-rank">
-    {% for r in reasons %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value|fmt_units }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
+    {% for r in reasons %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{% if scrap_metric == "cost" %}{{ r.value|fmt_money }}{% else %}{{ r.value|fmt_units }}{% endif %}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
    </ul>
   </div>
   <div class="d-panel">

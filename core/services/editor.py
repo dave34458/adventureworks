@@ -162,6 +162,8 @@ def apply_editor(tab, payload, post):
 
     if errors:
         return None, errors
+    if tab == "cost":
+        payload.setdefault("scrap_metric", "units")
     try:
         validate_report_payload(tab, payload)
     except PayloadValidationError as exc:

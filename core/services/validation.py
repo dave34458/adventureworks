@@ -409,6 +409,7 @@ REPORT_PAYLOADS = {
         "donut_mid": _object(DONUT_MID_FIELDS),
         "vendors": _rows(RANK_NOTE_FIELDS, 50),
         "products": _rows(RANK_NOTE_FIELDS, 50),
+        "scrap_metric": _choice("cost", "units"),
         "reasons": _rows(RANK_NOTE_FIELDS, 50),
         "changes": _rows(COST_CHANGE_FIELDS, 50),
         "biggest": _rows(COST_BIGGEST_FIELDS, 20),

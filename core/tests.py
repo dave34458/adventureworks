@@ -141,6 +141,7 @@ def cost_payload():
         "donut_mid": {"big": 0.0, "small": "cost of goods"},
         "vendors": [],
         "products": [],
+        "scrap_metric": "cost",
         "reasons": [],
         "changes": [],
         "biggest": [],

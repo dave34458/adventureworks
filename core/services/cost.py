@@ -290,21 +290,29 @@ def cost(request):
     with connection.cursor() as c:  # chart 6: scrap reasons
         c.execute(
             f"""
-            SELECT sr.Name, SUM(w.ScrappedQty) AS scr, COUNT(*) AS orders
+            SELECT sr.Name,
+                   SUM(w.ScrappedQty * COALESCE(ch.StandardCost, p.StandardCost)) AS cost,
+                   SUM(w.ScrappedQty) AS scr,
+                   COUNT(*) AS orders
             FROM Production_WorkOrder w
             JOIN Production_ScrapReason sr ON sr.ScrapReasonID = w.ScrapReasonID
+            JOIN Production_Product p ON p.ProductID = w.ProductID
+            LEFT JOIN Production_ProductCostHistory ch
+              ON ch.ProductID = w.ProductID
+             AND w.StartDate >= ch.StartDate
+             AND (ch.EndDate IS NULL OR w.StartDate <= ch.EndDate)
             WHERE w.StartDate >= %s AND w.StartDate <= %s
             GROUP BY sr.Name
-            ORDER BY scr DESC
+            ORDER BY cost DESC
             {limit_clause(8)}
             """,
             [cur_lo, cur_hi],
         )
-        reason_rows = [{"name": name, "scr": scrapped, "orders": orders}
-                       for name, scrapped, orders in c.fetchall()]
-    reasons = rank(reason_rows, "name", "scr")
+        reason_rows = [{"name": name, "cost": cost, "scr": scrapped, "orders": orders}
+                       for name, cost, scrapped, orders in c.fetchall()]
+    reasons = rank(reason_rows, "name", "cost")
     for r, s in zip(reasons, reason_rows):
-        r["note"] = f"{s['orders']:,} work orders"
+        r["note"] = f"{s['scr']:,} units \u00b7 {s['orders']:,} work orders"
 
     with connection.cursor() as c:  # chart 7: standard cost changes
         c.execute("SELECT ProductID, StandardCost FROM Production_ProductCostHistory WHERE EndDate IS NULL")
@@ -399,6 +407,7 @@ def cost(request):
         "donut_mid": {"big": float(cogs or 0), "small": "cost of goods"},
         "vendors": vendors,
         "products": products,
+        "scrap_metric": "cost",
         "reasons": reasons,
         "changes": changes,
         "biggest": biggest,

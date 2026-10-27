@@ -40,70 +40,70 @@ The system has four kinds of users:
 - Employees, who need read-only access to the reports for their area.
 - A system administrator, who manages users and permissions.
 
-We built the panels first, then worked backward to the question each panel answers.
+We built the panels first, then worked backward to the question each panel answers. The questions below use the panel's own measure, unit, and filter.
 
 ### Dashboard
 
 | Panel | Business question |
 |---|---|
-| KPI cards (role-dependent) | How are sales or revenue, orders, gross profit, cost of goods, active customers and below-cost shortfall performing this period versus the previous period? |
-| Category filter | How do all figures change when narrowed to one product category? |
-| Sales, revenue or cost trend by month | How does the selected measure move month by month versus the previous period? |
-| Revenue or cost contribution by category | Which product categories contribute the most revenue or cost? |
-| Gross margin by month | How does gross margin change month by month? |
-| Customer mix and spending | What share of revenue and buyers comes from individuals versus stores? |
-| Top products by selected metric | Which products lead sales, revenue or cost for the selected period? |
+| KPI cards (role-dependent) | Which role-visible cards — total sales or revenue, orders, gross profit, cost of goods, active customers, and below-cost shortfall — changed versus the previous period? |
+| Category filter | How do the dashboard figures change when narrowed to one product category? |
+| Sales trend by month / Revenue trend by month / Cost of goods sold by month (role-dependent) | How does the role-appropriate monthly measure — merchandise sales, revenue, or cost of goods sold — compare with the previous period? |
+| Revenue contribution by category / Cost distribution by category (role-dependent) | Which product categories account for the largest share of merchandise revenue (sales) or cost of goods sold? |
+| Gross margin by month | How does gross margin percent compare with the previous period? |
+| Customer mix and spending | What are the merchandise revenue share, buyer share, customer count, and average order value of individuals versus stores? |
+| Top products by sales / revenue / cost of goods | Which products rank highest by the role-appropriate measure — sales, revenue, or cost of goods — and what are their units and, where shown, gross profit and margin? |
 
 ### Sales Report
 
 | Panel | Business question |
 |---|---|
-| KPI cards | What are total sales, order count, average order value and distinct customers in the period? |
-| Total sales and sales trend | How do monthly sales and orders compare with the previous period? |
-| High-performing products | Which products generate the most revenue? |
-| Low-performing products | Which products generate the least revenue? |
+| KPI cards | What are total merchandise sales, order count, average order value, and distinct buyers in the period? |
+| Total sales and sales trend | How do monthly merchandise sales compare with the previous period, and how many orders did each month have? |
+| High-performing products | Which products have the highest merchandise sales (sum of line totals, excluding tax and freight)? |
+| Low-performing products | Which products have the lowest merchandise sales among products sold in the period? |
 
 ### Customer Profile Report
 
 | Panel | Business question |
 |---|---|
-| KPI cards | How many customers are active, new and returning; what share of revenue is repeat; what is average spend and retention? |
-| Purchasing patterns and trends | How many buyers are new versus returning each month? |
-| Who buys: segmentation and spending | What are the revenue share, buyer share and average order value of individuals versus stores? |
-| Customer distribution | Which countries generate the most revenue, and where are customers located? |
-| Customer distribution by city | Which shipping cities generate the most revenue? |
-| Customer segmentation by business type | Which store types are active, and how much revenue do they generate? |
-| Purchase frequency | How many customers order once, 2, 3-4, 5-9 or 10+ times? |
-| Top customers by segment | Which stores and individuals spend the most? |
+| KPI cards | How many distinct buyers were active, how many were new, what share of merchandise revenue came from returning buyers, what was average merchandise revenue per active customer, and what share of the previous period's buyers returned? |
+| Purchasing patterns and trends | How many distinct buyers purchased each month, and how many were new versus returning? |
+| Who buys: segmentation and spending | What are the merchandise revenue share, buyer share, customer count, and average order value of individuals versus stores? |
+| Customer distribution (revenue by ship-to country) | Which ship-to countries generate the most merchandise revenue, and how is that revenue distributed on the map? |
+| Customer distribution by city (revenue by ship-to city) | Which ship-to cities generate the most merchandise revenue? |
+| Customer segmentation by business type | Which store business types account for merchandise revenue, how many stores in each type had sales, and what was their average square footage? |
+| Purchase frequency | How many distinct buyers placed 1, 2, 3-4, 5-9, or 10+ orders in the period? |
+| Top customers by segment | Which six stores and three individuals generated the most merchandise revenue, and what were their territories, order counts, and revenue? (Ranked separately.) |
 
 ### Revenue and Loss Report
 
 | Panel | Business question |
 |---|---|
-| KPI cards | What are total revenue, cost of goods, gross profit, invoiced total and below-cost shortfall? |
-| Revenue trend by month | How does monthly revenue compare with the previous period? |
-| Gross profit, selected period | What gross profit did each month produce? |
-| Gross margin by month | How does gross margin compare with the previous period? |
-| Revenue contribution by category | Which categories contribute the most revenue? |
-| Declining revenue by product | Which products lost the most revenue versus the previous period? |
-| Below-cost shortfall | Which products are sold below standard cost, and how much is lost? |
-| Revenue contribution by product | Which products contribute the most revenue, units, gross profit and margin? |
-| Calculation method and limitations | How is each figure calculated, and what are the limits? |
+| KPI cards | What are total merchandise revenue, cost of goods at standard cost on the sale date, gross profit, invoiced total including tax and freight, and below-cost shortfall (standard cost minus line total on below-cost lines)? |
+| Revenue trend by month | How does monthly merchandise revenue compare with the previous period? |
+| Gross profit, selected period | What gross profit (merchandise revenue minus cost of goods) did each month produce? |
+| Gross margin by month | How does gross margin percent compare with the previous period? |
+| Revenue contribution by category | Which product categories account for the largest share of merchandise revenue, and what gross margin does each carry? |
+| Declining revenue by product | Which products had the largest dollar decline in merchandise revenue versus the previous period? |
+| Below-cost shortfall | Which products were sold below standard cost, and what was the shortfall (standard cost minus line total)? |
+| Revenue contribution by product | Which products generated the most merchandise revenue, and what were their cost, gross profit, and margin? |
+| Calculation method and limitations | What definitions and data limits apply to revenue, cost, gross profit, margin, below-cost, and invoiced total? |
 
 ### Cost Report
 
 | Panel | Business question |
 |---|---|
-| KPI cards | What are cost of goods sold, cost per $1 revenue, procurement spend, scrap rate and rejected receipts? |
-| Available cost information (Buy, Make, Waste, Sell) | How much do we buy, make, waste and sell? |
-| Cost trends and comparisons | How does monthly cost of goods compare with the previous period, and what margin does it leave? |
-| Cost distribution by category | Which categories make up the cost of goods? |
-| Costs and business performance | How much of each revenue dollar is consumed by cost, and what margin remains? |
-| Significant cost contributors: vendors | Which vendors account for the most procurement spend? |
-| Significant cost contributors: products | Which products account for the most cost of goods? |
-| Significant cost contributors: scrap | Which scrap reasons cost the most? |
-| Significant cost contributors: repricing | Which products had the largest standard-cost increases? |
-| Biggest purchase orders | Which purchase orders are the largest? |
+| KPI cards | What are cost of goods sold, cost per $1 of merchandise revenue, non-rejected procurement spend, unit scrap rate, and unit rejected-receipt rate? |
+| Available cost information (Buy, Make, Waste, Sell) | What is the four-step cost flow: procurement spend (USD), units started, units scrapped, and cost of goods sold (USD)? |
+| Cost trends and comparisons | How does monthly cost of goods sold compare with the previous period, and what gross margin did each month leave? |
+| Cost distribution by category | Which product categories account for the largest share of cost of goods sold, and what gross margin does each carry? |
+| Costs and business performance | What percentage of each merchandise revenue dollar is absorbed by cost of goods, and what gross margin remains? |
+| Significant cost contributors: vendors | Which vendors account for the most merchandise purchase-order spend (PO subtotal, excluding tax/freight and rejected POs), and how many POs did each have? |
+| Significant cost contributors: products | Which products account for the most cost of goods sold (quantity sold × standard cost on the sale date), and how many units did each contribute? |
+| Significant cost contributors: scrap | Which scrap reasons have the highest estimated scrap cost (scrapped units × standard cost effective on the work-order date), and how many scrapped units and work orders did each reason account for? |
+| Significant cost contributors: repricing | Which products had the largest percentage standard-cost increase, and what were the earliest recorded and current open costs (one row per base product name)? |
+| Biggest purchase orders | Which non-rejected purchase orders had the largest merchandise subtotal in the period, and what were their order dates, line counts, and statuses? |
 
 ## 3. Initial data map
 
@@ -152,7 +152,7 @@ comes from `LineTotal`, which already includes the discount.
 | Sales data covers 2022-05-30 to 2025-06-29 only; 2022 and 2025 are partial years. | The default report is a rolling 12-month window ending in the last order month; custom ranges are labeled, so partial years are not silently compared. |
 | 64 of 121,317 order lines (0.05%) have no matching cost-history period. | The app falls back to the product's current `StandardCost` (`COALESCE`). |
 | 209 products have no subcategory. | Category donuts use inner joins and exclude them; product-level panels include them. The dashboard category filter lists only categorized products. |
-| 71,862 of 72,591 work orders have no `ScrapReasonID`. | The scrap-reason panel uses the 729 work orders that have a reason; the scrap rate uses all scrapped quantities. Scrap cost is estimated from standard cost. |
+| 71,862 of 72,591 work orders have no `ScrapReasonID`. | The scrap-reason panel uses the 729 work orders that have a reason; the scrap rate uses all scrapped quantities. Scrap cost is estimated from the standard cost effective on each work order's start date, falling back to the current standard cost when no cost-history row covers that date. |
 | Operating expenses and returns are not in the data. | "Loss" here means sales below standard cost plus scrap cost, not a full profit and loss statement. |
 | `TotalPurchaseYTD` is negative for 8,215 people. | Customer spend is calculated from actual orders, not that field. |
 | Education and occupation fields are not used by the app's panels. | The Customer Profile report focuses on purchasing behavior, geography, store type and frequency. |
@@ -163,7 +163,7 @@ These four queries are copied from the app's panel code, one per report. `%s` is
 the app binds; the results below use the full sample (`2022-05-30` to `2025-06-29`). The app's
 default is the last 12 months. All amounts are in US dollars.
 
-### Q1. Which products generate the most revenue?
+### Q1. Which products generate the most merchandise sales?
 
 **Report:** Sales -> High-performing products (`core/services/sales.py:125`).
 
@@ -178,7 +178,7 @@ ORDER BY rev DESC
 OFFSET 0 ROWS FETCH NEXT 8 ROWS ONLY;
 ```
 
-| Product | Revenue |
+| Product | Merchandise sales |
 |---|---:|
 | Mountain-200 Black, 38 | 4,400,592.80 |
 | Mountain-200 Black, 42 | 4,009,494.76 |
@@ -191,12 +191,13 @@ OFFSET 0 ROWS FETCH NEXT 8 ROWS ONLY;
 
 `LineTotal` is quantity times unit price after discount. The panel returns the top eight products.
 
-### Q2. Which countries generate the most revenue?
+### Q2. Which ship-to countries generate the most merchandise revenue?
 
 **Report:** Customer Profile -> Customer distribution (`core/services/customer_profile.py:187`).
 
 This is the query behind the map and the "Revenue by country" list. It groups by the ship-to country,
-not the customer's sales territory, and it shows revenue and orders, not customer counts.
+not the customer's sales territory. The map hover shows revenue and orders; the list shows revenue only.
+Neither shows customer counts.
 
 ```sql
 SELECT co.Name, SUM(d.LineTotal) AS rev,
@@ -212,7 +213,7 @@ ORDER BY rev DESC
 OFFSET 0 ROWS FETCH NEXT 6 ROWS ONLY;
 ```
 
-| Country | Revenue | Orders |
+| Country | Merchandise revenue | Orders (map hover) |
 |---|---:|---:|
 | United States | 62,997,590.71 | 12,041 |
 | Canada | 16,355,770.45 | 4,067 |
@@ -223,7 +224,7 @@ OFFSET 0 ROWS FETCH NEXT 6 ROWS ONLY;
 
 The map shows the same six countries as bubbles. The United States is the largest market by revenue.
 
-### Q3. Which categories contribute the most revenue?
+### Q3. Which categories contribute the most merchandise revenue and gross margin?
 
 **Report:** Revenue and Loss -> Revenue contribution by category
 (`core/services/revenue_and_loss.py:298`).
@@ -245,7 +246,7 @@ GROUP BY cat.Name
 ORDER BY rev DESC;
 ```
 
-| Category | Revenue | COGS | Gross profit | Margin |
+| Category | Merchandise revenue | COGS | Gross profit | Margin |
 |---|---:|---:|---:|---:|
 | Bikes | 94,651,172.70 | 84,131,887.76 | 10,519,284.95 | 11.1% |
 | Components | 11,802,593.29 | 10,768,475.71 | 1,034,117.57 | 8.8% |
@@ -253,10 +254,11 @@ ORDER BY rev DESC;
 | Accessories | 1,272,072.88 | 637,601.04 | 634,471.85 | 49.9% |
 
 Gross profit is revenue minus COGS; margin is gross profit divided by revenue. COGS uses the standard
-cost in effect on the order date. Bikes bring in most of the revenue at a modest margin; accessories
+cost in effect on the order date, falling back to the product's current standard cost when no
+cost-history row covers that date. Bikes bring in most of the revenue at a modest margin; accessories
 have the highest margin.
 
-### Q4. Which vendors account for the most procurement spend?
+### Q4. Which vendors account for the most merchandise purchase-order spend?
 
 **Report:** Cost -> Significant cost contributors: vendors (`core/services/cost.py:243`).
 
@@ -270,7 +272,7 @@ ORDER BY spend DESC
 OFFSET 0 ROWS FETCH NEXT 8 ROWS ONLY;
 ```
 
-| Vendor | Procurement spend | Orders | Active |
+| Vendor | Merchandise PO spend | Orders | Active |
 |---|---:|---:|---|
 | Superior Bicycles | 3,826,953.90 | 42 | Yes |
 | Chicago City Saddles | 2,718,119.25 | 44 | Yes |
@@ -281,11 +283,11 @@ OFFSET 0 ROWS FETCH NEXT 8 ROWS ONLY;
 | Proseware, Inc. | 1,928,607.45 | 42 | No |
 | Crowley Sport | 1,886,773.35 | 43 | Yes |
 
-`Status <> 3` excludes rejected purchase orders. `ActiveFlag` is 1 for active vendors and 0 for
-inactive ones. The panel returns the top eight vendors.
+`Status <> 3` excludes rejected purchase orders; pending, approved, and complete POs are included.
+`ActiveFlag` is 1 for active vendors and 0 for inactive ones. The panel returns the top eight vendors.
 
-Other panel queries cover below-cost products, declining products, scrap reasons, standard-cost
-changes and the largest purchase orders; they live in `core/services/`.
+Other panel queries cover below-cost products, declining products, estimated scrap cost by reason,
+standard-cost changes and the largest purchase orders; they live in `core/services/`.
 
 ## 5. Architecture
 
