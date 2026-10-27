@@ -3,6 +3,11 @@
  .lcard img{margin:0 auto .8rem}
  .lcard form label{display:block;text-align:left;text-transform:uppercase;letter-spacing:.04em;font-size:.72rem;color:#5f6b79}
  .lcard form input[type=email],.lcard form input[type=password]{width:100%;box-sizing:border-box}
+ .demo{margin-top:1rem;border-top:1px solid #edf1f6;padding-top:.8rem;text-align:left;font-size:.8rem}
+ .demo summary{cursor:pointer;font-weight:600;color:#1f3a5f}
+ .demo table{width:100%;margin-top:.5rem;font-size:.75rem}
+ .demo th,.demo td{padding:.25rem .35rem}
+ .demo code{font-size:.72rem}
 </style>{% endblock %}{% block content %}
 <div class="lw"><div class="lcard">
  <img src="{% static 'core/favicon.svg' %}" alt="AdventureWorks" width="48" height="48">
@@ -13,5 +18,27 @@
   <input type="hidden" name="next" value="{{ next }}">
   <button>Log in</button>
  </form>
+ <details class="demo" open>
+  <summary>Demo accounts for testing</summary>
+  <p class="muted">Demo credentials only. Do not use with real data.</p>
+  <div class="scroll"><table>
+   <thead><tr><th>Role</th><th>Email</th><th>Password</th></tr></thead>
+   <tbody>
+    <tr><td>Administrator</td><td><code>admin@example.com</code></td><td><code>admin</code></td></tr>
+    <tr><td>Sales Manager</td><td><code>sales.manager@example.com</code></td><td><code>sales.manager</code></td></tr>
+    <tr><td>Sales Supervisor</td><td><code>sales.supervisor@example.com</code></td><td><code>sales.supervisor</code></td></tr>
+    <tr><td>Sales Employee</td><td><code>sales.employee@example.com</code></td><td><code>sales.employee</code></td></tr>
+    <tr><td>Marketing Manager</td><td><code>marketing.manager@example.com</code></td><td><code>marketing.manager</code></td></tr>
+    <tr><td>Marketing Supervisor</td><td><code>marketing.supervisor@example.com</code></td><td><code>marketing.supervisor</code></td></tr>
+    <tr><td>Marketing Employee</td><td><code>marketing.employee@example.com</code></td><td><code>marketing.employee</code></td></tr>
+    <tr><td>Finance Manager</td><td><code>finance.manager@example.com</code></td><td><code>finance.manager</code></td></tr>
+    <tr><td>Finance Supervisor</td><td><code>finance.supervisor@example.com</code></td><td><code>finance.supervisor</code></td></tr>
+    <tr><td>Finance Employee</td><td><code>finance.employee@example.com</code></td><td><code>finance.employee</code></td></tr>
+    <tr><td>Production Manager</td><td><code>production.manager@example.com</code></td><td><code>production.manager</code></td></tr>
+    <tr><td>Production Supervisor</td><td><code>production.supervisor@example.com</code></td><td><code>production.supervisor</code></td></tr>
+    <tr><td>Production Employee</td><td><code>production.employee@example.com</code></td><td><code>production.employee</code></td></tr>
+   </tbody>
+  </table></div>
+ </details>
 </div></div>
 {% endblock %}
