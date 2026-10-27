@@ -284,8 +284,7 @@ class TableList(TableMixin, ListView):
                     # numbers, dates and uuids: cast to text first, LIKE does not match them raw
                     key = f"txt_{f.name}"
                     ann[key] = Cast(f.name, output_field=TextField())
-                    # SQLite stores uuids as hex without dashes, so drop them from the needle
-                    conds.append(Q(**{f"{key}__icontains": q.replace("-", "") if t == "UUIDField" else q}))
+                    conds.append(Q(**{f"{key}__icontains": q}))
                     if t not in ("DateField", "DateTimeField", "TimeField", "UUIDField"):
                         # exact value too, so "201.0400" matches a stored 201.04
                         try:

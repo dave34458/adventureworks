@@ -7,7 +7,6 @@
  nav.top{background:#1f3a5f;padding:.55rem 1rem;display:flex;gap:.5rem 1rem;align-items:center;flex-wrap:wrap;color:#fff}
  nav.top a{color:#fff;text-decoration:none;padding:.2rem 0}nav.top a.on{font-weight:600;border-bottom:2px solid #fff}
  nav.top .sp{flex:1}nav.top form{margin:0}nav.top button{background:none;border:0;color:#fff;cursor:pointer;font:inherit;padding:0}
- nav.top .who{color:inherit}
  .sub{background:#e9eef5;padding:.4rem 1rem;font-size:.9rem;display:flex;flex-wrap:wrap;gap:.2rem .9rem}.sub a{color:#1f3a5f;text-decoration:none;border-bottom:2px solid transparent}.sub a:hover{border-bottom-color:#9fb3c8}.sub a.on{font-weight:650;border-bottom-color:#1f3a5f}
  main{padding:.6rem 1.25rem 1rem;flex:1}main>h1:first-child,main>h2:first-child{margin-top:0}.scroll{overflow-x:auto}table{border-collapse:collapse}td,th{border:1px solid #ccd3dc;padding:.3rem .6rem;text-align:left}
  .lw{min-height:62vh;display:flex;align-items:center;justify-content:center}
@@ -165,7 +164,7 @@
  <span class="sp"></span>
  {% if user.is_authenticated %}
  {% if user.is_superuser %}<a href="/manage/">Users and roles</a>{% endif %}
- <a class="who" href="{% url 'account' %}" title="Edit your account">{{ user.email|default:user.get_username }}{% if user.is_superuser %} (Administrator){% endif %}</a>
+ <a href="{% url 'account' %}" title="Edit your account">{{ user.email }}{% if user.is_superuser %} (Administrator){% endif %}</a>
   <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button>Log out</button></form>
  {% endif %}
 </nav>

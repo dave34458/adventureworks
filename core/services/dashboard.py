@@ -1,11 +1,10 @@
 """Dashboard aggregation and context building."""
-from datetime import datetime
-
 from django.db import connection
 
 from ..models import SalesOrderHeader
 from ..utils import delta, money, ring, shift_months, window_for
 from .common import ReportResult
+from .dialect import limit_clause, month_expr
 
 
 def dashboard(request):
@@ -46,21 +45,9 @@ def dashboard(request):
     metric_name = "Sales" if access["sales"] else "Revenue" if show_revenue else "Cost of goods"
     metric_lower = metric_name.lower()
 
-    report_rows = (
-        ("sales", "Sales report", "sales", "Sales, trends and high/low products"),
-        ("customer_profile", "Customer profile report", "customer-profile",
-         "Segments, frequency, spending and geography"),
-        ("revenue_and_loss", "Revenue and loss report", "revenue-and-loss",
-         "Revenue, gross profit, margin and below-cost shortfall"),
-        ("cost", "Cost report", "cost", "Cost structure and contributors"),
-    )
-    reports = [{"key": key, "name": name, "url": url, "text": text}
-               for key, name, url, text in report_rows if access[key]]
-
     context = {
         "tab": "dashboard",
         "title": "Business performance dashboard",
-        "reports": reports,
         "categories": categories,
         "category_id": category_id,
         "selected_category": selected_category,
@@ -177,28 +164,32 @@ def dashboard(request):
         with connection.cursor() as c:
             c.execute(
                 f"""
-                SELECT substr(h.OrderDate, 1, 7) AS month,
-                       CASE WHEN h.OrderDate < %s THEN 'prev' ELSE 'cur' END AS side,
-                       SUM(d.LineTotal) AS rev,
-                       SUM(d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost)) AS cogs,
-                       COUNT(DISTINCT h.SalesOrderID) AS orders
-                FROM Sales_SalesOrderDetail d
-                JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
-                JOIN Production_Product p ON p.ProductID = d.ProductID
-                LEFT JOIN Production_ProductCostHistory ch
-                  ON ch.ProductID = d.ProductID
-                 AND h.OrderDate >= ch.StartDate
-                 AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
-                LEFT JOIN Production_ProductSubcategory sc ON sc.ProductSubcategoryID = p.ProductSubcategoryID
-                LEFT JOIN Production_ProductCategory pc ON pc.ProductCategoryID = sc.ProductCategoryID
-                WHERE h.OrderDate >= %s AND h.OrderDate <= %s{cat_sql}
+                SELECT month, side, SUM(rev) AS rev, SUM(cogs) AS cogs,
+                       COUNT(DISTINCT order_id) AS orders
+                FROM (
+                    SELECT {month_expr("h.OrderDate")} AS month,
+                           CASE WHEN h.OrderDate < %s THEN 'prev' ELSE 'cur' END AS side,
+                           d.LineTotal AS rev,
+                           d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost) AS cogs,
+                           h.SalesOrderID AS order_id
+                    FROM Sales_SalesOrderDetail d
+                    JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
+                    JOIN Production_Product p ON p.ProductID = d.ProductID
+                    LEFT JOIN Production_ProductCostHistory ch
+                      ON ch.ProductID = d.ProductID
+                     AND h.OrderDate >= ch.StartDate
+                     AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
+                    LEFT JOIN Production_ProductSubcategory sc ON sc.ProductSubcategoryID = p.ProductSubcategoryID
+                    LEFT JOIN Production_ProductCategory pc ON pc.ProductCategoryID = sc.ProductCategoryID
+                    WHERE h.OrderDate >= %s AND h.OrderDate <= %s{cat_sql}
+                ) base
                 GROUP BY month, side
                 ORDER BY month
                 """,
                 [w.trend_start, w.window_start, w.last] + cat_params,
             )
             series = [
-                {"month": datetime.strptime(month, "%Y-%m"), "side": side,
+                {"month": month, "side": side,
                  "rev": float(rev or 0), "cogs": float(cogs or 0), "orders": int(orders or 0)}
                 for month, side, rev, cogs, orders in c.fetchall()
             ]
@@ -327,7 +318,7 @@ def dashboard(request):
                 WHERE h.OrderDate >= %s AND h.OrderDate <= %s{cat_sql}
                 GROUP BY p.ProductID, p.Name, pc.Name
                 ORDER BY {order_expr} DESC
-                LIMIT 10
+                {limit_clause(10)}
                 """,
                 [w.trend_start, w.last] + cat_params,
             )
@@ -417,7 +408,7 @@ def dashboard(request):
                 LEFT JOIN Production_ProductSubcategory sc ON sc.ProductSubcategoryID = p.ProductSubcategoryID
                 LEFT JOIN Production_ProductCategory pc ON pc.ProductCategoryID = sc.ProductCategoryID
                 WHERE h.OrderDate >= %s AND h.OrderDate <= %s{cat_sql}
-                GROUP BY is_store
+                GROUP BY CASE WHEN cu.StoreID IS NULL THEN 0 ELSE 1 END
                 """,
                 [w.trend_start, w.last] + cat_params,
             )
@@ -444,53 +435,6 @@ def dashboard(request):
                  "aov": money(rows[1]["rev"] / rows[1]["orders"] if rows[1]["orders"] else None)},
             ]}
 
-    insights = []
-    if show_revenue or show_cost:
-        metric_value = rev if show_revenue else cogs
-        metric_prev = rev_prev if show_revenue else cogs_prev
-        change = delta(metric_value, metric_prev)[0]
-        best = max(cur_series, key=lambda row: row[metric_key], default=None) if cur_series else None
-        if best:
-            lead = (f"{metric_name} is {change} versus {w.prev_label}."
-                    if change else f"{metric_name} has no prior-period comparison.")
-            best_label = "strongest month" if show_revenue else "highest-cost month"
-            insights.append({"title": f"{metric_name} trend",
-                             "text": f"{lead} The {best_label} was {best['month']:%b %Y} "
-                                     f"at {money(best[metric_key])}."})
-    if show_profit:
-        points = margin - prev_margin
-        below = (f"{below_n:,} sales lines sold below standard cost, a {money(short)} shortfall."
-                 if below_n else "No sales line sold below standard cost.")
-        if not rev:
-            margin_text = f"No revenue in {w.label}; gross margin has no meaningful comparison."
-        elif not rev_prev:
-            margin_text = (f"Gross margin is {margin}% in {w.label}; "
-                           f"no revenue in {w.prev_label}, so no prior comparison.")
-        else:
-            margin_text = f"Gross margin is {margin}% ({points:+.1f} pts versus {w.prev_label})."
-        insights.append({"title": "Profitability", "text": f"{margin_text} {below}"})
-    if show_revenue or show_cost:
-        if selected_category and products:
-            top = products[0]
-            insights.append({
-                "title": "Category mix",
-                "text": f"{top['name']} is the largest product in {selected_category['name']} "
-                        f"at {top['value']} ({top['share']}% of the category's {metric_lower}).",
-            })
-        elif category_rows:
-            top = category_rows[0]
-            text = f"{top['name']} contributes {top['pct']}% of {metric_lower}."
-            if show_profit:
-                text += f" Its gross margin is {top['margin']}%."
-            insights.append({"title": "Category mix", "text": text})
-    if customer_mix:
-        stores = customer_mix["channels"][1]
-        insights.append({
-            "title": "Customer mix",
-            "text": f"{customers:,} customers bought in this period; stores account for "
-                    f"{stores['pct']}% of revenue and {stores['buyers_pct']}% of buyers.",
-        })
-
     context.update({
         "has_data": True,
         "kpis": kpis,
@@ -506,7 +450,6 @@ def dashboard(request):
         "category_total": money(rev if show_revenue else cogs),
         "category_mid_label": category_mid_label,
         "customer_mix": customer_mix,
-        "insights": insights,
         "period": "the selected range" if w.custom else "the last 12 months",
         "through": w.last,
         "window_label": w.label,

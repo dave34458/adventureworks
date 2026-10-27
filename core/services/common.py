@@ -93,7 +93,6 @@ def _report_response(request, module, template, context, window):
             "period": context.get("period", ""),
             "custom": bool(context.get("custom")),
             "payload": payload,
-            "schema_version": 3,
             "generated_by": generated_by,
             "generated_at": timezone.now(),
         }

@@ -1,0 +1,127 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+
+    services:
+      mssql:
+        image: mcr.microsoft.com/mssql/server:2025-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: "AdventureWorks2025!"
+          MSSQL_PID: "Developer"
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'AdventureWorks2025!' -C -Q 'SELECT 1'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 30
+
+    env:
+      MSSQL_HOST: 127.0.0.1
+      MSSQL_PORT: "1433"
+      MSSQL_USER: sa
+      MSSQL_PASSWORD: "AdventureWorks2025!"
+      MSSQL_DATABASE: AdventureWorks2025
+      MSSQL_DRIVER: ODBC Driver 18 for SQL Server
+      DJANGO_SECRET_KEY: ci-only-not-a-secret
+      DJANGO_DEBUG: "0"
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,testserver
+      DJANGO_CSRF_TRUSTED_ORIGINS: http://localhost,http://127.0.0.1,http://testserver
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ODBC Driver 18
+        run: |
+          curl https://packages.microsoft.com/keys/microsoft.asc | sudo gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg
+          curl https://packages.microsoft.com/config/ubuntu/24.04/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
+          sudo apt-get update
+          sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 unixodbc-dev
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Django checks
+        run: python manage.py check
+
+      - name: Migration check
+        run: python manage.py makemigrations --check --dry-run
+
+      - name: Tests
+        run: python manage.py test
+
+  deploy:
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-main
+      cancel-in-progress: true
+    permissions:
+      contents: read
+      id-token: write
+
+    env:
+      PROJECT: adventureworks-vinson-2026
+      REGION: us-central1
+      SERVICE: adventureworks
+      IMAGE: us-central1-docker.pkg.dev/adventureworks-vinson-2026/adventureworks/app
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          project_id: adventureworks-vinson-2026
+          workload_identity_provider: projects/684706088653/locations/global/workloadIdentityPools/github-actions/providers/github
+          service_account: github-deploy@adventureworks-vinson-2026.iam.gserviceaccount.com
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
+
+      - name: Build image
+        run: |
+          docker build \
+            --tag "$IMAGE:${GITHUB_SHA}" \
+            --tag "$IMAGE:latest" \
+            .
+
+      - name: Push image
+        run: |
+          docker push "$IMAGE:${GITHUB_SHA}"
+          docker push "$IMAGE:latest"
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy "$SERVICE" \
+            --region="$REGION" \
+            --project="$PROJECT" \
+            --service-account="adventureworks-run@adventureworks-vinson-2026.iam.gserviceaccount.com" \
+            --allow-unauthenticated \
+            --execution-environment=gen2 \
+            --container=app \
+            --image="$IMAGE:${GITHUB_SHA}" \
+            --port=8080 \
+            --set-env-vars="MSSQL_HOST=127.0.0.1,MSSQL_PORT=1433,MSSQL_DATABASE=AdventureWorks2025,MSSQL_USER=sqlserver,MSSQL_DRIVER=ODBC Driver 18 for SQL Server,DJANGO_DEBUG=0,DJANGO_ALLOWED_HOSTS=.run.app,DJANGO_CSRF_TRUSTED_ORIGINS=https://adventureworks-4cfcg3oqqq-uc.a.run.app" \
+            --set-secrets="DJANGO_SECRET_KEY=adventureworks-django-secret-key:latest,MSSQL_PASSWORD=adventureworks-mssql-password:latest" \
+            --cpu=1 --memory=512Mi \
+            --container=cloud-sql-proxy \
+            --image=gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.18.2 \
+            --args="--structured-logs,--port=1433,adventureworks-vinson-2026:us-central1:adventureworks-sql" \
+            --cpu=0.5 --memory=256Mi

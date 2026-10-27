@@ -1,119 +1,334 @@
-# AdventureWorks (2025 build): Django + SQLite, dashboard and four reports, role-based access, RA 10173 privacy governance
+# AdventureWorks (2025 build): Django + SQL Server reporting application
 
 Source data: Microsoft's `AdventureWorks-oltp-install-script.zip`
 https://github.com/Microsoft/sql-server-samples/releases/tag/adventureworks
 
-## Run it (prebuilt database)
-1. `pip install -r requirements.txt` (Django 6.0.5, gunicorn, whitenoise)
-2. `git clone` the repo (`adventureworks.sqlite3`, ~78 MB, is a plain file in git; no Git LFS needed)
-3. `python manage.py migrate`
-4. `python manage.py seed_reports` (optional; fills missing default report snapshots)
-5. `python manage.py runserver`
-6. Open http://127.0.0.1:8000/ and log in.
+## 1. Completed work summary
 
-The shipped database already has all the logins (see Roles below): the Administrator
-(`admin@example.com` / `admin`) plus 12 demo department users. Accounts are `core.User` rows with
-email (login), first/last name, active flag, and hashed password; a user's role is their Django
-group, and the Administrator is a superuser. There is no username. Sign in with your email; the
-Data Privacy Notice is linked from the login page and footer (see Data privacy below). Change the
-demo passwords on /manage/ (or /account/ for the user) before real use.
+As of this report, the project has finished the following:
 
-## Layout
-    aw_project/         settings.py, urls.py (project configuration, not an app)
-    core/               the one app
-      models.py         the 19 AdventureWorks models still used by the report SQL, plus:
-                        + User, the email-login account (role is its Django group)
-                        + TabAccess, one permission per tab (access_sales, access_customer_profile, ...)
-                        + PRIVACY_NOTICE_VERSION (the published notice version)
-                        + AuditLog, the append-only record of every table edit and deletion
-                        + Report, the single saved-report table (all four modules)
-      services/         report SQL and context builders (sales, customer_profile,
-                        revenue_and_loss, cost), dashboard, shared snapshot helpers,
-                        payload validation, saved-report editor, table helpers, registry
-      views.py          thin HTTP views: home, report pages, saved-report CRUD, and the
-                        shared list / detail / edit / delete table pages plus autocomplete
-      utils.py          number formatting and date-window helpers
-      constants.py      report labels, editor metadata, and table column hints
-      roles.py          ROLES (the 12 department roles) and apply_roles; see core/tests.py
-      forms.py          email login and account edit forms
-      auth_backends.py  EmailBackend: email + password login (no username)
-      tests.py          fast RBAC, table-browser, privacy-notice and report-semantics tests
-      admin.py          User admin and read-only audit records (visible at /manage/)
-      management/       commands/seed_users.py: one demo login per role (email local part = password)
-                        commands/seed_reports.py: default rolling 12-month snapshots per module
-      widgets.py        SearchSelect, the on-demand foreign-key box for the edit pages
-      static/core/      autocomplete.js, the tiny script behind the edit page's foreign-key boxes
-      templates/        base, dashboard, list, detail, form, confirm_delete, no_access,
-                        privacy notice, report pages, login, account, 403
+- `AdventureWorks2025` is restored on SQL Server 2025 locally and on Cloud SQL SQL Server 2025 Express.
+- We profiled the data: 31,465 sales orders, 121,317 order lines, 19,820 customers, 504 products,
+  4,012 purchase orders and 72,591 work orders. Order dates run from 2022-05-30 to 2025-06-29;
+  2022 and 2025 are partial years.
+- We built 19 read-only `dbo` views over the source tables. The app reads those views and never
+  edits the AdventureWorks source data.
+- We built the Django 6.0.5 application: a dashboard, four report tabs (Sales, Customer Profile,
+  Revenue and Loss, Cost), saved report snapshots, table browsers, user/role management, an audit
+  trail and a versioned data privacy notice.
+- We implemented 12 department roles plus the global Administrator, and seeded 13 demo accounts
+  (one Administrator and one login per role).
+- The test suite passes 69/69 on SQL Server. `manage.py check`, `makemigrations --check` and
+  `migrate --check` are clean.
+- The app is deployed on Cloud Run with a Cloud SQL Auth Proxy sidecar:
+  https://adventureworks-4cfcg3oqqq-uc.a.run.app. Cloud SQL is restored from the current app
+  database backup. The proxy uses Cloud SQL's public IP and IAM; no VPC is needed.
+- Every panel is backed by a read-only SQL query in `core/services/`. Section 4 shows four
+  representative queries; the rest live in the service modules.
 
-## Pages
-    /login/                                  email and password login (public)
-    /privacy/                                data privacy notice (public, RA 10173)
-    /account/                                edit own first/last name and password
-    /                                        goes to the dashboard (or no-access page)
-    /dashboard/                              consolidated KPIs, charts, filters and report links;
-                                             shows only the modules the user may open
-    /sales/ /customer-profile/ /revenue-and-loss/ /cost/    report page per module
-    /<tab>/report/generate/                  POST: save or replace a snapshot (manager)
-    /<tab>/reports/                          saved reports for the module
-    /<tab>/reports/<id>/edit/                edit a saved report
-    /<tab>/reports/<id>/delete/              delete a saved report
-    /<tab>/data/<Table>/                     list (search with ?q=)
-    /<tab>/data/<Table>/<id>/                detail
-    /<tab>/data/<Table>/<id>/edit/           edit
-    /<tab>/data/<Table>/<id>/delete/         delete
-    /manage/                                 Users, roles, and audit records (Administrator only)
+## 2. Project purpose and business questions
 
-## Saved reports
-There is one table, `Report`. One row is one saved report for a module and effective date range.
-All panel data lives in `payload` JSON, including the KPI numbers, monthly trends,
-product/customer/vendor rows and chart geometry. This keeps the schema simple:
-there are no per-module KPI columns.
+AdventureWorks is a bicycle manufacturer and retailer that sells online and through resellers in
+North America, Europe and the Pacific. Its data sits in about 80 operational tables, so managers
+have no single place to see how the business is doing. The application gives each user only the
+reports and actions their role allows.
 
-Opening a report tab with no query parameters loads the latest saved row for that module.
-`?report=<id>` opens a specific snapshot; an empty `?report=` or a custom `?from=&to=` range runs
-live SQL and shows the "Live data" banner. If a module has no saved row yet, it also falls back to
-live SQL. Managers can press **Generate report** to save the current range or **Regenerate report**
-to recalculate it. Saved rows are edited at `/<tab>/reports/`: the title and the structured payload
-sections, including the KPI values, are editable. Chart geometry is read-only.
+The system has four kinds of users:
 
-`python manage.py seed_reports` creates the default rolling 12-month snapshot for every module and
-skips ranges that already exist; add `--force` to replace them. The Railway start command runs it on
-every boot, so a fresh volume gets fast default reports without overwriting edited snapshots.
+- C-level executives and department managers, who need company-wide performance.
+- Supervisors, who need operational detail for their department.
+- Employees, who need read-only access to the reports for their area.
+- A system administrator, who manages users and permissions.
 
-## Roles (RBAC)
-* **Administrator** = a superuser (`admin@example.com`; `createsuperuser` sets this). It can
-  open every tab and every table. There is no Administrator group.
-* **Department roles** are 12 choices in `core/roles.py`, backed by 12 Django groups: Manager,
-  Supervisor and Employee for each of four departments. Each department gets exactly one tab:
-  * Sales -> Sales
-  * Marketing -> Customer Profile
-  * Finance -> Revenue and Loss
-  * Production -> Cost
-  Apply them with
-  `python manage.py shell -c "from core.roles import ROLES, apply_roles; apply_roles(ROLES, prune=True)"`;
-  `prune=True` removes old groups. Add users at /manage/ -> Users; assigning a role grants its
-  group permissions. Applying is safe to repeat.
-* **Permissions**:
-  * Manager: opens the department tab, views its source tables and saved report, and
-    edits/deletes/generates the saved report.
-  * Supervisor: opens the tab and views its source tables and saved report; read-only.
-  * Employee: opens the tab and views its saved report only; no source tables, no edits.
-  * Source tables are read-only for every non-Administrator role. Nobody can create source records.
-* **Demo logins**: one per role, email local part = password — `sales.manager@example.com` /
-  `sales.manager`, `sales.supervisor@example.com` / `sales.supervisor`, etc. Run
-  `python manage.py seed_users --reset --prune` to create/reset them and remove the old 17 demo
-  users. Safe to repeat. Legacy accounts without a group can log in but see no tabs; assign a
-  role at /manage/.
-* A user sees a tab only with its `access_<tab>` permission, and a table only with `view_<table>`.
-  Managers and Supervisors get read-only table access; only the Administrator can edit/delete
-  source-table rows. Managers can edit/delete their saved report. A saved report is created by
-  **Generate report**, not by a blank create form.
+We built the panels first, then worked backward to the question each panel answers.
 
-### RBAC matrix
+### Dashboard
 
-`Manager`, `Supervisor`, and `Employee` are scoped to the department named in their group.
-The Administrator is the superuser; there is no Administrator group.
+| Panel | Business question |
+|---|---|
+| KPI cards (role-dependent) | How are sales or revenue, orders, gross profit, cost of goods, active customers and below-cost shortfall performing this period versus the previous period? |
+| Category filter | How do all figures change when narrowed to one product category? |
+| Sales, revenue or cost trend by month | How does the selected measure move month by month versus the previous period? |
+| Revenue or cost contribution by category | Which product categories contribute the most revenue or cost? |
+| Gross margin by month | How does gross margin change month by month? |
+| Customer mix and spending | What share of revenue and buyers comes from individuals versus stores? |
+| Top products by selected metric | Which products lead sales, revenue or cost for the selected period? |
+
+### Sales Report
+
+| Panel | Business question |
+|---|---|
+| KPI cards | What are total sales, order count, average order value and distinct customers in the period? |
+| Total sales and sales trend | How do monthly sales and orders compare with the previous period? |
+| High-performing products | Which products generate the most revenue? |
+| Low-performing products | Which products generate the least revenue? |
+
+### Customer Profile Report
+
+| Panel | Business question |
+|---|---|
+| KPI cards | How many customers are active, new and returning; what share of revenue is repeat; what is average spend and retention? |
+| Purchasing patterns and trends | How many buyers are new versus returning each month? |
+| Who buys: segmentation and spending | What are the revenue share, buyer share and average order value of individuals versus stores? |
+| Customer distribution | Which countries generate the most revenue, and where are customers located? |
+| Customer distribution by city | Which shipping cities generate the most revenue? |
+| Customer segmentation by business type | Which store types are active, and how much revenue do they generate? |
+| Purchase frequency | How many customers order once, 2, 3-4, 5-9 or 10+ times? |
+| Top customers by segment | Which stores and individuals spend the most? |
+
+### Revenue and Loss Report
+
+| Panel | Business question |
+|---|---|
+| KPI cards | What are total revenue, cost of goods, gross profit, invoiced total and below-cost shortfall? |
+| Revenue trend by month | How does monthly revenue compare with the previous period? |
+| Gross profit, selected period | What gross profit did each month produce? |
+| Gross margin by month | How does gross margin compare with the previous period? |
+| Revenue contribution by category | Which categories contribute the most revenue? |
+| Declining revenue by product | Which products lost the most revenue versus the previous period? |
+| Below-cost shortfall | Which products are sold below standard cost, and how much is lost? |
+| Revenue contribution by product | Which products contribute the most revenue, units, gross profit and margin? |
+| Calculation method and limitations | How is each figure calculated, and what are the limits? |
+
+### Cost Report
+
+| Panel | Business question |
+|---|---|
+| KPI cards | What are cost of goods sold, cost per $1 revenue, procurement spend, scrap rate and rejected receipts? |
+| Available cost information (Buy, Make, Waste, Sell) | How much do we buy, make, waste and sell? |
+| Cost trends and comparisons | How does monthly cost of goods compare with the previous period, and what margin does it leave? |
+| Cost distribution by category | Which categories make up the cost of goods? |
+| Costs and business performance | How much of each revenue dollar is consumed by cost, and what margin remains? |
+| Significant cost contributors: vendors | Which vendors account for the most procurement spend? |
+| Significant cost contributors: products | Which products account for the most cost of goods? |
+| Significant cost contributors: scrap | Which scrap reasons cost the most? |
+| Significant cost contributors: repricing | Which products had the largest standard-cost increases? |
+| Biggest purchase orders | Which purchase orders are the largest? |
+
+## 3. Initial data map
+
+The app uses 19 read-only views. Each view is named `<Schema>_<Table>` and reads exactly one
+AdventureWorks source table; the mapping is one-to-one, and every view has the same row count as its
+source table. No view filters or aggregates rows. A few convert XML/spatial columns to text, and
+`Production_ProductCostHistory` adds a computed `id` with `ROW_NUMBER()`. The primary keys come from
+the source tables. The main joins are the joins the app uses; they are not a full list of every
+source foreign key.
+
+| App view | Source table | Primary key | Main joins | Important fields | Used by | Rows |
+|---|---|---|---|---|---|---:|
+| `Person_Address` | `Person.Address` | `AddressID` | `StateProvinceID` -> `Person.StateProvince` | `City`, `StateProvinceID` | Customer Profile | 19,614 |
+| `Person_BusinessEntity` | `Person.BusinessEntity` | `BusinessEntityID` | none | `BusinessEntityID` | Customer Profile table browser | 20,777 |
+| `Person_CountryRegion` | `Person.CountryRegion` | `CountryRegionCode` | none | `Name` | Customer Profile | 238 |
+| `Sales_Customer` | `Sales.Customer` | `CustomerID` | `PersonID` -> `Person.Person`; `StoreID` -> `Sales.Store`; `TerritoryID` -> `Sales.SalesTerritory` | `PersonID`, `StoreID` | Customer Profile | 19,820 |
+| `Person_Person` | `Person.Person` | `BusinessEntityID` | none | `FirstName`, `LastName`, `Demographics` | Customer Profile | 19,972 |
+| `Production_Product` | `Production.Product` | `ProductID` | `ProductSubcategoryID` -> `Production.ProductSubcategory` | `Name`, `StandardCost`, `ListPrice`, `SellStartDate` | Sales, Revenue and Loss, Cost, Dashboard | 504 |
+| `Production_ProductCategory` | `Production.ProductCategory` | `ProductCategoryID` | none | `Name` | Revenue and Loss, Cost, Dashboard | 4 |
+| `Production_ProductCostHistory` | `Production.ProductCostHistory` | `id` (computed `ROW_NUMBER`; natural key `ProductID` + `StartDate`) | `ProductID` -> `Production.Product` | `StandardCost`, `StartDate`, `EndDate` | Revenue and Loss, Cost, Dashboard | 395 |
+| `Production_ProductSubcategory` | `Production.ProductSubcategory` | `ProductSubcategoryID` | `ProductCategoryID` -> `Production.ProductCategory` | `Name` | Revenue and Loss, Cost, Dashboard | 37 |
+| `Purchasing_PurchaseOrderDetail` | `Purchasing.PurchaseOrderDetail` | `PurchaseOrderID` + `PurchaseOrderDetailID` | `PurchaseOrderID` -> `Purchasing.PurchaseOrderHeader`; `ProductID` -> `Production.Product` | `OrderQty`, `UnitPrice`, `ReceivedQty`, `RejectedQty` | Cost | 8,845 |
+| `Purchasing_PurchaseOrderHeader` | `Purchasing.PurchaseOrderHeader` | `PurchaseOrderID` | `VendorID` -> `Purchasing.Vendor` | `OrderDate`, `SubTotal`, `Freight`, `Status` | Cost | 4,012 |
+| `Sales_SalesOrderDetail` | `Sales.SalesOrderDetail` | `SalesOrderID` + `SalesOrderDetailID` | `SalesOrderID` -> `Sales.SalesOrderHeader`; `ProductID` -> `Production.Product` | `OrderQty`, `UnitPrice`, `UnitPriceDiscount`, `LineTotal` | Sales, Revenue and Loss, Customer Profile, Dashboard | 121,317 |
+| `Sales_SalesOrderHeader` | `Sales.SalesOrderHeader` | `SalesOrderID` | `CustomerID` -> `Sales.Customer`; `TerritoryID` -> `Sales.SalesTerritory`; `ShipToAddressID` -> `Person.Address` | `OrderDate`, `OnlineOrderFlag`, `SubTotal`, `TaxAmt`, `Freight`, `TotalDue` | Sales, Revenue and Loss, Customer Profile, Cost, Dashboard | 31,465 |
+| `Sales_SalesTerritory` | `Sales.SalesTerritory` | `TerritoryID` | `CountryRegionCode` -> `Person.CountryRegion` | `Name`, `Group`, `SalesYTD` | Sales table browser, Customer Profile | 10 |
+| `Production_ScrapReason` | `Production.ScrapReason` | `ScrapReasonID` | none | `Name` | Cost | 16 |
+| `Person_StateProvince` | `Person.StateProvince` | `StateProvinceID` | `CountryRegionCode` -> `Person.CountryRegion` | `Name`, `StateProvinceCode` | Customer Profile | 181 |
+| `Sales_Store` | `Sales.Store` | `BusinessEntityID` | none | `Name`, `Demographics` (`BusinessType`, `SquareFeet`) | Customer Profile | 701 |
+| `Purchasing_Vendor` | `Purchasing.Vendor` | `BusinessEntityID` | none | `Name`, `CreditRating`, `PreferredVendorStatus`, `ActiveFlag` | Cost | 104 |
+| `Production_WorkOrder` | `Production.WorkOrder` | `WorkOrderID` | `ProductID` -> `Production.Product`; `ScrapReasonID` -> `Production.ScrapReason` | `OrderQty`, `ScrappedQty`, `StartDate` | Cost | 72,591 |
+
+The app also owns `core_report` (saved report snapshots), `core_auditlog` (edit/delete audit trail),
+`auth_user` and the standard Django `auth_*`, `django_session`, `django_migrations`,
+`django_admin_log` and `django_content_type` tables. `TabAccess` is `managed = False`; it exists only
+to create the four tab permissions.
+
+The app does not expose `Person.Password`, `Sales.CreditCard` or
+`HumanResources.EmployeePayHistory`. It also does not use `SalesPerson` or `SpecialOffer`; revenue
+comes from `LineTotal`, which already includes the discount.
+
+### Data quality issues and limitations
+
+| Finding | Impact and how we handle it |
+|---|---|
+| Sales data covers 2022-05-30 to 2025-06-29 only; 2022 and 2025 are partial years. | The default report is a rolling 12-month window ending in the last order month; custom ranges are labeled, so partial years are not silently compared. |
+| 64 of 121,317 order lines (0.05%) have no matching cost-history period. | The app falls back to the product's current `StandardCost` (`COALESCE`). |
+| 209 products have no subcategory. | Category donuts use inner joins and exclude them; product-level panels include them. The dashboard category filter lists only categorized products. |
+| 71,862 of 72,591 work orders have no `ScrapReasonID`. | The scrap-reason panel uses the 729 work orders that have a reason; the scrap rate uses all scrapped quantities. Scrap cost is estimated from standard cost. |
+| Operating expenses and returns are not in the data. | "Loss" here means sales below standard cost plus scrap cost, not a full profit and loss statement. |
+| `TotalPurchaseYTD` is negative for 8,215 people. | Customer spend is calculated from actual orders, not that field. |
+| Education and occupation fields are not used by the app's panels. | The Customer Profile report focuses on purchasing behavior, geography, store type and frequency. |
+
+## 4. SQL evidence
+
+These four queries are copied from the app's panel code, one per report. `%s` is the report window
+the app binds; the results below use the full sample (`2022-05-30` to `2025-06-29`). The app's
+default is the last 12 months. All amounts are in US dollars.
+
+### Q1. Which products generate the most revenue?
+
+**Report:** Sales -> High-performing products (`core/services/sales.py:125`).
+
+```sql
+SELECT pr.Name, SUM(d.LineTotal) AS rev
+FROM Sales_SalesOrderDetail d
+JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
+JOIN Production_Product pr ON pr.ProductID = d.ProductID
+WHERE h.OrderDate >= %s AND h.OrderDate <= %s
+GROUP BY pr.Name
+ORDER BY rev DESC
+OFFSET 0 ROWS FETCH NEXT 8 ROWS ONLY;
+```
+
+| Product | Revenue |
+|---|---:|
+| Mountain-200 Black, 38 | 4,400,592.80 |
+| Mountain-200 Black, 42 | 4,009,494.76 |
+| Mountain-200 Silver, 38 | 3,693,678.03 |
+| Mountain-200 Silver, 42 | 3,438,478.86 |
+| Mountain-200 Silver, 46 | 3,434,256.94 |
+| Mountain-200 Black, 46 | 3,309,673.22 |
+| Road-250 Black, 44 | 2,516,857.31 |
+| Road-250 Black, 48 | 2,347,655.95 |
+
+`LineTotal` is quantity times unit price after discount. The panel returns the top eight products.
+
+### Q2. Which countries generate the most revenue?
+
+**Report:** Customer Profile -> Customer distribution (`core/services/customer_profile.py:187`).
+
+This is the query behind the map and the "Revenue by country" list. It groups by the ship-to country,
+not the customer's sales territory, and it shows revenue and orders, not customer counts.
+
+```sql
+SELECT co.Name, SUM(d.LineTotal) AS rev,
+       COUNT(DISTINCT h.SalesOrderID) AS orders
+FROM Sales_SalesOrderDetail d
+JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
+JOIN Person_Address a ON a.AddressID = h.ShipToAddressID
+JOIN Person_StateProvince sp ON sp.StateProvinceID = a.StateProvinceID
+JOIN Person_CountryRegion co ON co.CountryRegionCode = sp.CountryRegionCode
+WHERE h.OrderDate >= %s AND h.OrderDate <= %s
+GROUP BY co.Name
+ORDER BY rev DESC
+OFFSET 0 ROWS FETCH NEXT 6 ROWS ONLY;
+```
+
+| Country | Revenue | Orders |
+|---|---:|---:|
+| United States | 62,997,590.71 | 12,041 |
+| Canada | 16,355,770.45 | 4,067 |
+| Australia | 10,655,335.96 | 6,843 |
+| United Kingdom | 7,670,721.04 | 3,219 |
+| France | 7,251,555.65 | 2,672 |
+| Germany | 4,915,407.60 | 2,623 |
+
+The map shows the same six countries as bubbles. The United States is the largest market by revenue.
+
+### Q3. Which categories contribute the most revenue?
+
+**Report:** Revenue and Loss -> Revenue contribution by category
+(`core/services/revenue_and_loss.py:298`).
+
+```sql
+SELECT cat.Name, SUM(d.LineTotal) AS rev,
+       SUM(d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost)) AS cogs
+FROM Sales_SalesOrderDetail d
+JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
+JOIN Production_Product p ON p.ProductID = d.ProductID
+LEFT JOIN Production_ProductCostHistory ch
+  ON ch.ProductID = d.ProductID
+ AND h.OrderDate >= ch.StartDate
+ AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
+JOIN Production_ProductSubcategory sc ON sc.ProductSubcategoryID = p.ProductSubcategoryID
+JOIN Production_ProductCategory cat ON cat.ProductCategoryID = sc.ProductCategoryID
+WHERE h.OrderDate >= %s AND h.OrderDate <= %s
+GROUP BY cat.Name
+ORDER BY rev DESC;
+```
+
+| Category | Revenue | COGS | Gross profit | Margin |
+|---|---:|---:|---:|---:|
+| Bikes | 94,651,172.70 | 84,131,887.76 | 10,519,284.95 | 11.1% |
+| Components | 11,802,593.29 | 10,768,475.71 | 1,034,117.57 | 8.8% |
+| Clothing | 2,120,542.52 | 1,750,636.29 | 369,906.23 | 17.4% |
+| Accessories | 1,272,072.88 | 637,601.04 | 634,471.85 | 49.9% |
+
+Gross profit is revenue minus COGS; margin is gross profit divided by revenue. COGS uses the standard
+cost in effect on the order date. Bikes bring in most of the revenue at a modest margin; accessories
+have the highest margin.
+
+### Q4. Which vendors account for the most procurement spend?
+
+**Report:** Cost -> Significant cost contributors: vendors (`core/services/cost.py:243`).
+
+```sql
+SELECT v.Name, SUM(po.SubTotal) AS spend, COUNT(*) AS orders, v.ActiveFlag
+FROM Purchasing_PurchaseOrderHeader po
+JOIN Purchasing_Vendor v ON v.BusinessEntityID = po.VendorID
+WHERE po.OrderDate >= %s AND po.OrderDate <= %s AND po.Status <> 3
+GROUP BY v.Name, v.ActiveFlag
+ORDER BY spend DESC
+OFFSET 0 ROWS FETCH NEXT 8 ROWS ONLY;
+```
+
+| Vendor | Procurement spend | Orders | Active |
+|---|---:|---:|---|
+| Superior Bicycles | 3,826,953.90 | 42 | Yes |
+| Chicago City Saddles | 2,718,119.25 | 44 | Yes |
+| Professional Athletic Consultants | 2,672,843.25 | 44 | Yes |
+| Jackson Authority | 2,190,209.18 | 44 | Yes |
+| Vision Cycles, Inc. | 2,100,558.08 | 42 | Yes |
+| Sport Fan Co. | 2,049,062.40 | 42 | Yes |
+| Proseware, Inc. | 1,928,607.45 | 42 | No |
+| Crowley Sport | 1,886,773.35 | 43 | Yes |
+
+`Status <> 3` excludes rejected purchase orders. `ActiveFlag` is 1 for active vendors and 0 for
+inactive ones. The panel returns the top eight vendors.
+
+Other panel queries cover below-cost products, declining products, scrap reasons, standard-cost
+changes and the largest purchase orders; they live in `core/services/`.
+
+## 5. Architecture
+
+### Implemented architecture
+
+```text
+Browser
+  |
+  v
+Cloud Run service: adventureworks
+  +-- app container: Django 6.0.5 + gunicorn + WhiteNoise
+  |     listens on 0.0.0.0:8080
+  |     reads MSSQL_* and DJANGO_* environment variables
+  |     reads secrets from Secret Manager
+  |
+  +-- cloud-sql-proxy sidecar
+        listens on 127.0.0.1:1433
+        connects to Cloud SQL over its public IP with IAM
+        no VPC and no authorized-network rule required
+              |
+              v
+        Cloud SQL SQL Server 2025 Express
+        database: AdventureWorks2025
+        restored from the current app backup
+```
+
+- The image is built with Cloud Build and stored in Artifact Registry.
+- Cloud Run uses a dedicated service account with `roles/cloudsql.client` and access to the two
+  secrets (`adventureworks-django-secret-key`, `adventureworks-mssql-password`).
+- The app reads the 19 `dbo` views. It writes only to `core_report`, `core_auditlog`, the `auth_*`
+  tables and Django's session/admin tables.
+- The app has no VPC connector. The proxy sidecar handles the Cloud SQL connection.
+
+## 6. Roles and RBAC matrix
+
+- **Administrator** = a superuser (`admin@example.com`). It can open every tab and every table, and
+  manage users, groups, the privacy notice and audit records. There is no Administrator group.
+- **Department roles** are 12 Django groups: Manager, Supervisor and Employee for each of four
+  departments. Each department gets exactly one tab:
+  - Sales -> Sales
+  - Marketing -> Customer Profile
+  - Finance -> Revenue and Loss
+  - Production -> Cost
 
 | Capability | Administrator | Manager | Supervisor | Employee |
 |---|---|---|---|---|
@@ -132,67 +347,18 @@ The Administrator is the superuser; there is no Administrator group.
 | Finance | Revenue and Loss | `ProductionProduct`, `ProductionProductSubcategory`, `ProductionProductCategory` |
 | Production | Cost | `PurchasingPurchaseOrderHeader`, `PurchasingPurchaseOrderDetail`, `PurchasingVendor`, `ProductionWorkOrder`, `ProductionProductCostHistory`, `ProductionScrapReason` |
 
-No role can create source records through the UI. Report pages and saved-report lists are
-gated by `access_<tab>`; table pages need `view_<table>`.
+No role can create source records through the UI. Report pages and saved-report lists are gated by
+`access_<tab>`; table pages need `view_<table>`.
 
-## Data privacy and governance (RA 10173)
-* `/privacy/` is the published, versioned **Data Privacy Notice**: data inventory, legal bases
-  (DPA Sections 12 and 13), least-privilege access, protection, retention and disposal, the data
-  subject rights, 15-working-day request handling, breach notification (NPC Circular No. 16-03) and
-  the DPO contact. It is public and linked in the footer of every page.
-* The notice is public and linked from the login page and footer. Sign-in has no acknowledgment
-  checkbox, and the system stores no acknowledgment records.
-* `PRIVACY_NOTICE_VERSION` in `core/models.py` is displayed on the notice; bump it when the text
-  changes.
-* Every page obeys the same role gates, and no role can create records.
-* Every edit or deletion made through the table pages is written to the **audit trail** (`AuditLog`):
-  the account, time, record, changed values (old and new), and IP address. Records are kept twelve
-  months per the notice, cannot be changed or deleted from the UI, and are visible read-only at `/manage/`.
+Apply the groups with:
 
-## Deploy (Railway)
-The repo is deploy-ready: `requirements.txt` (Django 6.0.5, gunicorn, whitenoise), `.python-version`
-(3.12) and `railway.json` — build runs `collectstatic`; the start command copies the shipped database
-onto the volume on first boot, migrates, seeds any missing default report snapshots, then serves with
-gunicorn on `$PORT`. Whitenoise serves
-`/static/`, and `SECURE_PROXY_SSL_HEADER` lets Django trust Railway's HTTPS proxy (needed for the login
-CSRF check). Set these service variables:
-* `DJANGO_SECRET_KEY` — a long random value
-* `DJANGO_DEBUG=0`
-* `DJANGO_ALLOWED_HOSTS=.up.railway.app`
-* `AW_DB_PATH=/data/adventureworks.sqlite3` — mount a volume at `/data` so logins survive redeploys
-* `DJANGO_CSRF_TRUSTED_ORIGINS=https://<domain>` — after `railway domain`
+```bash
+python manage.py shell -c "from core.roles import ROLES, apply_roles; apply_roles(ROLES, prune=True)"
+```
 
-Then `railway up`.
+Demo logins use the email local part as the password: `sales.manager@example.com` /
+`sales.manager`, `sales.supervisor@example.com` / `sales.supervisor`, and so on. Run
+`python manage.py seed_users --reset --prune` to create or reset them. Change the demo passwords
+before real use.
 
-## Notes
-* Tables with pages: 32. The second nav bar in `base.html` hardcodes one link per table; add a link there to add a table.
-* Composite-key tables use their identity column or a new `id` as primary key; the old key columns remain
-  a unique constraint. All foreign keys use `on_delete=PROTECT`.
-* `LineTotal`, `TotalDue`, `StockedQty` are database-generated columns. `SubTotal` is a normal column:
-  recalculate it in your order edit page.
-* 85 of 88 CHECK constraints are enforced (not translated: Employee BirthDate/HireDate, ProductInventory Shelf).
-* `SalesOrderDetail.clean()` enforces SQL Server's composite FK to SpecialOfferProduct.
-* Order dates run 2022-05-30 to 2025-06-29: do not default date filters to "today".
-* Report money is USD. AdventureWorks stores sales line totals and header tax/freight/total due
-  in USD; `CurrencyRateID` records the order's currency but is not applied to those amounts.
-  Sales revenue uses `SalesOrderDetail.LineTotal`, not the header `SubTotal`.
-* Cost of goods is quantity sold × `ProductCostHistory.StandardCost` effective on the order date,
-  falling back to `Product.StandardCost` when no history row covers that date.
-* Procurement spend, vendor rankings and biggest purchase orders use purchase-order `SubTotal`
-  (merchandise only) and exclude `Status=3` rejected orders. Receipt rejection includes every PO
-  status: a rejected PO is a fully rejected receipt, so excluding it would hide the quality problem.
-* The default report window ends at the end of the month containing the last sales order. A custom
-  `from`/`to` range is honored exactly, even when it extends past the last sale or purchase order;
-  empty months are zero. Purchase orders after the default sales period are future commitments,
-  not period spend.
-* Previous-period comparisons use the period immediately before the selected window. Custom
-  ranges use the same number of days; the default uses the preceding 12 calendar months. A custom
-  window that starts near the first order date has only a partial prior period, so its percentage
-  changes can be extreme. Gross margin is shown in its own chart, like the dashboard, with the
-  selected period solid and the previous period dashed.
-* Customer geography is grouped by the order's ship-to address; city rows include state/province
-  and country so same-named cities are not merged. Store-network revenue and active counts use only
-  stores with sales in the selected window; store totals remain all stores.
-* High-value customers are shown as the top 6 stores and top 3 individuals, ranked separately.
-* Keep `PersonPassword` and `SalesCreditCard` out of your pages (they are not registered).
-* Before deploying anywhere public: set DJANGO_SECRET_KEY, DJANGO_DEBUG=0 and DJANGO_ALLOWED_HOSTS.
+

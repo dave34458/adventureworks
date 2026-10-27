@@ -1,6 +1,5 @@
 """Customer profile report queries and context building."""
 import re
-from datetime import datetime
 
 from django.db import connection
 
@@ -11,6 +10,7 @@ from .common import (
     _report_response,
     _saved_report,
 )
+from .dialect import limit_clause, month_expr
 
 
 def customer_profile(request):
@@ -30,15 +30,6 @@ def customer_profile(request):
     with connection.cursor() as c:  # chart 1: the five KPI cards
         c.execute(
             """
-            WITH firsts AS (
-                SELECT CustomerID, MIN(OrderDate) AS first_date
-                FROM Sales_SalesOrderHeader GROUP BY CustomerID
-            ), lines AS (
-                SELECT h.CustomerID, h.OrderDate,
-                       d.LineTotal AS rev
-                FROM Sales_SalesOrderDetail d
-                JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
-            )
             SELECT
               COALESCE(SUM(CASE WHEN l.OrderDate >= %s AND l.OrderDate <= %s
                                 THEN l.rev END), 0) AS rev,
@@ -51,8 +42,16 @@ def customer_profile(request):
               COALESCE(SUM(CASE WHEN l.OrderDate >= %s AND l.OrderDate <= %s
                                  AND f.first_date >= %s AND f.first_date <= %s
                                 THEN l.rev END), 0) AS new_rev
-            FROM lines l
-            JOIN firsts f ON f.CustomerID = l.CustomerID
+            FROM (
+                SELECT h.CustomerID, h.OrderDate,
+                       d.LineTotal AS rev
+                FROM Sales_SalesOrderDetail d
+                JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
+            ) l
+            JOIN (
+                SELECT CustomerID, MIN(OrderDate) AS first_date
+                FROM Sales_SalesOrderHeader GROUP BY CustomerID
+            ) f ON f.CustomerID = l.CustomerID
             WHERE l.OrderDate >= %s
             """,
             [cur_lo, cur_hi, prev_lo, prev_hi, cur_lo, cur_hi, prev_lo, prev_hi,
@@ -73,7 +72,7 @@ def customer_profile(request):
             FROM (
                 SELECT CustomerID, MIN(OrderDate) AS first_date
                 FROM Sales_SalesOrderHeader GROUP BY CustomerID
-            )
+            ) first_seen
             """,
             [cur_lo, cur_hi, prev_lo, prev_hi],
         )
@@ -102,31 +101,32 @@ def customer_profile(request):
 
     with connection.cursor() as c:  # chart 2: buyers per month, newest first-seen buyers split out
         c.execute(
-            """
-            SELECT substr(OrderDate, 1, 7) AS month, COUNT(DISTINCT CustomerID) AS act
+            f"""
+            SELECT {month_expr("OrderDate")} AS month,
+                   COUNT(DISTINCT CustomerID) AS act
             FROM Sales_SalesOrderHeader
             WHERE OrderDate >= %s AND OrderDate <= %s
-            GROUP BY month
+            GROUP BY {month_expr("OrderDate")}
             ORDER BY month
             """,
             [cur_lo, cur_hi],
         )
-        months = [{"month": datetime.strptime(m, "%Y-%m"), "act": act}
+        months = [{"month": m, "act": act}
                   for m, act in c.fetchall()]
 
         c.execute(
-            """
-            SELECT substr(first_date, 1, 7) AS month, COUNT(*)
+            f"""
+            SELECT {month_expr("first_date")} AS month, COUNT(*)
             FROM (
                 SELECT CustomerID, MIN(OrderDate) AS first_date
                 FROM Sales_SalesOrderHeader GROUP BY CustomerID
-            )
+            ) first_seen
             WHERE first_date >= %s AND first_date <= %s
-            GROUP BY month
+            GROUP BY {month_expr("first_date")}
             """,
             [cur_lo, cur_hi],
         )
-        new_per_month = {datetime.strptime(m, "%Y-%m"): n for m, n in c.fetchall()}
+        new_per_month = {m: n for m, n in c.fetchall()}
     cur_by_month = {m["month"]: m for m in months}
     months = []
     month = w.trend_start.replace(day=1)
@@ -186,7 +186,7 @@ def customer_profile(request):
 
     with connection.cursor() as c:  # chart 4: revenue by country (feeds the map and the list)
         c.execute(
-            """
+            f"""
             SELECT co.Name, SUM(d.LineTotal) AS rev,
                    COUNT(DISTINCT h.SalesOrderID) AS orders
             FROM Sales_SalesOrderDetail d
@@ -197,7 +197,7 @@ def customer_profile(request):
             WHERE h.OrderDate >= %s AND h.OrderDate <= %s
             GROUP BY co.Name
             ORDER BY rev DESC
-            LIMIT 6
+            {limit_clause(6)}
             """,
             [cur_lo, cur_hi],
         )
@@ -227,7 +227,7 @@ def customer_profile(request):
 
     with connection.cursor() as c:  # chart 5: top shipping cities
         c.execute(
-            """
+            f"""
             SELECT a.City, sp.StateProvinceCode, sp.CountryRegionCode,
                    SUM(d.LineTotal) AS rev
             FROM Sales_SalesOrderDetail d
@@ -237,7 +237,7 @@ def customer_profile(request):
             WHERE h.OrderDate >= %s AND h.OrderDate <= %s
             GROUP BY a.City, sp.StateProvinceCode, sp.CountryRegionCode
             ORDER BY rev DESC
-            LIMIT 8
+            {limit_clause(8)}
             """,
             [cur_lo, cur_hi],
         )
@@ -310,8 +310,12 @@ def customer_profile(request):
                 FROM Sales_SalesOrderHeader
                 WHERE OrderDate >= %s AND OrderDate <= %s
                 GROUP BY CustomerID
-            )
-            GROUP BY bucket
+            ) q
+            GROUP BY CASE WHEN n = 1 THEN '1 order'
+                          WHEN n = 2 THEN '2 orders'
+                          WHEN n <= 4 THEN '3–4 orders'
+                          WHEN n <= 9 THEN '5–9 orders'
+                          ELSE '10+ orders' END
             """,
             [cur_lo, cur_hi],
         )
@@ -323,7 +327,7 @@ def customer_profile(request):
     biggest = []
     with connection.cursor() as c:  # chart 8: biggest buyers (stores, then individuals)
         c.execute(
-            """
+            f"""
             SELECT h.CustomerID, s.Name, p.FirstName, p.LastName, t.Name,
                    COUNT(DISTINCT h.SalesOrderID) AS orders,
                    SUM(d.LineTotal) AS rev
@@ -336,14 +340,14 @@ def customer_profile(request):
             WHERE h.OrderDate >= %s AND h.OrderDate <= %s AND cu.StoreID IS NOT NULL
             GROUP BY h.CustomerID, s.Name, p.FirstName, p.LastName, t.Name
             ORDER BY rev DESC
-            LIMIT 6
+            {limit_clause(6)}
             """,
             [cur_lo, cur_hi],
         )
         store_buyers = c.fetchall()
 
         c.execute(
-            """
+            f"""
             SELECT h.CustomerID, s.Name, p.FirstName, p.LastName, t.Name,
                    COUNT(DISTINCT h.SalesOrderID) AS orders,
                    SUM(d.LineTotal) AS rev
@@ -356,7 +360,7 @@ def customer_profile(request):
             WHERE h.OrderDate >= %s AND h.OrderDate <= %s AND cu.StoreID IS NULL
             GROUP BY h.CustomerID, s.Name, p.FirstName, p.LastName, t.Name
             ORDER BY rev DESC
-            LIMIT 3
+            {limit_clause(3)}
             """,
             [cur_lo, cur_hi],
         )

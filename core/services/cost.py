@@ -1,6 +1,4 @@
 """Cost report queries and context building."""
-from datetime import datetime
-
 from django.db import connection
 
 from ..models import SalesOrderHeader
@@ -18,6 +16,7 @@ from .common import (
     _report_response,
     _saved_report,
 )
+from .dialect import limit_clause, month_expr
 
 
 def cost(request):
@@ -149,26 +148,29 @@ def cost(request):
 
     with connection.cursor() as c:  # chart 2: monthly cost of goods sold
         c.execute(
-            """
-            SELECT substr(h.OrderDate, 1, 7) AS month,
-                   CASE WHEN h.OrderDate < %s THEN 'prev' ELSE 'cur' END AS side,
-                   SUM(d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost)) AS cogs,
-                   SUM(d.LineTotal) AS rev
-            FROM Sales_SalesOrderDetail d
-            JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
-            JOIN Production_Product p ON p.ProductID = d.ProductID
-            LEFT JOIN Production_ProductCostHistory ch
-              ON ch.ProductID = d.ProductID
-             AND h.OrderDate >= ch.StartDate
-             AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
-            WHERE h.OrderDate >= %s AND h.OrderDate <= %s
+            f"""
+            SELECT month, side, SUM(cogs) AS cogs, SUM(rev) AS rev
+            FROM (
+                SELECT {month_expr("h.OrderDate")} AS month,
+                       CASE WHEN h.OrderDate < %s THEN 'prev' ELSE 'cur' END AS side,
+                       d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost) AS cogs,
+                       d.LineTotal AS rev
+                FROM Sales_SalesOrderDetail d
+                JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
+                JOIN Production_Product p ON p.ProductID = d.ProductID
+                LEFT JOIN Production_ProductCostHistory ch
+                  ON ch.ProductID = d.ProductID
+                 AND h.OrderDate >= ch.StartDate
+                 AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
+                WHERE h.OrderDate >= %s AND h.OrderDate <= %s
+            ) base
             GROUP BY month, side
             ORDER BY month
             """,
             [w.trend_start, w.window_start, w.last],
         )
         series = [
-            {"month": datetime.strptime(m, "%Y-%m"), "side": side, "cogs": cogs, "rev": rev}
+            {"month": m, "side": side, "cogs": cogs, "rev": rev}
             for m, side, cogs, rev in c.fetchall()
         ]
     cur_by_month = {m["month"]: m for m in series if m["side"] == "cur"}
@@ -240,14 +242,14 @@ def cost(request):
 
     with connection.cursor() as c:  # chart 4: top vendors by procurement spend
         c.execute(
-            """
+            f"""
             SELECT v.Name, SUM(po.SubTotal) AS spend, COUNT(*) AS orders, v.ActiveFlag
             FROM Purchasing_PurchaseOrderHeader po
             JOIN Purchasing_Vendor v ON v.BusinessEntityID = po.VendorID
             WHERE po.OrderDate >= %s AND po.OrderDate <= %s AND po.Status <> 3
             GROUP BY v.Name, v.ActiveFlag
             ORDER BY spend DESC
-            LIMIT 8
+            {limit_clause(8)}
             """,
             [cur_lo, cur_hi],
         )
@@ -262,7 +264,7 @@ def cost(request):
 
     with connection.cursor() as c:  # chart 5: products that cost us most
         c.execute(
-            """
+            f"""
             SELECT p.Name, SUM(d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost)) AS cogs,
                    SUM(d.OrderQty) AS units
             FROM Sales_SalesOrderDetail d
@@ -275,7 +277,7 @@ def cost(request):
             WHERE h.OrderDate >= %s AND h.OrderDate <= %s
             GROUP BY p.Name
             ORDER BY cogs DESC
-            LIMIT 8
+            {limit_clause(8)}
             """,
             [cur_lo, cur_hi],
         )
@@ -287,14 +289,14 @@ def cost(request):
 
     with connection.cursor() as c:  # chart 6: scrap reasons
         c.execute(
-            """
+            f"""
             SELECT sr.Name, SUM(w.ScrappedQty) AS scr, COUNT(*) AS orders
             FROM Production_WorkOrder w
             JOIN Production_ScrapReason sr ON sr.ScrapReasonID = w.ScrapReasonID
             WHERE w.StartDate >= %s AND w.StartDate <= %s
             GROUP BY sr.Name
             ORDER BY scr DESC
-            LIMIT 8
+            {limit_clause(8)}
             """,
             [cur_lo, cur_hi],
         )
@@ -347,7 +349,7 @@ def cost(request):
     statuses = {1: ("Pending", ""), 2: ("Approved", "online"), 3: ("Rejected", "bad"), 4: ("Complete", "")}
     with connection.cursor() as c:  # chart 8: largest purchase orders
         c.execute(
-            """
+            f"""
             SELECT po.PurchaseOrderID, v.Name, po.OrderDate, po.SubTotal, po.Status,
                    (SELECT COUNT(*) FROM Purchasing_PurchaseOrderDetail d
                     WHERE d.PurchaseOrderID = po.PurchaseOrderID) AS lines
@@ -355,7 +357,7 @@ def cost(request):
             JOIN Purchasing_Vendor v ON v.BusinessEntityID = po.VendorID
             WHERE po.OrderDate >= %s AND po.OrderDate <= %s AND po.Status <> 3
             ORDER BY po.SubTotal DESC
-            LIMIT 8
+            {limit_clause(8)}
             """,
             [cur_lo, cur_hi],
         )

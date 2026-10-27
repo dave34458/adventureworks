@@ -157,22 +157,5 @@
  </section>
  {% endif %}
 
- {% if insights %}
- <section class="d-panel">
-  <h3>What the numbers show</h3>
-  <p class="sub">Short interpretations of the same database aggregates used above · {{ period }}</p>
-  <ul class="d-recs">
-   {% for i in insights %}<li><b>{{ i.title }}</b><span>{{ i.text }}</span></li>{% endfor %}
-  </ul>
- </section>
- {% endif %}
-
- <section class="d-panel">
-  <h3>Explore the reports</h3>
-  <p class="sub">Open a module for its full tables and methods.</p>
-  <ul class="d-recs">
-   {% for r in reports %}<li><a href="{% url r.url %}"><b>{{ r.name }}</b><span>{{ r.text }}</span></a></li>{% endfor %}
-  </ul>
- </section>
 </div>
 {% endblock %}

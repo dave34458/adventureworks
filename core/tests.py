@@ -638,13 +638,10 @@ class ReportDataTests(TestCase):
         self.assertTrue(any(label.startswith("-") for label in labels))
         self.assertTrue(any("-$40" in bar["t"] for bar in context["combo"]["bars"]))
 
-    def test_cost_only_dashboard_uses_highest_cost_wording_and_direction(self):
+    def test_cost_only_dashboard_uses_cost_direction(self):
         request = RequestFactory().get("/", {"report": ""})
         request.user = self.cost_user
         context = dashboard(request).context
-        text = " ".join(insight["text"] for insight in context["insights"])
-        self.assertIn("highest-cost month", text)
-        self.assertNotIn("strongest month", text)
         cost_kpi = next(kpi for kpi in context["kpis"] if kpi["label"] == "Cost of goods")
         self.assertEqual(cost_kpi["dir"], "down")
 
@@ -709,12 +706,6 @@ class ReportDataTests(TestCase):
         self.assertContains(response, "Below-cost shortfall")
         self.assertNotContains(response, "Below-cost sales")
 
-    def test_dashboard_report_link_uses_below_cost_shortfall(self):
-        self.client.force_login(self.root)
-        response = self.client.get("/dashboard/")
-        self.assertContains(response, "below-cost shortfall")
-        self.assertNotContains(response, "below-cost sales")
-
     def test_negative_margin_lines_fit_the_chart(self):
         context = self.report_context(revenue_and_loss)
         ys = [float(point.split(",")[1]) for point in context["combo"]["cur_pts"].split()]
@@ -742,9 +733,6 @@ class ReportDataTests(TestCase):
         context = dashboard(request).context
         cap = next(kpi for kpi in context["kpis"] if kpi["label"] == "Gross profit")["cap"]
         self.assertIn("no revenue in", cap)
-        text = " ".join(insight["text"] for insight in context["insights"])
-        self.assertIn("no revenue in", text)
-        self.assertNotIn("pts versus", text)
 
     def test_margin_comparison_handles_missing_current_revenue(self):
         source = SalesOrderHeader.objects.get(sales_order_number="SO1")
@@ -775,9 +763,6 @@ class ReportDataTests(TestCase):
         context = dashboard(request).context
         cap = next(kpi for kpi in context["kpis"] if kpi["label"] == "Gross profit")["cap"]
         self.assertIn("no revenue in", cap)
-        text = " ".join(insight["text"] for insight in context["insights"])
-        self.assertIn("gross margin has no meaningful comparison", text)
-        self.assertNotIn("pts versus", text)
 
     def test_custom_range_labels_name_the_actual_previous_period(self):
         cost_context = self.report_context(

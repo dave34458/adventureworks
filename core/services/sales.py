@@ -1,15 +1,14 @@
 """Sales report queries and context building."""
-from datetime import datetime
-
 from django.db import connection
 
 from ..models import SalesOrderHeader
-from ..utils import delta_pct, rank, shift_months, window_for
+from ..utils import delta_pct, money, rank, shift_months, window_for
 from .common import (
     _empty_report,
     _report_response,
     _saved_report,
 )
+from .dialect import limit_clause, month_expr
 
 
 def sales(request):
@@ -71,21 +70,24 @@ def sales(request):
 
     with connection.cursor() as c:  # panel 2: sales trend, current vs previous window
         c.execute(
-            """
-            SELECT substr(h.OrderDate, 1, 7) AS month,
-                   CASE WHEN h.OrderDate < %s THEN 'prev' ELSE 'cur' END AS side,
-                   SUM(d.LineTotal) AS rev,
-                   COUNT(DISTINCT h.SalesOrderID) AS orders
-            FROM Sales_SalesOrderDetail d
-            JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
-            WHERE h.OrderDate >= %s AND h.OrderDate <= %s
+            f"""
+            SELECT month, side, SUM(rev) AS rev, COUNT(DISTINCT order_id) AS orders
+            FROM (
+                SELECT {month_expr("h.OrderDate")} AS month,
+                       CASE WHEN h.OrderDate < %s THEN 'prev' ELSE 'cur' END AS side,
+                       d.LineTotal AS rev,
+                       h.SalesOrderID AS order_id
+                FROM Sales_SalesOrderDetail d
+                JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
+                WHERE h.OrderDate >= %s AND h.OrderDate <= %s
+            ) base
             GROUP BY month, side
             ORDER BY month
             """,
             [w.trend_start, w.window_start, w.last],
         )
         series = [
-            {"month": datetime.strptime(m, "%Y-%m"), "side": side, "rev": rev, "orders": orders}
+            {"month": m, "side": side, "rev": rev, "orders": orders}
             for m, side, rev, orders in c.fetchall()
         ]
     cur_by_month = {m["month"]: m for m in series if m["side"] == "cur"}
@@ -122,7 +124,7 @@ def sales(request):
 
     with connection.cursor() as c:  # panel 3: sales by product, high performers
         c.execute(
-            """
+            f"""
             SELECT pr.Name, SUM(d.LineTotal) AS rev
             FROM Sales_SalesOrderDetail d
             JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
@@ -130,7 +132,7 @@ def sales(request):
             WHERE h.OrderDate >= %s AND h.OrderDate <= %s
             GROUP BY pr.Name
             ORDER BY rev DESC
-            LIMIT 8
+            {limit_clause(8)}
             """,
             [cur_lo, cur_hi],
         )
@@ -139,7 +141,7 @@ def sales(request):
 
     with connection.cursor() as c:  # panel 4: sales by product, low performers
         c.execute(
-            """
+            f"""
             SELECT pr.Name, SUM(d.LineTotal) AS rev
             FROM Sales_SalesOrderDetail d
             JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
@@ -147,7 +149,7 @@ def sales(request):
             WHERE h.OrderDate >= %s AND h.OrderDate <= %s
             GROUP BY pr.Name
             ORDER BY rev ASC
-            LIMIT 6
+            {limit_clause(6)}
             """,
             [cur_lo, cur_hi],
         )

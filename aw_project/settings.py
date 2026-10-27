@@ -9,14 +9,11 @@ def _env_list(name, default=""):
     return [value.strip() for value in os.environ.get(name, default).split(",") if value.strip()]
 
 
-RAILWAY_PUBLIC_DOMAIN = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "").strip()
-RAILWAY_PRIVATE_DOMAIN = os.environ.get("RAILWAY_PRIVATE_DOMAIN", "").strip()
-ON_RAILWAY = bool(RAILWAY_PUBLIC_DOMAIN or os.environ.get("RAILWAY_ENVIRONMENT"))
-DEBUG = os.environ.get("DJANGO_DEBUG", "0" if ON_RAILWAY else "1") == "1"
-ALLOWED_HOSTS = _env_list("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1,testserver")
-for _host in (RAILWAY_PUBLIC_DOMAIN, RAILWAY_PRIVATE_DOMAIN):
-    if _host and _host not in ALLOWED_HOSTS:
-        ALLOWED_HOSTS.append(_host)
+CLOUD_RUN_SERVICE = os.environ.get("K_SERVICE", "").strip()
+ON_CLOUD_RUN = bool(CLOUD_RUN_SERVICE)
+DEBUG = os.environ.get("DJANGO_DEBUG", "0" if ON_CLOUD_RUN else "1") == "1"
+ALLOWED_HOSTS = _env_list(
+    "DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1,testserver,.run.app")
 
 INSTALLED_APPS = [
     "django.contrib.admin",  # used only for the superadmin's Users and Groups pages
@@ -49,9 +46,20 @@ TEMPLATES = [{
     ]},
 }]
 WSGI_APPLICATION = "aw_project.wsgi.application"
+_mssql_port = os.environ.get("MSSQL_PORT", "none").strip()
+if _mssql_port.lower() in ("", "none", "0"):
+    _mssql_port = ""
 DATABASES = {"default": {
-    "ENGINE": "django.db.backends.sqlite3",
-    "NAME": os.environ.get("AW_DB_PATH", BASE_DIR / "adventureworks.sqlite3"),
+    "ENGINE": "mssql",
+    "NAME": os.environ.get("MSSQL_DATABASE", "AdventureWorks2025"),
+    "HOST": os.environ.get("MSSQL_HOST", "localhost"),
+    "PORT": _mssql_port,
+    "USER": os.environ.get("MSSQL_USER", ""),
+    "PASSWORD": os.environ.get("MSSQL_PASSWORD", ""),
+    "OPTIONS": {
+        "driver": os.environ.get("MSSQL_DRIVER", "ODBC Driver 18 for SQL Server"),
+        "extra_params": "TrustServerCertificate=yes",
+    },
 }}
 DEFAULT_AUTO_FIELD = "django.db.models.AutoField"
 USE_TZ = False  # AdventureWorks dates are naive local times
@@ -59,14 +67,10 @@ TIME_ZONE = "UTC"
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"  # collectstatic output; served by whitenoise
 
-# Behind a hosting proxy that terminates TLS (e.g. Railway): trust its header so
-# Django knows the request is HTTPS. Needed for CSRF origin checks on login.
+# Cloud Run terminates TLS and forwards X-Forwarded-Proto. Trust it so Django
+# knows the request is HTTPS, which the login CSRF origin check needs.
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 CSRF_TRUSTED_ORIGINS = _env_list("DJANGO_CSRF_TRUSTED_ORIGINS")
-if RAILWAY_PUBLIC_DOMAIN:
-    _origin = f"https://{RAILWAY_PUBLIC_DOMAIN}"
-    if _origin not in CSRF_TRUSTED_ORIGINS:
-        CSRF_TRUSTED_ORIGINS.append(_origin)
 
 if not DEBUG:  # production behind the TLS proxy: cookies only over HTTPS
     SESSION_COOKIE_SECURE = True

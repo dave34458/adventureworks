@@ -69,13 +69,6 @@ class User(AbstractBaseUser, PermissionsMixin):
         super().clean()
         self.email = self.email.strip().lower()
 
-    def get_full_name(self):
-        return f"{self.first_name} {self.last_name}".strip()
-
-    def get_short_name(self):
-        return self.first_name
-
-
 
 class PersonAddress(models.Model):
     address_id = models.AutoField(db_column='AddressID', primary_key=True)
@@ -620,7 +613,7 @@ class AuditLog(models.Model):
     views; visible read-only at /manage/ and retained for twelve months per the
     privacy notice."""
 
-    ACTIONS = [("create", "create"), ("update", "update"), ("delete", "delete")]
+    ACTIONS = [("update", "update"), ("delete", "delete")]
 
     user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True,
                              on_delete=models.SET_NULL, related_name="audit_log")
@@ -674,7 +667,6 @@ class Report(models.Model):
     period = models.CharField(max_length=120)
     custom = models.BooleanField(default=False)
     payload = models.JSONField(default=dict, encoder=DjangoJSONEncoder)
-    schema_version = models.PositiveSmallIntegerField(default=2)
 
     generated_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True,
                                      on_delete=models.SET_NULL, related_name="reports")
