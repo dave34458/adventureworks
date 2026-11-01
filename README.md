@@ -16,14 +16,17 @@ As of this report, the project has finished the following:
 - We built the Django 6.0.5 application: a dashboard, four report tabs (Sales, Customer Profile,
   Revenue and Loss, Cost), saved report snapshots, table browsers, user/role management, an audit
   trail and a versioned data privacy notice.
+- The code is split into three Django apps: `accounts` (login, account, roles), `core` (19
+  AdventureWorks warehouse models), and `reporting` (dashboard, reports, snapshots, audit and
+  table browser).
 - We implemented 12 department roles plus the global Administrator, and seeded 13 demo accounts
   (one Administrator and one login per role).
-- The test suite passes 69/69 on SQL Server. `manage.py check`, `makemigrations --check` and
+- The test suite passes 73/73 on SQL Server. `manage.py check`, `makemigrations --check` and
   `migrate --check` are clean.
 - The app is deployed on Cloud Run with a Cloud SQL Auth Proxy sidecar:
   https://adventureworks-4cfcg3oqqq-uc.a.run.app. Cloud SQL is restored from the current app
   database backup. The proxy uses Cloud SQL's public IP and IAM; no VPC is needed.
-- Every panel is backed by a read-only SQL query in `core/services/`. Section 4 shows four
+- Every panel is backed by a read-only SQL query in `reporting/services/`. Section 4 shows four
   representative queries; the rest live in the service modules.
 
 ## 2. Project purpose and business questions
@@ -136,7 +139,7 @@ source foreign key.
 | `Purchasing_Vendor` | `Purchasing.Vendor` | `BusinessEntityID` | none | `Name`, `CreditRating`, `PreferredVendorStatus`, `ActiveFlag` | Cost | 104 |
 | `Production_WorkOrder` | `Production.WorkOrder` | `WorkOrderID` | `ProductID` -> `Production.Product`; `ScrapReasonID` -> `Production.ScrapReason` | `OrderQty`, `ScrappedQty`, `StartDate` | Cost | 72,591 |
 
-The app also owns `core_report` (saved report snapshots), `core_auditlog` (edit/delete audit trail),
+The app also owns `reporting_report` (saved report snapshots), `reporting_auditlog` (edit/delete audit trail),
 `auth_user` and the standard Django `auth_*`, `django_session`, `django_migrations`,
 `django_admin_log` and `django_content_type` tables. `TabAccess` is `managed = False`; it exists only
 to create the four tab permissions.
@@ -165,7 +168,7 @@ default is the last 12 months. All amounts are in US dollars.
 
 ### Q1. Which products generate the most merchandise sales?
 
-**Report:** Sales -> High-performing products (`core/services/sales.py:125`).
+**Report:** Sales -> High-performing products (`reporting/services/sales.py:125`).
 
 ```sql
 SELECT pr.Name, SUM(d.LineTotal) AS rev
@@ -193,7 +196,7 @@ OFFSET 0 ROWS FETCH NEXT 8 ROWS ONLY;
 
 ### Q2. Which ship-to countries generate the most merchandise revenue?
 
-**Report:** Customer Profile -> Customer distribution (`core/services/customer_profile.py:187`).
+**Report:** Customer Profile -> Customer distribution (`reporting/services/customer_profile.py:187`).
 
 This is the query behind the map and the "Revenue by country" list. It groups by the ship-to country,
 not the customer's sales territory. The map hover shows revenue and orders; the list shows revenue only.
@@ -227,7 +230,7 @@ The map shows the same six countries as bubbles. The United States is the larges
 ### Q3. Which categories contribute the most merchandise revenue and gross margin?
 
 **Report:** Revenue and Loss -> Revenue contribution by category
-(`core/services/revenue_and_loss.py:298`).
+(`reporting/services/revenue_and_loss.py:298`).
 
 ```sql
 SELECT cat.Name, SUM(d.LineTotal) AS rev,
@@ -260,7 +263,7 @@ have the highest margin.
 
 ### Q4. Which vendors account for the most merchandise purchase-order spend?
 
-**Report:** Cost -> Significant cost contributors: vendors (`core/services/cost.py:243`).
+**Report:** Cost -> Significant cost contributors: vendors (`reporting/services/cost.py:243`).
 
 ```sql
 SELECT v.Name, SUM(po.SubTotal) AS spend, COUNT(*) AS orders, v.ActiveFlag
@@ -287,7 +290,7 @@ OFFSET 0 ROWS FETCH NEXT 8 ROWS ONLY;
 `ActiveFlag` is 1 for active vendors and 0 for inactive ones. The panel returns the top eight vendors.
 
 Other panel queries cover below-cost products, declining products, estimated scrap cost by reason,
-standard-cost changes and the largest purchase orders; they live in `core/services/`.
+standard-cost changes and the largest purchase orders; they live in `reporting/services/`.
 
 ## 5. Architecture
 
@@ -317,8 +320,10 @@ Cloud Run service: adventureworks
 - The image is built with Cloud Build and stored in Artifact Registry.
 - Cloud Run uses a dedicated service account with `roles/cloudsql.client` and access to the two
   secrets (`adventureworks-django-secret-key`, `adventureworks-mssql-password`).
-- The app reads the 19 `dbo` views. It writes only to `core_report`, `core_auditlog`, the `auth_*`
+- The app reads the 19 `dbo` views. It writes only to `reporting_report`, `reporting_auditlog`, the `auth_*`
   tables and Django's session/admin tables.
+- On an existing database, `python manage.py migrate core --fake` marks the 19-view initial migration
+  as applied; `python manage.py migrate` then creates only the app tables.
 - The app has no VPC connector. The proxy sidecar handles the Cloud SQL connection.
 
 ## 6. Roles and RBAC matrix
@@ -355,12 +360,10 @@ No role can create source records through the UI. Report pages and saved-report 
 Apply the groups with:
 
 ```bash
-python manage.py shell -c "from core.roles import ROLES, apply_roles; apply_roles(ROLES, prune=True)"
+python manage.py shell -c "from accounts.roles import ROLES, apply_roles; apply_roles(ROLES, prune=True)"
 ```
 
 Demo logins use the email local part as the password: `sales.manager@example.com` /
 `sales.manager`, `sales.supervisor@example.com` / `sales.supervisor`, and so on. Run
 `python manage.py seed_users --reset --prune` to create or reset them. Change the demo passwords
 before real use.
-
-

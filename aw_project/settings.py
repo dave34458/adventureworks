@@ -22,7 +22,9 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "accounts",
     "core",
+    "reporting",
 ]
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -50,7 +52,7 @@ _mssql_port = os.environ.get("MSSQL_PORT", "none").strip()
 if _mssql_port.lower() in ("", "none", "0"):
     _mssql_port = ""
 DATABASES = {"default": {
-    "ENGINE": "mssql",
+    "ENGINE": "aw_project.db_backend",
     "NAME": os.environ.get("MSSQL_DATABASE", "AdventureWorks2025"),
     "HOST": os.environ.get("MSSQL_HOST", "localhost"),
     "PORT": _mssql_port,
@@ -76,8 +78,8 @@ if not DEBUG:  # production behind the TLS proxy: cookies only over HTTPS
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
 
-AUTH_USER_MODEL = "core.User"
-AUTHENTICATION_BACKENDS = ["core.auth_backends.EmailBackend"]
+AUTH_USER_MODEL = "accounts.User"
+AUTHENTICATION_BACKENDS = ["accounts.auth_backends.EmailBackend"]
 
 LOGIN_URL = "login"
 LOGIN_REDIRECT_URL = "home"

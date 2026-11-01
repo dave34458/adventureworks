@@ -7,5 +7,6 @@ admin.site.index_title = "Manage logins, groups, privacy and audit records (Admi
 
 urlpatterns = [
     path("manage/", admin.site.urls),  # users, groups, privacy and audit
-    path("", include("core.urls")),
+    path("", include("accounts.urls")),
+    path("", include("reporting.urls")),
 ]
