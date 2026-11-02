@@ -705,7 +705,7 @@ flowchart TB
 
 ### Wireframes
 
-High-fidelity wireframes for the four highlighted report pages.
+High-fidelity wireframes for the highlighted report and management pages.
 
 **Sales report**
 
@@ -722,6 +722,26 @@ High-fidelity wireframes for the four highlighted report pages.
 **Cost report**
 
 ![Cost report](screenshots/cost-report.png)
+
+**Table management**
+
+![Table management list](screenshots/table-manage-list.png)
+
+![Edit table record](screenshots/table-manage-edit.png)
+
+**Saved reports**
+
+![Saved reports list](screenshots/saved-reports.png)
+
+![Edit saved report](screenshots/saved-report-edit.png)
+
+**Administration**
+
+![Admin panel](screenshots/admin-panel.png)
+
+![User management](screenshots/admin-users.png)
+
+![Audit log](screenshots/audit-log.png)
 
 ## 6. Roles and RBAC matrix
 
