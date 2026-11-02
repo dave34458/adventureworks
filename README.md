@@ -139,7 +139,316 @@ source foreign key.
 | `Purchasing_Vendor` | `Purchasing.Vendor` | `BusinessEntityID` | none | `Name`, `CreditRating`, `PreferredVendorStatus`, `ActiveFlag` | Cost | 104 |
 | `Production_WorkOrder` | `Production.WorkOrder` | `WorkOrderID` | `ProductID` -> `Production.Product`; `ScrapReasonID` -> `Production.ScrapReason` | `OrderQty`, `ScrappedQty`, `StartDate` | Cost | 72,591 |
 
-The app also owns `reporting_report` (saved report snapshots), `reporting_auditlog` (edit/delete audit trail),
+### Database diagram
+
+```mermaid
+%%{init: {"theme":"neutral","themeVariables":{"background":"#ffffff","primaryColor":"#ffffff","primaryTextColor":"#111111","primaryBorderColor":"#444444","lineColor":"#444444","secondaryColor":"#f4f4f4","tertiaryColor":"#ffffff","mainBkg":"#ffffff","nodeBorder":"#444444","clusterBkg":"#ffffff","clusterBorder":"#999999","titleColor":"#111111","edgeLabelBackground":"#ffffff","textColor":"#111111","fontFamily":"Segoe UI, Arial, sans-serif"},"er":{"fill":"#ffffff","stroke":"#444444","diagramPadding":3,"layoutDirection":"TB","minEntityWidth":60,"minEntityHeight":24,"entityPadding":4,"fontSize":9,"useMaxWidth":true}}}%%
+erDiagram
+    Person_Address {
+        int AddressID PK
+        str AddressLine1
+        str AddressLine2
+        str City
+        int StateProvinceID FK
+        str PostalCode
+        str SpatialLocation
+        uuid rowguid
+        dt ModifiedDate
+    }
+
+    Person_BusinessEntity {
+        int BusinessEntityID PK
+        uuid rowguid
+        dt ModifiedDate
+    }
+
+    Person_CountryRegion {
+        str CountryRegionCode PK
+        str Name
+        dt ModifiedDate
+    }
+
+    Sales_Customer {
+        int CustomerID PK
+        int PersonID FK
+        int StoreID FK
+        int TerritoryID FK
+        str AccountNumber
+        uuid rowguid
+        dt ModifiedDate
+    }
+
+    Person_Person {
+        int BusinessEntityID PK
+        str PersonType
+        bool NameStyle
+        str Title
+        str FirstName
+        str MiddleName
+        str LastName
+        str Suffix
+        int EmailPromotion
+        str AdditionalContactInfo
+        str Demographics
+        uuid rowguid
+        dt ModifiedDate
+    }
+
+    Production_Product {
+        int ProductID PK
+        str Name
+        str ProductNumber
+        bool MakeFlag
+        bool FinishedGoodsFlag
+        str Color
+        int SafetyStockLevel
+        int ReorderPoint
+        dec StandardCost
+        dec ListPrice
+        str Size
+        dec Weight
+        int DaysToManufacture
+        str ProductLine
+        str Class
+        str Style
+        int ProductSubcategoryID FK
+        dt SellStartDate
+        dt SellEndDate
+        dt DiscontinuedDate
+        uuid rowguid
+        dt ModifiedDate
+    }
+
+    Production_ProductCategory {
+        int ProductCategoryID PK
+        str Name
+        uuid rowguid
+        dt ModifiedDate
+    }
+
+    Production_ProductCostHistory {
+        int id PK
+        int ProductID FK
+        dt StartDate
+        dt EndDate
+        dec StandardCost
+        dt ModifiedDate
+    }
+
+    Production_ProductSubcategory {
+        int ProductSubcategoryID PK
+        int ProductCategoryID FK
+        str Name
+        uuid rowguid
+        dt ModifiedDate
+    }
+
+    Purchasing_PurchaseOrderDetail {
+        int PurchaseOrderID FK
+        int PurchaseOrderDetailID PK
+        dt DueDate
+        int OrderQty
+        int ProductID FK
+        dec UnitPrice
+        dec LineTotal
+        dec ReceivedQty
+        dec RejectedQty
+        dec StockedQty
+        dt ModifiedDate
+    }
+
+    Purchasing_PurchaseOrderHeader {
+        int PurchaseOrderID PK
+        int RevisionNumber
+        int Status
+        int VendorID FK
+        dt OrderDate
+        dt ShipDate
+        dec SubTotal
+        dec TaxAmt
+        dec Freight
+        dec TotalDue
+        dt ModifiedDate
+    }
+
+    Sales_SalesOrderDetail {
+        int SalesOrderID FK
+        int SalesOrderDetailID PK
+        str CarrierTrackingNumber
+        int OrderQty
+        int ProductID FK
+        dec UnitPrice
+        dec UnitPriceDiscount
+        dec LineTotal
+        uuid rowguid
+        dt ModifiedDate
+    }
+
+    Sales_SalesOrderHeader {
+        int SalesOrderID PK
+        int RevisionNumber
+        dt OrderDate
+        dt DueDate
+        dt ShipDate
+        int Status
+        bool OnlineOrderFlag
+        str SalesOrderNumber
+        str PurchaseOrderNumber
+        str AccountNumber
+        int CustomerID FK
+        int TerritoryID FK
+        int BillToAddressID FK
+        int ShipToAddressID FK
+        str CreditCardApprovalCode
+        dec SubTotal
+        dec TaxAmt
+        dec Freight
+        dec TotalDue
+        str Comment
+        uuid rowguid
+        dt ModifiedDate
+    }
+
+    Sales_SalesTerritory {
+        int TerritoryID PK
+        str Name
+        str CountryRegionCode FK
+        str Group
+        dec SalesYTD
+        dec SalesLastYear
+        dec CostYTD
+        dec CostLastYear
+        uuid rowguid
+        dt ModifiedDate
+    }
+
+    Production_ScrapReason {
+        int ScrapReasonID PK
+        str Name
+        dt ModifiedDate
+    }
+
+    Person_StateProvince {
+        int StateProvinceID PK
+        str StateProvinceCode
+        str CountryRegionCode FK
+        bool IsOnlyStateProvinceFlag
+        str Name
+        int TerritoryID FK
+        uuid rowguid
+        dt ModifiedDate
+    }
+
+    Sales_Store {
+        int BusinessEntityID PK
+        str Name
+        str Demographics
+        uuid rowguid
+        dt ModifiedDate
+    }
+
+    Purchasing_Vendor {
+        int BusinessEntityID PK
+        str AccountNumber
+        str Name
+        int CreditRating
+        bool PreferredVendorStatus
+        bool ActiveFlag
+        str PurchasingWebServiceURL
+        dt ModifiedDate
+    }
+
+    Production_WorkOrder {
+        int WorkOrderID PK
+        int ProductID FK
+        int OrderQty
+        int StockedQty
+        int ScrappedQty
+        dt StartDate
+        dt EndDate
+        dt DueDate
+        int ScrapReasonID FK
+        dt ModifiedDate
+    }
+
+    Person_BusinessEntity ||--o| Person_Person : "person"
+    Person_BusinessEntity ||--o| Sales_Store : "store"
+    Person_BusinessEntity ||--o| Purchasing_Vendor : "vendor"
+    Person_CountryRegion ||--o{ Person_StateProvince : "country"
+    Person_CountryRegion ||--o{ Sales_SalesTerritory : "country"
+    Sales_SalesTerritory ||--o{ Person_StateProvince : "territory"
+    Person_StateProvince ||--o{ Person_Address : "state"
+    Person_Person |o--o{ Sales_Customer : "person"
+    Sales_Store |o--o{ Sales_Customer : "store"
+    Sales_SalesTerritory |o--o{ Sales_Customer : "territory"
+    Sales_Customer ||--o{ Sales_SalesOrderHeader : "customer"
+    Sales_SalesTerritory |o--o{ Sales_SalesOrderHeader : "territory"
+    Person_Address ||--o{ Sales_SalesOrderHeader : "bill to"
+    Person_Address ||--o{ Sales_SalesOrderHeader : "ship to"
+    Sales_SalesOrderHeader ||--o{ Sales_SalesOrderDetail : "lines"
+    Production_Product ||--o{ Sales_SalesOrderDetail : "product"
+    Production_ProductCategory ||--o{ Production_ProductSubcategory : "category"
+    Production_ProductSubcategory |o--o{ Production_Product : "subcategory"
+    Production_Product ||--o{ Production_ProductCostHistory : "cost history"
+    Production_Product ||--o{ Production_WorkOrder : "work orders"
+    Production_ScrapReason |o--o{ Production_WorkOrder : "scrap reason"
+    Purchasing_Vendor ||--o{ Purchasing_PurchaseOrderHeader : "vendor"
+    Purchasing_PurchaseOrderHeader ||--o{ Purchasing_PurchaseOrderDetail : "lines"
+    Production_Product ||--o{ Purchasing_PurchaseOrderDetail : "product"
+```
+
+```mermaid
+%%{init: {"theme":"neutral","themeVariables":{"background":"#ffffff","primaryColor":"#ffffff","primaryTextColor":"#111111","primaryBorderColor":"#444444","lineColor":"#444444","secondaryColor":"#f4f4f4","tertiaryColor":"#ffffff","mainBkg":"#ffffff","nodeBorder":"#444444","clusterBkg":"#ffffff","clusterBorder":"#999999","titleColor":"#111111","edgeLabelBackground":"#ffffff","textColor":"#111111","fontFamily":"Segoe UI, Arial, sans-serif"},"er":{"fill":"#ffffff","stroke":"#444444","diagramPadding":3,"layoutDirection":"TB","minEntityWidth":60,"minEntityHeight":24,"entityPadding":4,"fontSize":9,"useMaxWidth":true}}}%%
+erDiagram
+    reports {
+        int id PK
+        str module
+        str title
+        date range_start
+        date range_end
+        date compare_start
+        date compare_end
+        date source_through
+        str window_label
+        str prev_label
+        str period
+        bool custom
+        json payload
+        dt generated_at
+        dt updated_at
+        int generated_by_id FK
+    }
+
+    audit_log {
+        int id PK
+        str username
+        str action
+        str model
+        str object_pk
+        str object_repr
+        json changes
+        str ip_address
+        dt created_at
+        int user_id FK
+    }
+
+    auth_user {
+        int id PK
+        str password
+        dt last_login
+        bool is_superuser
+        str email
+        str first_name
+        str last_name
+        bool is_active
+        bool is_staff
+    }
+
+    auth_user |o--o{ reports : "generated by"
+    auth_user |o--o{ audit_log : "changed by"
+```
+
+The app also owns `reports` (saved report snapshots), `audit_log` (edit/delete audit trail),
 `auth_user` and the standard Django `auth_*`, `django_session`, `django_migrations`,
 `django_admin_log` and `django_content_type` tables. `TabAccess` is `managed = False`; it exists only
 to create the four tab permissions.
@@ -320,11 +629,99 @@ Cloud Run service: adventureworks
 - The image is built with Cloud Build and stored in Artifact Registry.
 - Cloud Run uses a dedicated service account with `roles/cloudsql.client` and access to the two
   secrets (`adventureworks-django-secret-key`, `adventureworks-mssql-password`).
-- The app reads the 19 `dbo` views. It writes only to `reporting_report`, `reporting_auditlog`, the `auth_*`
+- The app reads the 19 `dbo` views. It writes only to `reports`, `audit_log`, the `auth_*`
   tables and Django's session/admin tables.
 - On an existing database, `python manage.py migrate core --fake` marks the 19-view initial migration
   as applied; `python manage.py migrate` then creates only the app tables.
 - The app has no VPC connector. The proxy sidecar handles the Cloud SQL connection.
+
+### Site map
+
+```mermaid
+%%{init: {"theme":"base","themeVariables":{"background":"#ffffff","primaryColor":"#ffffff","primaryTextColor":"#111111","primaryBorderColor":"#444444","lineColor":"#444444","secondaryColor":"#f4f4f4","tertiaryColor":"#ffffff","mainBkg":"#ffffff","nodeBorder":"#444444","clusterBkg":"#f7f7f7","clusterBorder":"#999999","titleColor":"#111111","edgeLabelBackground":"#ffffff","textColor":"#111111","fontFamily":"Segoe UI, Arial, sans-serif"},"flowchart":{"curve":"basis","nodeSpacing":18,"rankSpacing":24,"padding":8,"useMaxWidth":true}}}%%
+flowchart TB
+    login["/login/<br/>Email and password"]:::public
+    dashboard["/dashboard/<br/>Dashboard"]:::auth
+
+    account["/account/<br/>Edit name and password"]:::auth
+    logout["POST /logout/"]:::auth
+    manage["/manage/<br/>Users, groups, audit"]:::admin
+
+    subgraph sales_mod["Sales"]
+        direction LR
+        sales["/sales/<br/>Sales report"]:::page
+        sales_saved["/sales/reports/<br/>Saved reports"]:::page
+        sales_tables["Manage tables<br/>Sales_SalesOrderHeader<br/>Sales_SalesOrderDetail<br/>Sales_SalesTerritory"]:::page
+        sales --> sales_saved
+        sales --> sales_tables
+    end
+
+    subgraph customer_mod["Customer profile"]
+        direction LR
+        customer["/customer-profile/<br/>Customer profile report"]:::page
+        customer_saved["/customer-profile/reports/<br/>Saved reports"]:::page
+        customer_tables["Manage tables<br/>Sales_Customer<br/>Person_Person<br/>Person_BusinessEntity<br/>Person_Address<br/>Sales_Store<br/>Person_StateProvince<br/>Person_CountryRegion"]:::page
+        customer --> customer_saved
+        customer --> customer_tables
+    end
+
+    subgraph revenue_mod["Revenue and loss"]
+        direction LR
+        revenue["/revenue-and-loss/<br/>Revenue and loss report"]:::page
+        revenue_saved["/revenue-and-loss/reports/<br/>Saved reports"]:::page
+        revenue_tables["Manage tables<br/>Production_Product<br/>Production_ProductSubcategory<br/>Production_ProductCategory"]:::page
+        revenue --> revenue_saved
+        revenue --> revenue_tables
+    end
+
+    subgraph cost_mod["Cost"]
+        direction LR
+        cost["/cost/<br/>Cost report"]:::page
+        cost_saved["/cost/reports/<br/>Saved reports"]:::page
+        cost_tables["Manage tables<br/>Purchasing_PurchaseOrderHeader<br/>Purchasing_PurchaseOrderDetail<br/>Purchasing_Vendor<br/>Production_WorkOrder<br/>Production_ProductCostHistory<br/>Production_ScrapReason"]:::page
+        cost --> cost_saved
+        cost --> cost_tables
+    end
+
+    login -->|after login| dashboard
+
+    dashboard --> sales
+    dashboard --> customer
+    dashboard --> revenue
+    dashboard --> cost
+    dashboard --> account
+    dashboard --> logout
+    dashboard -.->|superuser only| manage
+
+    sales_tables ~~~ customer
+    customer_tables ~~~ revenue
+    revenue_tables ~~~ cost
+
+    classDef public fill:#ffffff,stroke:#444444,color:#111111
+    classDef auth fill:#ffffff,stroke:#444444,color:#111111
+    classDef page fill:#ffffff,stroke:#444444,color:#111111
+    classDef admin fill:#ffffff,stroke:#444444,color:#111111
+```
+
+### Wireframes
+
+High-fidelity wireframes for the four highlighted report pages.
+
+**Sales report**
+
+![Sales report](screenshots/sales-report.png)
+
+**Customer profile report**
+
+![Customer profile report](screenshots/customer-profile-report.png)
+
+**Revenue and loss report**
+
+![Revenue and loss report](screenshots/revenue-and-loss-report.png)
+
+**Cost report**
+
+![Cost report](screenshots/cost-report.png)
 
 ## 6. Roles and RBAC matrix
 

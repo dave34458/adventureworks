@@ -48,6 +48,7 @@ class AuditLog(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
+        db_table = "audit_log"
         ordering = ["-created_at"]
         indexes = [models.Index(fields=["model", "object_pk"]), models.Index(fields=["created_at"])]
         verbose_name = "audit record"
@@ -95,6 +96,7 @@ class Report(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        db_table = "reports"
         ordering = ["-range_end", "-generated_at"]
         constraints = [
             models.UniqueConstraint(fields=["module", "range_start", "range_end"],
