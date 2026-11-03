@@ -23,9 +23,8 @@ As of this report, the project has finished the following:
   (one Administrator and one login per role).
 - The test suite passes 73/73 on SQL Server. `manage.py check`, `makemigrations --check` and
   `migrate --check` are clean.
-- The app is deployed on Cloud Run with a Cloud SQL Auth Proxy sidecar:
-  https://adventureworks-4cfcg3oqqq-uc.a.run.app. Cloud SQL is restored from the current app
-  database backup. The proxy uses Cloud SQL's public IP and IAM; no VPC is needed.
+- The app is deployed on Cloud Run: https://adventureworks-4cfcg3oqqq-uc.a.run.app. Cloud SQL is
+  restored from the current app database backup.
 - Every panel is backed by a read-only SQL query in `reporting/services/`. Section 4 shows four
   representative queries; the rest live in the service modules.
 
@@ -603,27 +602,24 @@ standard-cost changes and the largest purchase orders; they live in `reporting/s
 
 ## 5. Architecture
 
-### Implemented architecture
+### System architecture
 
-```text
-Browser
-  |
-  v
-Cloud Run service: adventureworks
-  +-- app container: Django 6.0.5 + gunicorn + WhiteNoise
-  |     listens on 0.0.0.0:8080
-  |     reads MSSQL_* and DJANGO_* environment variables
-  |     reads secrets from Secret Manager
-  |
-  +-- cloud-sql-proxy sidecar
-        listens on 127.0.0.1:1433
-        connects to Cloud SQL over its public IP with IAM
-        no VPC and no authorized-network rule required
-              |
-              v
-        Cloud SQL SQL Server 2025 Express
-        database: AdventureWorks2025
-        restored from the current app backup
+```mermaid
+%%{init: {"theme":"base","themeVariables":{"background":"#ffffff","primaryColor":"#ffffff","primaryTextColor":"#111111","primaryBorderColor":"#444444","lineColor":"#444444","secondaryColor":"#ffffff","tertiaryColor":"#ffffff","mainBkg":"#ffffff","nodeBorder":"#444444","clusterBkg":"#ffffff","clusterBorder":"#999999","titleColor":"#111111","edgeLabelBackground":"#ffffff","textColor":"#111111","fontFamily":"Segoe UI, Arial, sans-serif"},"flowchart":{"curve":"basis","nodeSpacing":20,"rankSpacing":28,"padding":8,"useMaxWidth":true}}}%%
+flowchart TB
+    browser["Browser"]:::node
+
+    subgraph run["Cloud Run service: adventureworks"]
+        app["app container<br/>Django 6.0.5 + gunicorn + WhiteNoise<br/>listens on 0.0.0.0:8080<br/>reads MSSQL_* and DJANGO_* environment variables<br/>reads secrets from Secret Manager"]:::node
+    end
+
+    sql[("Cloud SQL SQL Server 2025 Express<br/>database: AdventureWorks2025<br/>restored from the current app backup")]:::node
+
+    browser -->|HTTPS| app
+    app -->|MSSQL| sql
+
+    classDef node fill:#ffffff,stroke:#444444,color:#111111
+    style run fill:#ffffff,stroke:#999999,color:#111111
 ```
 
 - The image is built with Cloud Build and stored in Artifact Registry.
@@ -633,7 +629,7 @@ Cloud Run service: adventureworks
   tables and Django's session/admin tables.
 - On an existing database, `python manage.py migrate core --fake` marks the 19-view initial migration
   as applied; `python manage.py migrate` then creates only the app tables.
-- The app has no VPC connector. The proxy sidecar handles the Cloud SQL connection.
+- The app has no VPC connector.
 
 ### Site map
 
