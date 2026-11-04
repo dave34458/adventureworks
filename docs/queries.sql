@@ -21,21 +21,15 @@ GROUP BY co.Name
 ORDER BY rev DESC
 OFFSET 0 ROWS FETCH NEXT 6 ROWS ONLY;
 
--- Q3. Revenue contribution and gross margin by category
-SELECT cat.Name, SUM(d.LineTotal) AS rev,
-       SUM(d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost)) AS cogs
+-- Q3. Lowest-performing products by merchandise sales
+SELECT pr.Name, SUM(d.LineTotal) AS rev
 FROM Sales_SalesOrderDetail d
 JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
-JOIN Production_Product p ON p.ProductID = d.ProductID
-LEFT JOIN Production_ProductCostHistory ch
-  ON ch.ProductID = d.ProductID
- AND h.OrderDate >= ch.StartDate
- AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
-JOIN Production_ProductSubcategory sc ON sc.ProductSubcategoryID = p.ProductSubcategoryID
-JOIN Production_ProductCategory cat ON cat.ProductCategoryID = sc.ProductCategoryID
+JOIN Production_Product pr ON pr.ProductID = d.ProductID
 WHERE h.OrderDate >= %s AND h.OrderDate <= %s
-GROUP BY cat.Name
-ORDER BY rev DESC;
+GROUP BY pr.Name
+ORDER BY rev ASC
+OFFSET 0 ROWS FETCH NEXT 6 ROWS ONLY;
 
 -- Q4. Purchase-order spend by vendor
 SELECT v.Name, SUM(po.SubTotal) AS spend, COUNT(*) AS orders, v.ActiveFlag

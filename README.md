@@ -470,9 +470,9 @@ comes from `LineTotal`, which already includes the discount.
 
 ## 4. SQL evidence
 
-These four queries are copied from the app's panel code, one per report. `%s` is the report window
-the app binds; the results below use the full sample (`2022-05-30` to `2025-06-29`). The app's
-default is the last 12 months. All amounts are in US dollars.
+These four queries are copied from the app's panel code. `%s` is the report window the app binds;
+the results below use the full sample (`2022-05-30` to `2025-06-29`). The app's default is the last
+12 months. All amounts are in US dollars.
 
 ### Q1. Which products generate the most merchandise sales?
 
@@ -535,39 +535,34 @@ OFFSET 0 ROWS FETCH NEXT 6 ROWS ONLY;
 
 The map shows the same six countries as bubbles. The United States is the largest market by revenue.
 
-### Q3. Which categories contribute the most merchandise revenue and gross margin?
+### Q3. Which products generate the least merchandise sales?
 
-**Report:** Revenue and Loss -> Revenue contribution by category
-(`reporting/services/revenue_and_loss.py:298`).
+**Report:** Sales -> Low-performing products (`reporting/services/sales.py:142`).
 
 ```sql
-SELECT cat.Name, SUM(d.LineTotal) AS rev,
-       SUM(d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost)) AS cogs
+SELECT pr.Name, SUM(d.LineTotal) AS rev
 FROM Sales_SalesOrderDetail d
 JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
-JOIN Production_Product p ON p.ProductID = d.ProductID
-LEFT JOIN Production_ProductCostHistory ch
-  ON ch.ProductID = d.ProductID
- AND h.OrderDate >= ch.StartDate
- AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
-JOIN Production_ProductSubcategory sc ON sc.ProductSubcategoryID = p.ProductSubcategoryID
-JOIN Production_ProductCategory cat ON cat.ProductCategoryID = sc.ProductCategoryID
+JOIN Production_Product pr ON pr.ProductID = d.ProductID
 WHERE h.OrderDate >= %s AND h.OrderDate <= %s
-GROUP BY cat.Name
-ORDER BY rev DESC;
+GROUP BY pr.Name
+ORDER BY rev ASC
+OFFSET 0 ROWS FETCH NEXT 6 ROWS ONLY;
 ```
 
-| Category | Merchandise revenue | COGS | Gross profit | Margin |
-|---|---:|---:|---:|---:|
-| Bikes | 94,651,172.70 | 84,131,887.76 | 10,519,284.95 | 11.1% |
-| Components | 11,802,593.29 | 10,768,475.71 | 1,034,117.57 | 8.8% |
-| Clothing | 2,120,542.52 | 1,750,636.29 | 369,906.23 | 17.4% |
-| Accessories | 1,272,072.88 | 637,601.04 | 634,471.85 | 49.9% |
+| Product | Merchandise sales |
+|---|---:|
+| LL Road Seat/Saddle | 162.72 |
+| Mountain Bike Socks, L | 513.00 |
+| LL Touring Frame - Blue, 58 | 800.21 |
+| LL Mountain Frame - Black, 40 | 1,198.99 |
+| LL Touring Seat/Saddle | 1,480.75 |
+| ML Mountain Frame-W - Silver, 38 | 1,529.18 |
 
-Gross profit is revenue minus COGS; margin is gross profit divided by revenue. COGS uses the standard
-cost in effect on the order date, falling back to the product's current standard cost when no
-cost-history row covers that date. Bikes bring in most of the revenue at a modest margin; accessories
-have the highest margin.
+This is the same revenue calculation as Q1, sorted ascending instead of descending. The panel returns
+the six products with the lowest merchandise revenue in the report window. A low value means weak
+demand, not necessarily a loss; this query does not calculate cost or margin. The app's card rounds
+these amounts to whole dollars; the table shows exact cents.
 
 ### Q4. Which vendors account for the most merchandise purchase-order spend?
 
@@ -597,8 +592,9 @@ OFFSET 0 ROWS FETCH NEXT 8 ROWS ONLY;
 `Status <> 3` excludes rejected purchase orders; pending, approved, and complete POs are included.
 `ActiveFlag` is 1 for active vendors and 0 for inactive ones. The panel returns the top eight vendors.
 
-Other panel queries cover below-cost products, declining products, estimated scrap cost by reason,
-standard-cost changes and the largest purchase orders; they live in `reporting/services/`.
+Other panel queries cover category revenue and margin, below-cost products, declining products,
+estimated scrap cost by reason, standard-cost changes and the largest purchase orders; they live in
+`reporting/services/`.
 
 ## 5. Architecture
 
