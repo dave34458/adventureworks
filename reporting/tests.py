@@ -1,6 +1,8 @@
 """Report access and report-semantics tests."""
+import csv
 from datetime import date, datetime, timedelta
 from decimal import Decimal
+from io import StringIO
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
@@ -36,6 +38,7 @@ from reporting.services.customer_profile import customer_profile
 from reporting.services.dashboard import dashboard
 from reporting.services.revenue_and_loss import revenue_and_loss
 from reporting.services.sales import sales
+from reporting.views import report_export
 from reporting.utils import range_window, rank, rolling_window
 
 User = get_user_model()
@@ -214,6 +217,47 @@ class HttpTests(TestCase):
         self.assertContains(self.client.get(f"/sales/?report={report.pk}"), "Export CSV")
         self.assertEqual(self.client.get("/cost/report/export/").status_code, 403)
 
+    def test_chart_filter_is_transient_and_used_by_csv_export(self):
+        report = self.make_report()
+        self.client.force_login(self.users["Sales Manager"])
+
+        page = self.client.get(
+            f"/sales/?report={report.pk}&sales_metric=orders")
+        self.assertEqual(page.context["trend"][0]["chart_value"], 1)
+        report.refresh_from_db()
+        self.assertEqual(report.payload["trend"][0]["money"], 100.0)
+
+        response = self.client.get(
+            f"/sales/report/export/?report={report.pk}&sales_metric=orders")
+        rows = list(csv.reader(StringIO(response.content.decode("utf-8-sig"))))
+        trend = rows.index(["Monthly trend"])
+        columns, values = rows[trend + 1], rows[trend + 2]
+        self.assertEqual(values[columns.index("chart_value")], "1")
+
+    def test_dimension_filters_do_not_change_saved_revenue_snapshots(self):
+        payload = revenue_payload()
+        payload["kpis"] = [kpi_row("Total revenue", 100), kpi_row("Gross profit", 39)]
+        payload["mix"] = [
+            {"name": "Bikes", "cls": "c1", "pct": 60, "money": 60, "margin": 35},
+            {"name": "Components", "cls": "c2", "pct": 40, "money": 40, "margin": 45},
+        ]
+        report = self.make_report(module="revenue-and-loss", payload=payload)
+        self.client.force_login(make_superuser("dimension-filter@example.com"))
+
+        page = self.client.get(
+            f"/revenue-and-loss/?report={report.pk}&category=1&country=US")
+        self.assertEqual([row["name"] for row in page.context["mix"]],
+                         ["Bikes", "Components"])
+
+        response = self.client.get(
+            f"/revenue-and-loss/report/export/?report={report.pk}&category=1&country=US")
+        rows = list(csv.reader(StringIO(response.content.decode("utf-8-sig"))))
+        mix = rows.index(["Category mix"])
+        self.assertEqual(rows[mix + 2][0], "Bikes")
+        self.assertEqual(rows[mix + 3][0], "Components")
+        report.refresh_from_db()
+        self.assertEqual(len(report.payload["mix"]), 2)
+
     def test_revenue_export_keeps_profit_and_margin_sections_separate(self):
         payload = revenue_payload()
         payload["profit_rows"] = [{
@@ -345,7 +389,7 @@ class HttpTests(TestCase):
         report.refresh_from_db()
         self.assertEqual(report.compare_end, date(2023, 12, 31))
 
-    def test_snapshot_edit_rejects_duplicate_range(self):
+    def test_snapshot_edit_allows_duplicate_range(self):
         report = self.make_report()
         self.make_report(
             range_start=date(2024, 8, 1), range_end=date(2024, 9, 30),
@@ -356,8 +400,10 @@ class HttpTests(TestCase):
             f"/sales/reports/{report.pk}/edit/",
             self.edit_data(report, range_start="2024-08-01", range_end="2024-09-30"),
         )
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "A saved report already exists for this range.")
+        self.assertEqual(response.status_code, 302)
+        report.refresh_from_db()
+        self.assertEqual(report.range_start, date(2024, 8, 1))
+        self.assertEqual(report.range_end, date(2024, 9, 30))
 
     def test_snapshot_edit_rejects_invalid_payload_number(self):
         report = self.make_report()
@@ -722,6 +768,91 @@ class ReportDataTests(TestCase):
         request = RequestFactory().get("/", {"report": "", **params})
         request.user = self.root
         return service(request).context
+
+    def test_live_dimension_filters_run_across_all_reports(self):
+        category_id = ProductionProductCategory.objects.get(name="Bikes").pk
+        sales_context = self.report_context(
+            sales, category=category_id, country="US")
+        sales_total = next(row["value"] for row in sales_context["kpis"]
+                           if row["label"] == "Total sales")
+        self.assertEqual(float(sales_total), 320.0)
+        self.assertEqual({row["code"] for row in sales_context["country_options"]},
+                         {"AU", "CA", "FR", "DE", "GB", "US"})
+
+        other_category = ProductionProductCategory.objects.create(name="Clothing")
+        multi_context = self.report_context(
+            sales, category=[category_id, other_category.pk], country=["US", "CA"])
+        multi_total = next(row["value"] for row in multi_context["kpis"]
+                           if row["label"] == "Total sales")
+        self.assertEqual(float(multi_total), 520.0)
+
+        export_request = RequestFactory().get("/sales/report/export/", {
+            "report": "", "category": category_id, "country": "US",
+            "from": "2024-04-01", "to": "2025-03-31",
+        })
+        export_request.user = self.root
+        export = report_export(export_request, "sales")
+        self.assertIn("320.0", export.content.decode("utf-8-sig"))
+
+        customer_context = self.report_context(
+            customer_profile, category=category_id, country="US")
+        self.assertEqual([row["name"] for row in customer_context["countries"]],
+                         ["United States"])
+
+        revenue_context = self.report_context(
+            revenue_and_loss, category=category_id, country="US")
+        revenue_total = next(row["value"] for row in revenue_context["kpis"]
+                             if row["label"] == "Total revenue")
+        self.assertEqual(float(revenue_total), 320.0)
+
+        cost_context = self.report_context(cost, category=category_id, country="US")
+        self.assertFalse(cost_context["include_country"])
+        self.assertEqual(cost_context["country_options"], [])
+
+    def test_generated_snapshot_captures_filter_data_and_describes_filters_in_title(self):
+        category_id = ProductionProductCategory.objects.get(name="Bikes").pk
+        request = RequestFactory().post("/sales/report/generate/", {
+            "from": "2024-04-01", "to": "2025-03-31",
+            "category": str(category_id), "country": "US",
+        })
+        request.user = self.root
+
+        result = report_generate(request, "sales")
+        snapshot = request._captured_snapshot
+        self.assertIn("Categories: Bikes", snapshot.title)
+        self.assertIn("Countries: US", snapshot.title)
+        total = next(row["value"] for row in snapshot.payload["kpis"]
+                     if row["label"] == "Total sales")
+        self.assertEqual(float(total), 320.0)
+        self.assertEqual(result.redirect_to, f"/sales/?report={snapshot.pk}")
+
+        saved_request = RequestFactory().get("/sales/", {"report": snapshot.pk})
+        saved_request.user = self.root
+        saved_context = sales(saved_request).context
+        self.assertEqual(saved_context["category_ids"], [category_id])
+        self.assertEqual(saved_context["country_codes"], ["US"])
+
+    def test_generation_can_create_new_or_overwrite_selected_snapshot(self):
+        existing = Report.objects.create(
+            module="sales", title="Old snapshot", range_start=date(2023, 1, 1),
+            range_end=date(2023, 12, 31), source_through=date(2023, 12, 31),
+            window_label="2023", prev_label="2022", period="the selected range",
+            payload=sales_payload(),
+        )
+        data = {"from": "2024-04-01", "to": "2025-03-31"}
+        overwrite = RequestFactory().post(
+            "/sales/report/generate/", {**data, "overwrite_report": str(existing.pk)})
+        overwrite.user = self.root
+        report_generate(overwrite, "sales")
+        existing.refresh_from_db()
+        self.assertEqual(existing.range_start, date(2024, 4, 1))
+        self.assertEqual(Report.objects.filter(module="sales").count(), 1)
+
+        create_new = RequestFactory().post("/sales/report/generate/", data)
+        create_new.user = self.root
+        report_generate(create_new, "sales")
+        self.assertNotEqual(create_new._captured_snapshot.pk, existing.pk)
+        self.assertEqual(Report.objects.filter(module="sales").count(), 2)
 
     def test_custom_cost_range_after_sales_max_includes_purchase_orders(self):
         context = self.report_context(

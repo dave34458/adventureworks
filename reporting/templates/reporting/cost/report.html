@@ -8,6 +8,7 @@
 <p class="muted d-sub">{{ empty_message }}</p>
 {% endif %}
 {% include "reporting/_range.html" %}
+{% include "reporting/_dimensions.html" %}
 <div class="report">
  <section class="d-kpis">
   {% for k in kpis %}
@@ -36,18 +37,19 @@
 
  <section class="d-cols">
   <div class="d-panel">
-   <h3>Cost trends and comparisons</h3>
-   <p class="sub">Monthly cost of goods sold · solid bars: {{ period }} · faded bars: {{ prev_label }} · hover for margin</p>
+   <h3>{% if cost_metric == "margin" %}Gross margin trend{% else %}Cost trends and comparisons{% endif %}</h3>
+   <p class="sub">{% if cost_metric == "margin" %}Monthly gross margin · solid bars: {{ period }}{% if chart_has_previous %} · faded bars: {{ prev_label }}{% endif %}{% else %}Monthly cost of goods sold · solid bars: {{ period }} · faded bars: {{ prev_label }}{% endif %}</p>
+   {% include "reporting/_chart_filter.html" %}
    <div class="d-bars">
     {% for t in trend %}
-    <div class="d-bar" title="{{ t.full }} · cost {{ t.money|fmt_money }} · {{ t.margin|fmt_percent }} margin{% if t.prev_full %} · previous {{ t.prev_full }}: {{ t.prev_money|fmt_money }}{% endif %}">
-     <span class="bw"><i class="prev" style="height:{{ t.prev_h }}%"></i><i class="cur" style="height:{{ t.height }}%"></i></span>
+    <div class="d-bar" title="{{ t.full }} · {% if cost_metric == 'margin' %}{{ t.chart_value|fmt_percent }} margin{% else %}{{ t.chart_value|fmt_money }} cost{% endif %}{% if t.prev_full and t.prev_chart_value is not None %} · previous {{ t.prev_full }}: {% if cost_metric == 'margin' %}{{ t.prev_chart_value|fmt_percent }} margin{% else %}{{ t.prev_chart_value|fmt_money }} cost{% endif %}{% endif %}">
+     <span class="bw">{% if cost_metric == 'cost' or t.prev_chart_value is not None %}<i class="prev{% if cost_metric == 'margin' and t.prev_chart_value < 0 %} negative{% endif %}" style="height:{{ t.prev_chart_h }}%"></i>{% endif %}<i class="cur{% if cost_metric == 'margin' and t.chart_value < 0 %} negative{% endif %}" style="height:{{ t.chart_h }}%"></i></span>
      <b>{{ t.label }}</b>
     </div>
     {% endfor %}
    </div>
    <div class="d-legend"><span class="sq blue"></span><span class="nm">Selected period</span></div>
-   <div class="d-legend"><span class="sq pale"></span><span class="nm">Previous period</span></div>
+   {% if cost_metric == "cost" or chart_has_previous %}<div class="d-legend"><span class="sq pale"></span><span class="nm">Previous period</span></div>{% endif %}
   </div>
   <div class="d-panel">
    <h3>Cost distribution by category</h3>

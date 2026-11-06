@@ -1,0 +1,24 @@
+{% if not snapshot %}
+<form class="d-filter" method="get" id="report-dimensions">
+ <input type="hidden" name="report" value="">
+ {% if has_range_filter %}<input type="hidden" name="from" value="{{ filter_from }}"><input type="hidden" name="to" value="{{ filter_to }}">{% endif %}
+ {% if chart_filter_name %}<input type="hidden" name="{{ chart_filter_name }}" value="{{ chart_filter_value }}">{% endif %}
+ <fieldset class="d-check-filter">
+  <legend>Product category</legend>
+  <div class="d-check-options">
+   {% for option in category_options %}<label><input type="checkbox" name="category" value="{{ option.id }}"{% if option.id in category_ids %} checked{% endif %}> {{ option.name }}</label>{% endfor %}
+  </div>
+  <small>Leave unchecked to include all categories.</small>
+ </fieldset>
+ {% if include_country %}
+ <fieldset class="d-check-filter">
+  <legend>Ship-to country</legend>
+  <div class="d-check-options">
+   {% for option in country_options %}<label><input type="checkbox" name="country" value="{{ option.code }}"{% if option.code in country_codes %} checked{% endif %}> {{ option.name }}</label>{% endfor %}
+  </div>
+  <small>Leave unchecked to include all countries.</small>
+ </fieldset>
+ {% endif %}
+ <button type="submit">Apply filters</button>
+</form>
+{% endif %}

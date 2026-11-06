@@ -61,7 +61,7 @@ class AuditLog(models.Model):
 # ---------------------------------------------------------------------------
 # Hand-written (not generated): saved report snapshots.
 #
-# One table holds one saved report per module/range. All KPI and panel data lives in
+# One table holds saved reports per module/range. All KPI and panel data lives in
 # `payload`. The report views read the saved row instead of running the aggregate SQL,
 # which keeps saved pages fast. A range with no snapshot falls back to the live query.
 
@@ -98,10 +98,6 @@ class Report(models.Model):
     class Meta:
         db_table = "reports"
         ordering = ["-range_end", "-generated_at"]
-        constraints = [
-            models.UniqueConstraint(fields=["module", "range_start", "range_end"],
-                                    name="uq_report_module_range"),
-        ]
 
     def __str__(self):
         return f"{self.get_module_display()} {self.range_start} \u2013 {self.range_end}"

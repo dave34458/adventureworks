@@ -16,13 +16,15 @@ from ..utils import (
 from .charts import build_combo, build_donut
 from .common import (
     _empty_report,
+    dimension_sql,
     _report_response,
+    report_dimension_filters,
     _saved_report,
 )
 from .dialect import limit_clause, month_expr
 
 
-def profit_margin_rows_for_dates(start, end, compare_start):
+def profit_margin_rows_for_dates(start, end, compare_start, filters=None):
     if not isinstance(start, datetime):
         start = datetime.combine(start, time.min)
     if not isinstance(end, datetime):
@@ -32,6 +34,7 @@ def profit_margin_rows_for_dates(start, end, compare_start):
     elif not isinstance(compare_start, datetime):
         compare_start = datetime.combine(compare_start, time.min)
 
+    line_filter, filter_params = dimension_sql(filters or {})
     with connection.cursor() as c:
         c.execute(
             f"""
@@ -48,12 +51,12 @@ def profit_margin_rows_for_dates(start, end, compare_start):
                   ON ch.ProductID = d.ProductID
                  AND h.OrderDate >= ch.StartDate
                  AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
-                WHERE h.OrderDate >= %s AND h.OrderDate <= %s
+                WHERE h.OrderDate >= %s AND h.OrderDate <= %s{line_filter}
             ) base
             GROUP BY month, side
             ORDER BY month
             """,
-            [start, compare_start, end],
+            [start, compare_start, end] + filter_params,
         )
         months24 = [{"month": month, "side": side, "rev": rev, "cogs": cogs}
                     for month, side, rev, cogs in c.fetchall()]
@@ -103,6 +106,10 @@ def revenue_and_loss(request):
     saved = _saved_report(request, "revenue-and-loss", "reporting/revenue-and-loss/report.html")
     if saved:
         return saved
+    filters = report_dimension_filters(request, include_country=True)
+    line_filter, filter_params = dimension_sql(filters)
+    order_filter, order_filter_params = dimension_sql(
+        filters, product_ref=None, order_ref="h.SalesOrderID")
     w = window_for(request, SalesOrderHeader)
     if w is None:
         return _empty_report(request, "revenue-and-loss",
@@ -113,7 +120,7 @@ def revenue_and_loss(request):
 
     with connection.cursor() as c:  # chart 1: the five KPI cards
         c.execute(
-            """
+            f"""
             WITH lines AS (
                 SELECT d.LineTotal AS rev,
                        d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost) AS cost,
@@ -125,7 +132,7 @@ def revenue_and_loss(request):
                   ON ch.ProductID = d.ProductID
                  AND h.OrderDate >= ch.StartDate
                  AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
-                WHERE h.OrderDate >= %s AND h.OrderDate <= %s
+                WHERE h.OrderDate >= %s AND h.OrderDate <= %s{line_filter}
             )
             SELECT
               COALESCE(SUM(CASE WHEN side = 'cur' THEN rev END), 0) AS rev,
@@ -134,7 +141,7 @@ def revenue_and_loss(request):
               COALESCE(SUM(CASE WHEN side = 'prev' THEN cost END), 0) AS cogs_prev
             FROM lines
             """,
-            [w.trend_start, w.window_start, w.last],
+            [w.trend_start, w.window_start, w.last] + filter_params,
         )
         rev, rev_prev, cogs, cogs_prev = c.fetchone()
 
@@ -144,7 +151,7 @@ def revenue_and_loss(request):
                                  "Revenue and loss report")
 
         c.execute(  # invoiced totals from the order headers
-            """
+            f"""
             SELECT
               COALESCE(SUM(CASE WHEN h.OrderDate >= %s AND h.OrderDate <= %s
                                 THEN h.TaxAmt END), 0) AS tax,
@@ -155,14 +162,15 @@ def revenue_and_loss(request):
               COALESCE(SUM(CASE WHEN h.OrderDate >= %s AND h.OrderDate < %s
                                 THEN h.TotalDue END), 0) AS due_prev
             FROM Sales_SalesOrderHeader h
-            WHERE h.OrderDate >= %s
+            WHERE h.OrderDate >= %s{order_filter}
             """,
-            [cur_lo, cur_hi, cur_lo, cur_hi, cur_lo, cur_hi, prev_lo, prev_hi, w.window_start],
+            [cur_lo, cur_hi, cur_lo, cur_hi, cur_lo, cur_hi, prev_lo, prev_hi,
+             w.window_start] + order_filter_params,
         )
         tax, freight, due, due_prev = c.fetchone()
 
         c.execute(  # lines sold below their standard cost
-            """
+            f"""
             SELECT COUNT(*),
                    COALESCE(SUM(d.LineTotal), 0),
                    COALESCE(SUM(d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost)), 0)
@@ -173,11 +181,11 @@ def revenue_and_loss(request):
               ON ch.ProductID = d.ProductID
              AND h.OrderDate >= ch.StartDate
              AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
-            WHERE h.OrderDate >= %s AND h.OrderDate <= %s
+            WHERE h.OrderDate >= %s AND h.OrderDate <= %s{line_filter}
               AND d.LineTotal
                   < d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost)
             """,
-            [cur_lo, cur_hi],
+            [cur_lo, cur_hi] + filter_params,
         )
         loss_n, loss_rev, loss_cost = c.fetchone()
 
@@ -222,12 +230,12 @@ def revenue_and_loss(request):
                        d.LineTotal AS rev
                 FROM Sales_SalesOrderDetail d
                 JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
-                WHERE h.OrderDate >= %s AND h.OrderDate <= %s
+                WHERE h.OrderDate >= %s AND h.OrderDate <= %s{line_filter}
             ) base
             GROUP BY month, side
             ORDER BY month
             """,
-            [w.trend_start, w.window_start, w.last],
+            [w.trend_start, w.window_start, w.last] + filter_params,
         )
         rev_series = [{"month": m, "side": side, "rev": rev}
                       for m, side, rev in c.fetchall()]
@@ -262,12 +270,12 @@ def revenue_and_loss(request):
         })
 
     profit_rows, margin_rows = profit_margin_rows_for_dates(
-        w.trend_start, w.last, w.window_start)
+        w.trend_start, w.last, w.window_start, filters)
     combo = build_combo(profit_rows, margin_rows)
 
     with connection.cursor() as c:  # chart 4: revenue by category
         c.execute(
-            """
+            f"""
             SELECT cat.Name, SUM(d.LineTotal) AS rev,
                    SUM(d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost)) AS cogs
             FROM Sales_SalesOrderDetail d
@@ -279,11 +287,11 @@ def revenue_and_loss(request):
              AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
             JOIN Production_ProductSubcategory sc ON sc.ProductSubcategoryID = p.ProductSubcategoryID
             JOIN Production_ProductCategory cat ON cat.ProductCategoryID = sc.ProductCategoryID
-            WHERE h.OrderDate >= %s AND h.OrderDate <= %s
+            WHERE h.OrderDate >= %s AND h.OrderDate <= %s{line_filter}
             GROUP BY cat.Name
             ORDER BY rev DESC
             """,
-            [cur_lo, cur_hi],
+            [cur_lo, cur_hi] + filter_params,
         )
         cats = [{"name": name, "rev": rev, "cogs": cogs} for name, rev, cogs in c.fetchall()]
     total_rev = float(rev) or 1
@@ -313,14 +321,14 @@ def revenue_and_loss(request):
                 FROM Sales_SalesOrderDetail d
                 JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
                 JOIN Production_Product p ON p.ProductID = d.ProductID
-                WHERE h.OrderDate >= %s AND h.OrderDate <= %s
+                WHERE h.OrderDate >= %s AND h.OrderDate <= %s{line_filter}
                 GROUP BY p.ProductID, p.Name
             ) product_rev
             WHERE prev_rev > 0 AND cur_rev < prev_rev
             ORDER BY (prev_rev - cur_rev) DESC
             {limit_clause(8)}
             """,
-            [cur_lo, cur_lo, w.window_start, w.last],
+            [cur_lo, cur_lo, w.window_start, w.last] + filter_params,
         )
         decline_rows = [{"name": name, "cur": cur_rev, "prev": prev_rev,
                          "drop": float(prev_rev) - float(cur_rev)}
@@ -344,14 +352,14 @@ def revenue_and_loss(request):
               ON ch.ProductID = d.ProductID
              AND h.OrderDate >= ch.StartDate
              AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
-            WHERE h.OrderDate >= %s AND h.OrderDate <= %s
+            WHERE h.OrderDate >= %s AND h.OrderDate <= %s{line_filter}
               AND d.LineTotal
                   < d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost)
             GROUP BY p.Name
             ORDER BY gap DESC
             {limit_clause(6)}
             """,
-            [cur_lo, cur_hi],
+            [cur_lo, cur_hi] + filter_params,
         )
         leak_rows = [{"name": name, "gap": gap, "n": n} for name, gap, n in c.fetchall()]
     leaks = rank(leak_rows, "name", "gap")
@@ -371,12 +379,12 @@ def revenue_and_loss(request):
               ON ch.ProductID = d.ProductID
              AND h.OrderDate >= ch.StartDate
              AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
-            WHERE h.OrderDate >= %s AND h.OrderDate <= %s
+            WHERE h.OrderDate >= %s AND h.OrderDate <= %s{line_filter}
             GROUP BY p.ProductID, p.Name
             ORDER BY rev DESC
             {limit_clause(12)}
             """,
-            [cur_lo, cur_hi],
+            [cur_lo, cur_hi] + filter_params,
         )
         prods = [{"product_id": product_id, "name": name, "rev": rev, "cogs": cogs}
                  for product_id, name, rev, cogs in c.fetchall()]

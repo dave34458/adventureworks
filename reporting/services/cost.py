@@ -13,6 +13,9 @@ from .common import (
     _empty_report,
     _report_response,
     _saved_report,
+    dimension_sql,
+    purchase_category_sql,
+    report_dimension_filters,
 )
 from .dialect import limit_clause, month_expr
 
@@ -23,6 +26,31 @@ def cost(request):
     saved = _saved_report(request, "cost", "reporting/cost/report.html")
     if saved:
         return saved
+    filters = report_dimension_filters(request, include_country=False)
+    line_filter, line_params = dimension_sql(filters, header_ref=None)
+    work_filter, work_params = dimension_sql(
+        filters, product_ref="w.ProductID", header_ref=None)
+    history_filter, history_params = dimension_sql(
+        filters, product_ref="h.ProductID", header_ref=None)
+    purchase_filter, purchase_params = purchase_category_sql(filters)
+    category_selected = bool(filters["category_ids"])
+    purchase_detail_join = (
+        "JOIN Purchasing_PurchaseOrderDetail pod ON pod.PurchaseOrderID = po.PurchaseOrderID"
+        if category_selected else "")
+    purchase_total = "pod.LineTotal" if category_selected else "po.SubTotal"
+    purchase_orders = (
+        "COUNT(DISTINCT CASE WHEN po.OrderDate >= %s AND po.OrderDate <= %s "
+        "THEN po.PurchaseOrderID END)" if category_selected else
+        "SUM(CASE WHEN po.OrderDate >= %s AND po.OrderDate <= %s THEN 1 ELSE 0 END)")
+    purchase_vendor_orders = ("COUNT(DISTINCT po.PurchaseOrderID)" if category_selected
+                              else "COUNT(*)")
+    biggest_po_total = "SUM(pod.LineTotal)" if category_selected else "po.SubTotal"
+    biggest_po_lines = ("COUNT(*)" if category_selected else
+                        "(SELECT COUNT(*) FROM Purchasing_PurchaseOrderDetail d "
+                        "WHERE d.PurchaseOrderID = po.PurchaseOrderID)")
+    biggest_po_group = ("GROUP BY po.PurchaseOrderID, v.Name, po.OrderDate, po.Status"
+                        if category_selected else "")
+    biggest_po_order = biggest_po_total
     w = window_for(request, SalesOrderHeader)
     if w is None:
         return _empty_report(request, "cost", "reporting/cost/report.html", "Cost report")
@@ -32,7 +60,7 @@ def cost(request):
 
     with connection.cursor() as c:  # chart 1: cost KPIs (sales lines at standard cost)
         c.execute(
-            """
+            f"""
             SELECT
               COALESCE(SUM(CASE WHEN h.OrderDate >= %s AND h.OrderDate <= %s
                                 THEN d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost) END), 0) AS cogs,
@@ -49,51 +77,53 @@ def cost(request):
               ON ch.ProductID = d.ProductID
              AND h.OrderDate >= ch.StartDate
              AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
-            WHERE h.OrderDate >= %s
+            WHERE h.OrderDate >= %s{line_filter}
             """,
-            [cur_lo, cur_hi, prev_lo, prev_hi, cur_lo, cur_hi, prev_lo, prev_hi, w.window_start],
+            [cur_lo, cur_hi, prev_lo, prev_hi, cur_lo, cur_hi, prev_lo, prev_hi,
+             w.window_start] + line_params,
         )
         cogs, cogs_prev, rev, rev_prev = c.fetchone()
 
         c.execute(  # procurement: orders placed for parts
-            """
+            f"""
             SELECT
-              COALESCE(SUM(CASE WHEN OrderDate >= %s AND OrderDate <= %s
-                                THEN SubTotal END), 0) AS spend,
-              COALESCE(SUM(CASE WHEN OrderDate >= %s AND OrderDate < %s
-                                THEN SubTotal END), 0) AS spend_prev,
-              COALESCE(SUM(CASE WHEN OrderDate >= %s AND OrderDate <= %s
-                                THEN 1 ELSE 0 END), 0) AS orders
-            FROM Purchasing_PurchaseOrderHeader
-            WHERE OrderDate >= %s AND Status <> 3
+              COALESCE(SUM(CASE WHEN po.OrderDate >= %s AND po.OrderDate <= %s
+                                THEN {purchase_total} END), 0) AS spend,
+              COALESCE(SUM(CASE WHEN po.OrderDate >= %s AND po.OrderDate < %s
+                                THEN {purchase_total} END), 0) AS spend_prev,
+              {purchase_orders} AS orders
+            FROM Purchasing_PurchaseOrderHeader po
+            {purchase_detail_join}
+            WHERE po.OrderDate >= %s AND po.Status <> 3{purchase_filter}
             """,
-            [cur_lo, cur_hi, prev_lo, prev_hi, cur_lo, cur_hi, w.window_start],
+            [cur_lo, cur_hi, prev_lo, prev_hi, cur_lo, cur_hi,
+             w.window_start] + purchase_params,
         )
         spend, spend_prev, po_count = c.fetchone()
 
         c.execute(  # receipts against those orders
-            """
+            f"""
             SELECT COALESCE(SUM(d.ReceivedQty), 0), COALESCE(SUM(d.RejectedQty), 0)
             FROM Purchasing_PurchaseOrderDetail d
             JOIN Purchasing_PurchaseOrderHeader h ON h.PurchaseOrderID = d.PurchaseOrderID
-            WHERE h.OrderDate >= %s AND h.OrderDate <= %s
+            WHERE h.OrderDate >= %s AND h.OrderDate <= %s{line_filter}
             """,
-            [cur_lo, cur_hi],
+            [cur_lo, cur_hi] + line_params,
         )
         received, rejected = c.fetchone()
 
         c.execute(  # manufacturing: units started and scrapped
-            """
+            f"""
             SELECT
               COALESCE(SUM(CASE WHEN StartDate >= %s THEN OrderQty ELSE 0 END), 0) AS qty,
               COALESCE(SUM(CASE WHEN StartDate >= %s THEN ScrappedQty ELSE 0 END), 0) AS scr,
               COALESCE(SUM(CASE WHEN StartDate < %s THEN OrderQty ELSE 0 END), 0) AS qty_prev,
               COALESCE(SUM(CASE WHEN StartDate < %s THEN ScrappedQty ELSE 0 END), 0) AS scr_prev,
               COUNT(*) AS orders
-            FROM Production_WorkOrder
-            WHERE StartDate >= %s AND StartDate <= %s
+            FROM Production_WorkOrder w
+            WHERE w.StartDate >= %s AND w.StartDate <= %s{work_filter}
             """,
-            [cur_lo, cur_lo, cur_lo, cur_lo, w.window_start, w.last],
+            [cur_lo, cur_lo, cur_lo, cur_lo, w.window_start, w.last] + work_params,
         )
         qty, scr, qty_prev, scr_prev, wo_count = c.fetchone()
 
@@ -160,12 +190,12 @@ def cost(request):
                   ON ch.ProductID = d.ProductID
                  AND h.OrderDate >= ch.StartDate
                  AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
-                WHERE h.OrderDate >= %s AND h.OrderDate <= %s
+                WHERE h.OrderDate >= %s AND h.OrderDate <= %s{line_filter}
             ) base
             GROUP BY month, side
             ORDER BY month
             """,
-            [w.trend_start, w.window_start, w.last],
+            [w.trend_start, w.window_start, w.last] + line_params,
         )
         series = [
             {"month": m, "side": side, "cogs": cogs, "rev": rev}
@@ -202,7 +232,7 @@ def cost(request):
 
     with connection.cursor() as c:  # chart 3: where costs sit (category mix)
         c.execute(
-            """
+            f"""
             SELECT cat.Name, SUM(d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost)) AS cogs,
                    SUM(d.LineTotal) AS rev
             FROM Sales_SalesOrderDetail d
@@ -214,11 +244,11 @@ def cost(request):
              AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
             JOIN Production_ProductSubcategory sc ON sc.ProductSubcategoryID = p.ProductSubcategoryID
             JOIN Production_ProductCategory cat ON cat.ProductCategoryID = sc.ProductCategoryID
-            WHERE h.OrderDate >= %s AND h.OrderDate <= %s
+            WHERE h.OrderDate >= %s AND h.OrderDate <= %s{line_filter}
             GROUP BY cat.Name
             ORDER BY cogs DESC
             """,
-            [cur_lo, cur_hi],
+            [cur_lo, cur_hi] + line_params,
         )
         cats = [{"name": name, "cogs": cogs, "rev": rev}
                 for name, cogs, rev in c.fetchall()]
@@ -238,15 +268,17 @@ def cost(request):
     with connection.cursor() as c:  # chart 4: top vendors by procurement spend
         c.execute(
             f"""
-            SELECT v.Name, SUM(po.SubTotal) AS spend, COUNT(*) AS orders, v.ActiveFlag
+            SELECT v.Name, SUM({purchase_total}) AS spend,
+                   {purchase_vendor_orders} AS orders, v.ActiveFlag
             FROM Purchasing_PurchaseOrderHeader po
+            {purchase_detail_join}
             JOIN Purchasing_Vendor v ON v.BusinessEntityID = po.VendorID
-            WHERE po.OrderDate >= %s AND po.OrderDate <= %s AND po.Status <> 3
+            WHERE po.OrderDate >= %s AND po.OrderDate <= %s AND po.Status <> 3{purchase_filter}
             GROUP BY v.Name, v.ActiveFlag
             ORDER BY spend DESC
             {limit_clause(8)}
             """,
-            [cur_lo, cur_hi],
+            [cur_lo, cur_hi] + purchase_params,
         )
         vendor_rows = [{"name": name, "spend": vendor_spend, "orders": orders,
                         "active": bool(active)}
@@ -269,12 +301,12 @@ def cost(request):
               ON ch.ProductID = d.ProductID
              AND h.OrderDate >= ch.StartDate
              AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
-            WHERE h.OrderDate >= %s AND h.OrderDate <= %s
+            WHERE h.OrderDate >= %s AND h.OrderDate <= %s{line_filter}
             GROUP BY p.Name
             ORDER BY cogs DESC
             {limit_clause(8)}
             """,
-            [cur_lo, cur_hi],
+            [cur_lo, cur_hi] + line_params,
         )
         costly = [{"name": name, "cogs": product_cogs, "units": units}
                   for name, product_cogs, units in c.fetchall()]
@@ -296,12 +328,12 @@ def cost(request):
               ON ch.ProductID = w.ProductID
              AND w.StartDate >= ch.StartDate
              AND (ch.EndDate IS NULL OR w.StartDate <= ch.EndDate)
-            WHERE w.StartDate >= %s AND w.StartDate <= %s
+            WHERE w.StartDate >= %s AND w.StartDate <= %s{work_filter}
             GROUP BY sr.Name
             ORDER BY cost DESC
             {limit_clause(8)}
             """,
-            [cur_lo, cur_hi],
+            [cur_lo, cur_hi] + work_params,
         )
         reason_rows = [{"name": name, "cost": cost, "scr": scrapped, "orders": orders}
                        for name, cost, scrapped, orders in c.fetchall()]
@@ -310,17 +342,20 @@ def cost(request):
         r["note"] = f"{s['scr']:,} units \u00b7 {s['orders']:,} work orders"
 
     with connection.cursor() as c:  # chart 7: standard cost changes
-        c.execute("SELECT ProductID, StandardCost FROM Production_ProductCostHistory WHERE EndDate IS NULL")
+        c.execute(
+            f"SELECT h.ProductID, h.StandardCost FROM Production_ProductCostHistory h "
+            f"WHERE h.EndDate IS NULL{history_filter}", history_params)
         open_cost = dict(c.fetchall())
 
         c.execute(
-            """
+            f"""
             SELECT h.ProductID, p.Name, h.StandardCost
             FROM Production_ProductCostHistory h
             JOIN Production_Product p ON p.ProductID = h.ProductID
-            WHERE h.EndDate IS NOT NULL
+            WHERE h.EndDate IS NOT NULL{history_filter}
             ORDER BY h.StartDate
-            """
+            """,
+            history_params,
         )
         earliest = {}
         for product_id, product_name, standard_cost in c.fetchall():
@@ -353,16 +388,17 @@ def cost(request):
     with connection.cursor() as c:  # chart 8: largest purchase orders
         c.execute(
             f"""
-            SELECT po.PurchaseOrderID, v.Name, po.OrderDate, po.SubTotal, po.Status,
-                   (SELECT COUNT(*) FROM Purchasing_PurchaseOrderDetail d
-                    WHERE d.PurchaseOrderID = po.PurchaseOrderID) AS lines
+            SELECT po.PurchaseOrderID, v.Name, po.OrderDate, {biggest_po_total}, po.Status,
+                   {biggest_po_lines} AS lines
             FROM Purchasing_PurchaseOrderHeader po
+            {purchase_detail_join}
             JOIN Purchasing_Vendor v ON v.BusinessEntityID = po.VendorID
-            WHERE po.OrderDate >= %s AND po.OrderDate <= %s AND po.Status <> 3
-            ORDER BY po.SubTotal DESC
+            WHERE po.OrderDate >= %s AND po.OrderDate <= %s AND po.Status <> 3{purchase_filter}
+            {biggest_po_group}
+            ORDER BY {biggest_po_order} DESC
             {limit_clause(8)}
             """,
-            [cur_lo, cur_hi],
+            [cur_lo, cur_hi] + purchase_params,
         )
         biggest = [
             {

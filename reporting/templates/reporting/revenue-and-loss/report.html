@@ -8,6 +8,7 @@
 <p class="muted d-sub">{{ empty_message }}</p>
 {% endif %}
 {% include "reporting/_range.html" %}
+{% include "reporting/_dimensions.html" %}
 <div class="report">
  <section class="d-kpis">
   {% for k in kpis %}
@@ -63,7 +64,7 @@
 
  <section class="d-panel">
   <h3>Revenue contribution by category</h3>
-  <p class="sub">Share of revenue and gross margin by product category · {{ period }}</p>
+  <p class="sub">Share of revenue and gross margin by product category &middot; {{ period }}</p>
   <div class="d-donutrow">
    <div class="d-donut">
     <svg viewBox="0 0 160 160" role="img" aria-label="Share of revenue by category">
@@ -81,6 +82,8 @@
      <span class="vl">{{ c.pct|fmt_percent }}</span>
      <span class="mt">· {{ c.money|fmt_money }} revenue · {{ c.margin|fmt_percent }} margin</span>
     </div>
+    {% empty %}
+    <p class="d-note">No category data for this selection.</p>
     {% endfor %}
    </div>
   </div>

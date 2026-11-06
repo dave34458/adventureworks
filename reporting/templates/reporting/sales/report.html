@@ -8,6 +8,7 @@
 <p class="muted d-sub">{{ empty_message }}</p>
 {% endif %}
 {% include "reporting/_range.html" %}
+{% include "reporting/_dimensions.html" %}
 <div class="report">
  <section class="d-kpis">
   {% for k in kpis %}
@@ -21,11 +22,12 @@
 
  <section class="d-panel">
   <h3>Total sales and sales trend</h3>
-  <p class="sub">Monthly merchandise sales · solid bars: {{ period }} · faded bars: {{ prev_label }}</p>
+  <p class="sub">{% if sales_metric == "orders" %}Monthly order count{% else %}Monthly merchandise sales{% endif %} · solid bars: {{ period }} · faded bars: {{ prev_label }}</p>
+  {% include "reporting/_chart_filter.html" %}
   <div class="d-bars">
    {% for t in trend %}
-   <div class="d-bar" title="{{ t.full }} · {{ t.money|fmt_money }} · {{ t.orders|fmt_count }} orders{% if t.prev_full %} · previous {{ t.prev_full }}: {{ t.prev_money|fmt_money }} · {{ t.prev_orders|fmt_count }} orders{% endif %}">
-    <span class="bw"><i class="prev" style="height:{{ t.prev_h }}%"></i><i class="cur" style="height:{{ t.height }}%"></i></span>
+   <div class="d-bar" title="{{ t.full }} · {% if sales_metric == 'orders' %}{{ t.chart_value|fmt_count }} orders{% else %}{{ t.chart_value|fmt_money }}{% endif %}{% if t.prev_full %} · previous {{ t.prev_full }}: {% if sales_metric == 'orders' %}{{ t.prev_chart_value|fmt_count }} orders{% else %}{{ t.prev_chart_value|fmt_money }}{% endif %}{% endif %}">
+    <span class="bw"><i class="prev" style="height:{{ t.prev_chart_h }}%"></i><i class="cur" style="height:{{ t.chart_h }}%"></i></span>
     <b>{{ t.label }}</b>
    </div>
    {% endfor %}

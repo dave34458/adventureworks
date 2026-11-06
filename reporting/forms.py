@@ -41,10 +41,4 @@ class ReportEditForm(forms.ModelForm):
         if through and end and through < end:
             self.add_error("source_through", "Data-through date must be on or after the end date.")
 
-        if start and end and self.instance.module:
-            duplicate = Report.objects.filter(
-                module=self.instance.module, range_start=start, range_end=end,
-            ).exclude(pk=self.instance.pk)
-            if duplicate.exists():
-                self.add_error("range_end", "A saved report already exists for this range.")
         return cleaned

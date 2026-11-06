@@ -4,6 +4,11 @@ META_KEYS = {
     "tab", "title", "through", "window_label", "prev_label", "custom", "period",
     "w_from", "w_to", "snapshot", "snapshots",
     "edit_url", "manage_url", "can_manage",
+    "sales_metric", "customer_segment", "cost_metric",
+    "category_id", "country_code", "category_ids", "country_codes", "include_country",
+    "category_options", "country_options", "has_range_filter",
+    "filter_from", "filter_to", "chart_filter_name", "chart_filter_label",
+    "chart_filter_value", "chart_filter_options",
 }
 
 EDITABLE_KEYS = {

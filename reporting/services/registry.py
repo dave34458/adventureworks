@@ -2,6 +2,7 @@
 from django.core.exceptions import PermissionDenied
 from django.http import Http404
 
+from ..models import Report
 from .cost import cost
 from .customer_profile import customer_profile
 from .revenue_and_loss import revenue_and_loss
@@ -34,11 +35,14 @@ def capture_snapshot(request, module, start, end, default=False):
     old_params = getattr(request, "_range_params", None)
     old_capture = getattr(request, "_capture_snapshot", None)
     old_captured = getattr(request, "_captured_snapshot", None)
+    old_overwrite = getattr(request, "_overwrite_report", None)
     request._range_params = {} if default else {
         "from": start.isoformat(), "to": end.isoformat(),
     }
     request._capture_snapshot = module
     request._captured_snapshot = None
+    existing = Report.objects.filter(module=module, range_start=start, range_end=end).first()
+    request._overwrite_report = existing.pk if existing else None
     try:
         REPORT_VIEWS[module](request)
         return getattr(request, "_captured_snapshot", None)
@@ -46,3 +50,4 @@ def capture_snapshot(request, module, start, end, default=False):
         request._range_params = old_params
         request._capture_snapshot = old_capture
         request._captured_snapshot = old_captured
+        request._overwrite_report = old_overwrite

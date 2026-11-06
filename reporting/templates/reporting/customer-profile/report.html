@@ -9,6 +9,7 @@
 <p class="muted d-sub">{{ empty_message }}</p>
 {% endif %}
 {% include "reporting/_range.html" %}
+{% include "reporting/_dimensions.html" %}
 <div class="report">
  <section class="d-kpis">
   {% for k in kpis %}
@@ -44,6 +45,7 @@
   <div class="d-panel">
    <h3>Who buys: segmentation and spending</h3>
    <p class="sub">Individuals vs stores · revenue and buyer shares · {{ period }}</p>
+   {% include "reporting/_chart_filter.html" %}
    <p class="sub">Revenue share</p>
    <div class="d-splitbar">
     {% for c in channels %}<i class="{{ c.cls }}" style="width:{{ c.pct }}%"></i>{% endfor %}

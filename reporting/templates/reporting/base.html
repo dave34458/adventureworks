@@ -52,6 +52,8 @@
  .d-bar .bw>i.cur{left:18%;width:64%;background:#35659e}
  .d-bar:hover .bw>i.cur{background:#1f3a5f}
  .d-bar:hover .bw>i.prev{background:#cbd9e8}
+ .d-bar .bw>i.cur.negative{background:#b42318}
+ .d-bar .bw>i.prev.negative{background:#e6a29a}
  .d-splitbar{display:flex;height:16px;border-radius:8px;overflow:hidden;background:#e9eef5;margin:.2rem 0 .9rem}
  .d-splitbar i{display:block;height:100%}
  .d-splitbar i.online{background:#2f5b8f}
@@ -119,6 +121,14 @@
  .d-filter .d-btn{background:#e9eef5;color:#1f3a5f;border-radius:6px;padding:.35rem .85rem;text-decoration:none;font-weight:600}
  .d-filter .d-btn:hover{background:#dbe5f0}
  .d-filter a{color:#2f5b8f}
+ .d-filter .d-check-filter{margin:0;padding:.3rem .55rem .4rem;border:1px solid #ccd3dc;border-radius:6px}
+ .d-filter .d-check-filter legend{padding:0 .25rem;font-size:.8rem;font-weight:600;color:#344253}
+ .d-filter .d-check-options{display:flex;flex-wrap:wrap;gap:.25rem .7rem}
+ .d-filter .d-check-options label{display:inline-flex;align-items:center;gap:.25rem}
+ .d-filter .d-check-options input{margin:0;padding:0}
+ .d-filter .d-check-filter small{color:#697789;font-size:.72rem}
+ #report-save-dialog{width:min(30rem,calc(100vw - 2rem));border:0;border-radius:10px;padding:1.2rem;box-shadow:0 12px 40px #17263a55}
+ #report-save-dialog::backdrop{background:#14203388}
  .d-line .profitbar{fill:#e0a63c;fill-opacity:.85}
  .d-line .profitbar:hover{fill-opacity:1}
  .d-legend .sq{width:.65rem;height:.65rem;border-radius:2px;background:#e0a63c;align-self:center;flex:none}

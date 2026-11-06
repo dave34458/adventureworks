@@ -1,0 +1,17 @@
+<form class="d-filter" method="get">
+ {% if snapshot %}
+ <input type="hidden" name="report" value="{{ snapshot.pk }}">
+ {% elif has_range_filter %}
+ <input type="hidden" name="from" value="{{ filter_from }}">
+ <input type="hidden" name="to" value="{{ filter_to }}">
+ {% endif %}
+ {% if not snapshot %}<input type="hidden" name="report" value="">{% endif %}
+ {% for category in category_ids %}<input type="hidden" name="category" value="{{ category }}">{% endfor %}
+ {% for country in country_codes %}<input type="hidden" name="country" value="{{ country }}">{% endfor %}
+ <label>{{ chart_filter_label }}
+  <select name="{{ chart_filter_name }}">
+   {% for value, label in chart_filter_options %}<option value="{{ value }}"{% if chart_filter_value == value %} selected{% endif %}>{{ label }}</option>{% endfor %}
+  </select>
+ </label>
+ <button type="submit">Apply</button>
+</form>

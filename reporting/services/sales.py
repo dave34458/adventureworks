@@ -5,7 +5,9 @@ from core.models import SalesOrderHeader
 from ..utils import delta_pct, rank, shift_months, window_for
 from .common import (
     _empty_report,
+    dimension_sql,
     _report_response,
+    report_dimension_filters,
     _saved_report,
 )
 from .dialect import limit_clause, month_expr
@@ -17,6 +19,8 @@ def sales(request):
     saved = _saved_report(request, "sales", "reporting/sales/report.html")
     if saved:
         return saved
+    filters = report_dimension_filters(request, include_country=True)
+    line_filter, filter_params = dimension_sql(filters)
     w = window_for(request, SalesOrderHeader)
     if w is None:
         return _empty_report(request, "sales", "reporting/sales/report.html", "Sales report")
@@ -26,12 +30,13 @@ def sales(request):
 
     with connection.cursor() as c:  # panel 1: total sales and summary KPIs
         c.execute(
-            """
+            f"""
             WITH lines AS (
                 SELECT h.OrderDate, h.SalesOrderID, h.CustomerID,
                        d.LineTotal AS rev
                 FROM Sales_SalesOrderDetail d
                 JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
+                WHERE 1 = 1{line_filter}
             )
             SELECT
               COALESCE(SUM(CASE WHEN OrderDate >= %s AND OrderDate <= %s THEN rev END), 0) AS rev,
@@ -43,8 +48,9 @@ def sales(request):
             FROM lines
             WHERE OrderDate >= %s
             """,
-            [cur_lo, cur_hi, prev_lo, prev_hi, cur_lo, cur_hi, prev_lo, prev_hi,
-             cur_lo, cur_hi, prev_lo, prev_hi, w.window_start],
+            filter_params + [cur_lo, cur_hi, prev_lo, prev_hi, cur_lo, cur_hi,
+                             prev_lo, prev_hi, cur_lo, cur_hi, prev_lo, prev_hi,
+                             w.window_start],
         )
         rev, rev_prev, orders, orders_prev, customers, customers_prev = c.fetchone()
 
@@ -79,12 +85,12 @@ def sales(request):
                        h.SalesOrderID AS order_id
                 FROM Sales_SalesOrderDetail d
                 JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
-                WHERE h.OrderDate >= %s AND h.OrderDate <= %s
+                WHERE h.OrderDate >= %s AND h.OrderDate <= %s{line_filter}
             ) base
             GROUP BY month, side
             ORDER BY month
             """,
-            [w.trend_start, w.window_start, w.last],
+            [w.trend_start, w.window_start, w.last] + filter_params,
         )
         series = [
             {"month": m, "side": side, "rev": rev, "orders": orders}
@@ -129,12 +135,12 @@ def sales(request):
             FROM Sales_SalesOrderDetail d
             JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
             JOIN Production_Product pr ON pr.ProductID = d.ProductID
-            WHERE h.OrderDate >= %s AND h.OrderDate <= %s
+            WHERE h.OrderDate >= %s AND h.OrderDate <= %s{line_filter}
             GROUP BY pr.Name
             ORDER BY rev DESC
             {limit_clause(8)}
             """,
-            [cur_lo, cur_hi],
+            [cur_lo, cur_hi] + filter_params,
         )
         products = rank([{"name": name, "rev": rev} for name, rev in c.fetchall()],
                         "name", "rev")
@@ -146,12 +152,12 @@ def sales(request):
             FROM Sales_SalesOrderDetail d
             JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
             JOIN Production_Product pr ON pr.ProductID = d.ProductID
-            WHERE h.OrderDate >= %s AND h.OrderDate <= %s
+            WHERE h.OrderDate >= %s AND h.OrderDate <= %s{line_filter}
             GROUP BY pr.Name
             ORDER BY rev ASC
             {limit_clause(6)}
             """,
-            [cur_lo, cur_hi],
+            [cur_lo, cur_hi] + filter_params,
         )
         low_products = rank([{"name": name, "rev": rev} for name, rev in c.fetchall()],
                             "name", "rev")
