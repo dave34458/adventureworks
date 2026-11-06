@@ -196,4 +196,27 @@
 </nav>{% endif %}
 {% for m in messages %}<p class="msg {{ m.tags }}">{{ m }}</p>{% endfor %}
 <main>{% block content %}{% endblock %}</main>
-<footer class="foot">Personal data in this system is processed under the Data Privacy Act of 2012 (Republic Act No. 10173) &middot; AdventureWorks &middot; <a href="{% url 'privacy' %}">Data privacy notice</a></footer></body></html>
+<footer class="foot">Personal data in this system is processed under the Data Privacy Act of 2012 (Republic Act No. 10173) &middot; AdventureWorks &middot; <a href="{% url 'privacy' %}">Data privacy notice</a></footer>
+<script>
+(function () {
+ document.addEventListener("submit", function (event) {
+  var form = event.target;
+  if (!form || (form.getAttribute("method") || "get").toLowerCase() !== "post") return;
+  if (event.defaultPrevented) return;
+  if (form.dataset.submitting === "1") { event.preventDefault(); return; }
+  form.dataset.submitting = "1";
+  var button = event.submitter || form.querySelector('button[type="submit"],button:not([type]),input[type="submit"]');
+  if (button) { button.disabled = true; button.dataset.busy = "1"; }
+ });
+ window.addEventListener("pageshow", function () {
+  document.querySelectorAll("[data-busy]").forEach(function (button) {
+   button.disabled = false;
+   delete button.dataset.busy;
+  });
+  document.querySelectorAll("form[data-submitting]").forEach(function (form) {
+   delete form.dataset.submitting;
+  });
+ });
+})();
+</script>
+</body></html>
