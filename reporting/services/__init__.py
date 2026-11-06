@@ -2,7 +2,7 @@
 from .cost import cost
 from .customer_profile import customer_profile
 from .dashboard import dashboard
-from .editor import apply_editor, editor_sections
+from .editor import apply_editor, editor_sections, prepare_editor_payload
 from .registry import REPORT_VIEWS, capture_snapshot, report_generate
 from .revenue_and_loss import revenue_and_loss
 from .sales import sales
@@ -25,6 +25,7 @@ __all__ = [
     "editor_sections",
     "humanize_payload_error",
     "name_needs_joins",
+    "prepare_editor_payload",
     "report_generate",
     "revenue_and_loss",
     "sales",

@@ -15,6 +15,7 @@
  {% if manage_url %}
  <a href="{{ manage_url }}">Manage saved reports</a>
  {% endif %}
+ <a class="d-btn" href="{% url 'report_export' tab %}?{{ request.GET.urlencode }}">Export CSV</a>
 </form>
 <form class="d-filter" method="get" id="report-range">
  <label>From <input type="date" name="from" value="{{ w_from }}"></label>

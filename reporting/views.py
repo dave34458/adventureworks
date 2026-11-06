@@ -1,4 +1,6 @@
 """HTTP views for the dashboard, reports, saved-report editor, and table browser."""
+import csv
+
 from django import forms
 from django.apps import apps
 from django.contrib import messages
@@ -8,10 +10,10 @@ from django.contrib.auth.decorators import (
     permission_required,
 )
 from django.contrib.auth.mixins import PermissionRequiredMixin
-from django.core.exceptions import FieldDoesNotExist
+from django.core.exceptions import FieldDoesNotExist, PermissionDenied
 from django.db.models import ProtectedError, Q, TextField
 from django.db.models.functions import Cast
-from django.http import Http404, JsonResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -20,7 +22,7 @@ from django.views.decorators.http import require_POST
 from django.views.generic import DeleteView, DetailView, ListView, UpdateView
 
 from . import services
-from .constants import LABEL_COLUMNS
+from .constants import LABEL_COLUMNS, META_KEYS, SECTION_LABELS
 from .forms import ReportEditForm
 from .models import PRIVACY_NOTICE_VERSION, AuditLog, Report
 from .services import REPORT_VIEWS, cell, name_needs_joins, shown
@@ -77,6 +79,45 @@ def cost(request):
 @require_POST
 def report_generate(request, tab):
     return _respond(request, services.report_generate(request, tab))
+
+
+def _csv_safe(value):
+    if isinstance(value, str) and value.lstrip()[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + value
+    return value
+
+
+@login_required
+def report_export(request, tab):
+    if tab not in REPORT_VIEWS:
+        raise Http404
+    if not request.user.has_perm(f"reporting.access_{tab.replace('-', '_')}"):
+        raise PermissionDenied
+    context = REPORT_VIEWS[tab](request).context
+    response = HttpResponse(content_type="text/csv; charset=utf-8")
+    response["Content-Disposition"] = f'attachment; filename="{tab}.csv"'
+    response.write("\ufeff")
+    writer = csv.writer(response)
+    writer.writerow([_csv_safe(context.get("title") or tab)])
+    writer.writerow(["From", context.get("w_from", ""), "To", context.get("w_to", "")])
+    writer.writerow([])
+    for key, value in context.items():
+        if key in META_KEYS or not value:
+            continue
+        label = SECTION_LABELS.get(key, key.replace("_", " ").title())
+        if isinstance(value, list) and isinstance(value[0], dict):
+            fields = list(value[0])
+            writer.writerow([label])
+            writer.writerow(fields)
+            writer.writerows(
+                [_csv_safe(row.get(field, "")) for field in fields] for row in value)
+            writer.writerow([])
+        elif isinstance(value, dict):
+            writer.writerow([label])
+            writer.writerow(value.keys())
+            writer.writerow([_csv_safe(item) for item in value.values()])
+            writer.writerow([])
+    return response
 
 
 class SnapshotMixin(PermissionRequiredMixin):
@@ -144,14 +185,16 @@ class SnapshotEdit(SnapshotMixin, UpdateView):
 
     def get_context_data(self, **kw):
         ctx = super().get_context_data(**kw)
-        ctx["editor_sections"] = services.editor_sections(
-            self.tab, self.object.payload or {})
+        payload = services.prepare_editor_payload(
+            self.tab, self.object.payload or {}, self.object)
+        ctx["editor_sections"] = services.editor_sections(self.tab, payload)
         return ctx
 
     def form_valid(self, form):
         old = self.model._default_manager.filter(pk=self.object.pk).first()
-        payload, errors = services.apply_editor(
-            self.tab, self.object.payload or {}, self.request.POST)
+        payload = services.prepare_editor_payload(
+            self.tab, self.object.payload or {}, self.object)
+        payload, errors = services.apply_editor(self.tab, payload, self.request.POST)
         if errors:
             for message in dict.fromkeys(errors):
                 form.add_error(None, message)

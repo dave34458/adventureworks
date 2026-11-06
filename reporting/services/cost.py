@@ -4,13 +4,11 @@ from django.db import connection
 from core.models import SalesOrderHeader
 from ..utils import (
     delta_pct,
-    money,
-    percent,
     rank,
-    ring,
     shift_months,
     window_for,
 )
+from .charts import build_donut
 from .common import (
     _empty_report,
     _report_response,
@@ -235,10 +233,7 @@ def cost(request):
         }
         for i, r in enumerate(cats, 1)
     ]
-    donut = ring([{"cls": m["cls"], "pct": m["pct"],
-                   "t": f"{m['name']} \u00b7 {money(m['money'])} \u00b7 "
-                        f"{percent(m['pct'])} of cost \u00b7 {percent(m['margin'])} margin"}
-                  for m in mix])
+    donut = build_donut("cost", mix)
 
     with connection.cursor() as c:  # chart 4: top vendors by procurement spend
         c.execute(

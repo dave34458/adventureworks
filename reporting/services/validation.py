@@ -296,6 +296,18 @@ COMBO_FIELDS = {
     "lticks": _rows(COMBO_YTICK_FIELDS, 12),
     "rticks": _rows(COMBO_YTICK_FIELDS, 12),
 }
+PROFIT_ROW_FIELDS = {
+    "label": _text(20, 1),
+    "full": _text(40, 1),
+    "profit": _number(),
+}
+MARGIN_ROW_FIELDS = {
+    "label": _text(20, 1),
+    "full": _text(40, 1),
+    "margin": _optional(_number(-1_000_000, 1_000_000)),
+    "prev_full": _text(40),
+    "prev_margin": _optional(_number(-1_000_000, 1_000_000)),
+}
 DONUT_FIELDS = {
     "cls": _pattern(r"c[1-9]\d?", "must be a chart colour class"),
     "pct": _number(0, 100),
@@ -392,6 +404,8 @@ REPORT_PAYLOADS = {
     "revenue-and-loss": {
         "kpis": _kpis,
         "combo": _object(COMBO_FIELDS),
+        "profit_rows": _rows(PROFIT_ROW_FIELDS, 36),
+        "margin_rows": _rows(MARGIN_ROW_FIELDS, 36),
         "donut": _rows(DONUT_FIELDS, 20),
         "donut_mid": _object(DONUT_MID_FIELDS),
         "mix": _rows(MIX_FIELDS, 20),
@@ -432,6 +446,14 @@ def validate_report_payload(module, payload):
         _invalid("module", "is not a report module")
     _object(schema)(payload, "payload")
 
+    if module == "revenue-and-loss":
+        if len(payload["profit_rows"]) != len(payload["margin_rows"]):
+            _invalid("payload.margin_rows", "must align with the gross profit rows")
+        for index, (profit, margin) in enumerate(
+                zip(payload["profit_rows"], payload["margin_rows"])):
+            if profit["label"] != margin["label"] or profit["full"] != margin["full"]:
+                _invalid(f"payload.margin_rows[{index}]",
+                         "must match the gross profit row")
     if module in ("revenue-and-loss", "cost"):
         _total_100(payload["mix"], "pct", "payload.mix")
         _total_100(payload["donut"], "pct", "payload.donut")

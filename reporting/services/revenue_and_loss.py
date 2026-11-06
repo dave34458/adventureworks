@@ -1,4 +1,6 @@
 """Revenue and loss report queries and context building."""
+from datetime import datetime, time
+
 from django.db import connection
 
 from core.models import SalesOrderHeader
@@ -8,16 +10,91 @@ from ..utils import (
     money,
     percent,
     rank,
-    ring,
     shift_months,
     window_for,
 )
+from .charts import build_combo, build_donut
 from .common import (
     _empty_report,
     _report_response,
     _saved_report,
 )
 from .dialect import limit_clause, month_expr
+
+
+def profit_margin_rows_for_dates(start, end, compare_start):
+    if not isinstance(start, datetime):
+        start = datetime.combine(start, time.min)
+    if not isinstance(end, datetime):
+        end = datetime.combine(end, time.max)
+    if compare_start is None:
+        compare_start = shift_months(start, -12)
+    elif not isinstance(compare_start, datetime):
+        compare_start = datetime.combine(compare_start, time.min)
+
+    with connection.cursor() as c:
+        c.execute(
+            f"""
+            SELECT month, side, SUM(rev) AS rev, SUM(cogs) AS cogs
+            FROM (
+                SELECT {month_expr("h.OrderDate")} AS month,
+                       CASE WHEN h.OrderDate < %s THEN 'prev' ELSE 'cur' END AS side,
+                       d.LineTotal AS rev,
+                       d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost) AS cogs
+                FROM Sales_SalesOrderDetail d
+                JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
+                JOIN Production_Product p ON p.ProductID = d.ProductID
+                LEFT JOIN Production_ProductCostHistory ch
+                  ON ch.ProductID = d.ProductID
+                 AND h.OrderDate >= ch.StartDate
+                 AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
+                WHERE h.OrderDate >= %s AND h.OrderDate <= %s
+            ) base
+            GROUP BY month, side
+            ORDER BY month
+            """,
+            [start, compare_start, end],
+        )
+        months24 = [{"month": month, "side": side, "rev": rev, "cogs": cogs}
+                    for month, side, rev, cogs in c.fetchall()]
+
+    def margin_of(row):
+        return (round((float(row["rev"]) - float(row["cogs"])) / float(row["rev"]) * 100, 1)
+                if row["rev"] else None)
+
+    cur_by_month = {row["month"]: row for row in months24 if row["side"] == "cur"}
+    prev_by_month = {row["month"]: row for row in months24 if row["side"] == "prev"}
+    month_offset = ((start.year * 12 + start.month)
+                    - (compare_start.year * 12 + compare_start.month))
+    cur_rows = []
+    month = start.replace(day=1)
+    last_month = end.replace(day=1)
+    while month <= last_month:
+        cur_rows.append(cur_by_month.get(
+            month, {"month": month, "side": "cur", "rev": 0, "cogs": 0}))
+        if month == last_month:
+            break
+        month = shift_months(month, 1)
+
+    profit_rows = []
+    margin_rows = []
+    for row in cur_rows:
+        previous = prev_by_month.get(shift_months(row["month"], -month_offset))
+        label = row["month"].strftime("%b")
+        full = row["month"].strftime("%b %Y")
+        profit_rows.append({
+            "label": label,
+            "full": full,
+            "profit": float(row["rev"]) - float(row["cogs"]),
+        })
+        margin_rows.append({
+            "label": label,
+            "full": full,
+            "margin": margin_of(row),
+            "prev_full": previous["month"].strftime("%b %Y") if previous else "",
+            "prev_margin": margin_of(previous) if previous else None,
+        })
+    return profit_rows, margin_rows
 
 
 def revenue_and_loss(request):
@@ -184,116 +261,9 @@ def revenue_and_loss(request):
                        if prev and prev["rev"] and rev_top else 0),
         })
 
-    with connection.cursor() as c:  # chart 3: profit and margin by month (24 months)
-        c.execute(
-            f"""
-            SELECT month, side, SUM(rev) AS rev, SUM(cogs) AS cogs
-            FROM (
-                SELECT {month_expr("h.OrderDate")} AS month,
-                       CASE WHEN h.OrderDate < %s THEN 'prev' ELSE 'cur' END AS side,
-                       d.LineTotal AS rev,
-                       d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost) AS cogs
-                FROM Sales_SalesOrderDetail d
-                JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
-                JOIN Production_Product p ON p.ProductID = d.ProductID
-                LEFT JOIN Production_ProductCostHistory ch
-                  ON ch.ProductID = d.ProductID
-                 AND h.OrderDate >= ch.StartDate
-                 AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
-                WHERE h.OrderDate >= %s AND h.OrderDate <= %s
-            ) base
-            GROUP BY month, side
-            ORDER BY month
-            """,
-            [w.trend_start, w.window_start, w.last],
-        )
-        months24 = [{"month": m, "side": side, "rev": rev, "cogs": cogs}
-                    for m, side, rev, cogs in c.fetchall()]
-
-    def margin_of(row):
-        return (round((float(row["rev"]) - float(row["cogs"])) / float(row["rev"]) * 100, 1)
-                if row["rev"] else None)
-
-    cur_by_month = {r["month"]: r for r in months24 if r["side"] == "cur"}
-    prev_rows = [r for r in months24 if r["side"] == "prev"]
-    cur_rows = []
-    month = w.trend_start.replace(day=1)
-    last_month = w.last.replace(day=1)
-    while month <= last_month:
-        cur_rows.append(cur_by_month.get(
-            month, {"month": month, "side": "cur", "rev": 0, "cogs": 0}))
-        if month == last_month:
-            break
-        month = shift_months(month, 1)
-    cur_dates = [r["month"] for r in cur_rows]
-    cur_vals = [margin_of(r) for r in cur_rows]
-    month_offset = ((w.trend_start.year * 12 + w.trend_start.month)
-                    - (w.window_start.year * 12 + w.window_start.month))
-    prev_by_month = {r["month"]: r for r in prev_rows}
-    prev_dates = []
-    prev_vals = []
-    for m in cur_dates:
-        prev = prev_by_month.get(shift_months(m, -month_offset))
-        prev_dates.append(prev["month"] if prev else None)
-        prev_vals.append(margin_of(prev) if prev else None)
-
-    profits = [float(r["rev"]) - float(r["cogs"]) for r in cur_rows]
-    vmax = max(profits + [0.0])
-    vmin = min(profits + [0.0])
-    span = max(vmax - vmin, 1)
-    m_values = [v for v in cur_vals + prev_vals if v is not None] + [0]
-    m_high = max(m_values)
-    m_low = min(m_values)
-    m_max = 60 if m_high <= 60 else (int(m_high / 10) + 1) * 10
-    m_min = 0 if m_low >= 0 else (int(m_low / 10) - 1) * 10
-    m_span = m_max - m_min
-    px_w, px_h, pad_l, pad_r, pad_t, pad_b = 960, 260, 72, 40, 10, 24
-    plot_w, plot_h = px_w - pad_l - pad_r, px_h - pad_t - pad_b
-    barw = round(min(44, plot_w / max(len(cur_dates) - 1, 1) * 0.65), 1)  # bars shrink when a range has many months
-
-    def x_at(i):
-        return round(pad_l + i * plot_w / max(len(cur_dates) - 1, 1), 1)
-
-    zero_y = round(pad_t + (vmax / span) * plot_h, 1)
-
-    def y_money(v):
-        return round(zero_y - v / span * plot_h, 1)
-
-    def y_pct(v):
-        return round(pad_t + (m_max - v) / m_span * plot_h, 1)
-
-    def axis_money(v):
-        return money(v)
-
-    bars = []
-    for i, (m, p) in enumerate(zip(cur_dates, profits)):
-        h = round(abs(p) / span * plot_h, 1)
-        y = y_money(p) if p >= 0 else zero_y
-        bars.append({"x": round(x_at(i) - barw / 2, 1), "y": y, "h": h, "w": barw,
-                     "t": f"{m:%b %Y} \u00b7 {money(p)} gross profit"})
-    dots = []
-    for i, (m, v) in enumerate(zip(cur_dates, cur_vals)):
-        if v is not None:
-            dots.append({"cls": "dotc", "x": x_at(i), "y": y_pct(v), "t": f"{m:%b %Y} \u00b7 {v}% margin"})
-    for i, (m, v) in enumerate(zip(prev_dates, prev_vals)):
-        if v is not None:
-            dots.append({"cls": "dotp", "x": x_at(i), "y": y_pct(v), "t": f"{m:%b %Y} \u00b7 {v}% margin"})
-    tick_values = ((vmin, 0, vmax) if vmin < 0 < vmax
-                   else (vmin, vmin / 2, 0) if vmin < 0
-                   else (0, vmax / 2, vmax))
-    margin_ticks = ((m_min, 0, m_max) if m_min < 0
-                    else (0, 20, 40, 60) if m_max == 60
-                    else (0, m_max / 2, m_max))
-    combo = {
-        "bars": bars,
-        "cur_pts": " ".join(f"{x_at(i)},{y_pct(v)}" for i, v in enumerate(cur_vals)
-                            if v is not None),
-        "prev_pts": " ".join(f"{x_at(i)},{y_pct(v)}" for i, v in enumerate(prev_vals) if v is not None),
-        "dots": dots,
-        "xticks": [{"x": x_at(i), "lab": m.strftime("%b")} for i, m in enumerate(cur_dates)],
-        "lticks": [{"y": y_money(v), "lab": axis_money(v)} for v in tick_values],
-        "rticks": [{"y": y_pct(v), "lab": f"{v:g}%"} for v in margin_ticks],
-    }
+    profit_rows, margin_rows = profit_margin_rows_for_dates(
+        w.trend_start, w.last, w.window_start)
+    combo = build_combo(profit_rows, margin_rows)
 
     with connection.cursor() as c:  # chart 4: revenue by category
         c.execute(
@@ -328,10 +298,7 @@ def revenue_and_loss(request):
         for i, r in enumerate(cats, 1)
     ]
 
-    donut = ring([{"cls": m["cls"], "pct": m["pct"],
-                   "t": f"{m['name']} \u00b7 {money(m['money'])} \u00b7 "
-                        f"{percent(m['pct'])} of revenue \u00b7 {percent(m['margin'])} margin"}
-                  for m in mix])
+    donut = build_donut("revenue-and-loss", mix)
 
     with connection.cursor() as c:  # chart 5: products with declining revenue vs previous window
         c.execute(
@@ -430,6 +397,8 @@ def revenue_and_loss(request):
         "title": "Revenue and loss report",
         "kpis": kpis,
         "combo": combo,
+        "profit_rows": profit_rows,
+        "margin_rows": margin_rows,
         "donut": donut,
         "donut_mid": {"big": float(rev or 0), "small": "revenue"},
         "mix": mix,

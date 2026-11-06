@@ -5,12 +5,14 @@ from ..constants import (
     EDITABLE_KEYS,
     EDITOR_CHECKBOX_FIELDS,
     EDITOR_DATE_FIELDS,
+    EDITOR_HIDDEN_FIELDS,
     EDITOR_INTEGER_FIELDS,
     EDITOR_NUMBER_FIELDS,
     EDITOR_SELECTS,
     FIELD_LABELS,
     SECTION_LABELS,
 )
+from .charts import recalculate_chart_payload
 from .validation import (
     PayloadValidationError,
     humanize_payload_error,
@@ -65,16 +67,32 @@ def _editor_field(tab, section, name, value):
     return field
 
 
+def prepare_editor_payload(tab, payload, snapshot=None):
+    payload = copy.deepcopy(payload)
+    if (tab == "revenue-and-loss" and snapshot is not None
+            and ("profit_rows" not in payload or "margin_rows" not in payload)):
+        from .revenue_and_loss import profit_margin_rows_for_dates
+        profit_rows, margin_rows = profit_margin_rows_for_dates(
+            snapshot.range_start, snapshot.range_end, snapshot.compare_start)
+        payload["profit_rows"] = profit_rows
+        payload["margin_rows"] = margin_rows
+    return payload
+
+
 def editor_sections(tab, payload):
     sections = []
     for key in EDITABLE_KEYS.get(tab, []):
+        if key not in payload:
+            continue
         value = payload.get(key)
+        hidden = EDITOR_HIDDEN_FIELDS.get((tab, key), set())
         label = SECTION_LABELS.get(key, key.replace("_", " ").title())
         if isinstance(value, list) and all(isinstance(row, dict) for row in value):
             columns = []
             for row in value:
                 for field, field_value in row.items():
-                    if not isinstance(field_value, (dict, list)) and field not in columns:
+                    if (not isinstance(field_value, (dict, list)) and field not in columns
+                            and field not in hidden):
                         columns.append(field)
             sections.append({
                 "key": key,
@@ -95,7 +113,7 @@ def editor_sections(tab, payload):
                 "kind": "dict",
                 "items": [_editor_field(tab, key, field, field_value)
                           for field, field_value in value.items()
-                          if not isinstance(field_value, (dict, list))],
+                          if not isinstance(field_value, (dict, list)) and field not in hidden],
             })
         else:
             sections.append({
@@ -111,16 +129,19 @@ def apply_editor(tab, payload, post):
     payload = copy.deepcopy(payload)
     edits = []
     for key in EDITABLE_KEYS.get(tab, []):
+        if key not in payload:
+            continue
         original = payload.get(key)
+        hidden = EDITOR_HIDDEN_FIELDS.get((tab, key), set())
         if isinstance(original, list) and all(isinstance(row, dict) for row in original):
             for index, row in enumerate(original):
                 for field, field_value in list(row.items()):
-                    if not isinstance(field_value, (dict, list)):
+                    if not isinstance(field_value, (dict, list)) and field not in hidden:
                         edits.append((row, field, field_value,
                                       f"editor-{key}-{index}-{field}", key, index))
         elif isinstance(original, dict):
             for field, field_value in list(original.items()):
-                if not isinstance(field_value, (dict, list)):
+                if not isinstance(field_value, (dict, list)) and field not in hidden:
                     edits.append((original, field, field_value,
                                   f"editor-{key}-{field}", key, None))
         else:
@@ -164,6 +185,7 @@ def apply_editor(tab, payload, post):
         return None, errors
     if tab == "cost":
         payload.setdefault("scrap_metric", "units")
+    recalculate_chart_payload(tab, payload)
     try:
         validate_report_payload(tab, payload)
     except PayloadValidationError as exc:

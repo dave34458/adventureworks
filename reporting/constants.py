@@ -7,22 +7,35 @@ META_KEYS = {
 }
 
 EDITABLE_KEYS = {
-    "sales": ["kpis", "products", "low_products"],
+    "sales": ["kpis", "trend", "products", "low_products"],
     "customer-profile": [
-        "kpis", "channels", "countries", "cities", "network", "frequency",
+        "kpis", "growth", "channels", "countries", "cities", "network", "frequency",
         "biggest", "new_legend", "ret_legend",
     ],
     "revenue-and-loss": [
-        "kpis", "mix", "declining", "leaks", "products", "donut_mid",
+        "kpis", "rev_trend", "profit_rows", "margin_rows", "mix", "declining", "leaks",
+        "products", "donut_mid",
     ],
     "cost": [
-        "kpis", "pipeline", "mix", "vendors", "products", "reasons", "changes",
-        "biggest", "performance", "donut_mid",
+        "kpis", "trend", "pipeline", "mix", "vendors", "products", "reasons",
+        "changes", "biggest", "performance", "donut_mid",
     ],
+}
+
+EDITOR_HIDDEN_FIELDS = {
+    ("sales", "trend"): {"height", "prev_h"},
+    ("customer-profile", "growth"): {"act", "new_h", "ret_h"},
+    ("revenue-and-loss", "rev_trend"): {"height", "prev_h"},
+    ("cost", "trend"): {"height", "prev_h"},
 }
 
 SECTION_LABELS = {
     "kpis": "KPI cards",
+    "trend": "Monthly trend",
+    "growth": "New vs returning buyers",
+    "rev_trend": "Revenue trend by month",
+    "profit_rows": "Gross profit \u00b7 selected period",
+    "margin_rows": "Gross margin by month",
     "products": "Product rows",
     "low_products": "Low-performing product rows",
     "channels": "Buyer channels",
@@ -75,9 +88,10 @@ FIELD_LABELS = {
     "pct": "Percent",
     "prev_full": "Previous label",
     "prev_h": "Previous height",
+    "prev_margin": "Previous margin",
     "prev_money": "Previous amount",
     "prev_orders": "Previous orders",
-    "profit": "Profit",
+    "profit": "Gross profit",
     "ret": "Returning customers",
     "ret_h": "Returning height",
     "rev": "Revenue",
@@ -98,8 +112,8 @@ EDITOR_INTEGER_FIELDS = {
 }
 EDITOR_NUMBER_FIELDS = {
     "aov", "big", "cost", "cust_pct", "delta", "height", "margin", "money", "new_h",
-    "old", "now", "pct", "prev_h", "prev_money", "profit", "ret_h", "rev", "total",
-    "value",
+    "old", "now", "pct", "prev_h", "prev_margin", "prev_money", "profit", "ret_h",
+    "rev", "total", "value",
 }
 EDITOR_CHECKBOX_FIELDS = {"store"}
 EDITOR_DATE_FIELDS = {"date"}

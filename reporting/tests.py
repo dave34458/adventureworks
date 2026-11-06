@@ -101,6 +101,8 @@ def revenue_payload():
             "lticks": [],
             "rticks": [],
         },
+        "profit_rows": [],
+        "margin_rows": [],
         "donut": [],
         "donut_mid": {"big": 0.0, "small": "revenue"},
         "mix": [],
@@ -192,6 +194,47 @@ class HttpTests(TestCase):
 
         response = self.client.get("/sales/?from=2024-01-01&to=2024-06-30")
         self.assertNotIn("snapshot", response.context)
+
+    def test_report_export_csv_uses_saved_payload(self):
+        payload = sales_payload()
+        payload["products"][0]["name"] = "=Product"
+        report = self.make_report(payload=payload)
+        self.client.force_login(self.users["Sales Manager"])
+
+        response = self.client.get(f"/sales/report/export/?report={report.pk}")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "text/csv; charset=utf-8")
+        self.assertEqual(
+            response["Content-Disposition"], 'attachment; filename="sales.csv"')
+        body = response.content.decode("utf-8-sig")
+        self.assertIn("Sales snapshot", body)
+        self.assertIn("KPI cards", body)
+        self.assertIn("'=Product", body)
+        self.assertContains(self.client.get(f"/sales/?report={report.pk}"), "Export CSV")
+        self.assertEqual(self.client.get("/cost/report/export/").status_code, 403)
+
+    def test_revenue_export_keeps_profit_and_margin_sections_separate(self):
+        payload = revenue_payload()
+        payload["profit_rows"] = [{
+            "label": "Jan", "full": "Jan 2024", "profit": 100.0,
+        }]
+        payload["margin_rows"] = [{
+            "label": "Jan", "full": "Jan 2024", "margin": 25.0,
+            "prev_full": "Jan 2023", "prev_margin": 20.0,
+        }]
+        report = self.make_report(module="revenue-and-loss", payload=payload)
+        self.client.force_login(make_superuser("export-root@example.com"))
+
+        response = self.client.get(
+            f"/revenue-and-loss/report/export/?report={report.pk}")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.content.decode("utf-8-sig")
+        self.assertIn("Gross profit \u00b7 selected period", body)
+        self.assertIn("Gross margin by month", body)
+        self.assertIn("profit", body)
+        self.assertIn("prev_margin", body)
 
     def test_administrator_has_full_access(self):
         root = make_superuser()
@@ -374,6 +417,216 @@ class HttpTests(TestCase):
         report.refresh_from_db()
         self.assertEqual(report.payload["biggest"][0]["date"], "2024-02-03")
 
+    def test_snapshot_editor_exposes_raw_chart_values_only(self):
+        report = self.make_report()
+        self.client.force_login(self.users["Sales Manager"])
+        response = self.client.get(f"/sales/reports/{report.pk}/edit/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'name="editor-trend-0-money"')
+        self.assertContains(response, 'name="editor-trend-0-prev_money"')
+        self.assertNotContains(response, 'name="editor-trend-0-height"')
+        self.assertNotContains(response, 'name="editor-trend-0-prev_h"')
+
+        payload = revenue_payload()
+        payload["profit_rows"] = [{
+            "label": "Jan", "full": "Jan 2024", "profit": 100.0,
+        }]
+        payload["margin_rows"] = [{
+            "label": "Jan", "full": "Jan 2024", "margin": 25.0,
+            "prev_full": "Jan 2023", "prev_margin": 20.0,
+        }]
+        report = self.make_report(module="revenue-and-loss", payload=payload)
+        self.client.force_login(make_superuser("chart-root@example.com"))
+        response = self.client.get(
+            f"/revenue-and-loss/reports/{report.pk}/edit/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Gross profit \u00b7 selected period")
+        self.assertContains(response, "Gross margin by month")
+        self.assertContains(response, 'name="editor-profit_rows-0-profit"')
+        self.assertContains(response, 'name="editor-margin_rows-0-prev_margin"')
+
+    def test_snapshot_edit_recalculates_sales_bar_heights(self):
+        report = self.make_report()
+        self.client.force_login(self.users["Sales Manager"])
+        response = self.client.post(
+            f"/sales/reports/{report.pk}/edit/",
+            self.edit_data(report, **{
+                "editor-trend-0-money": "200",
+                "editor-trend-0-prev_money": "100",
+            }),
+        )
+        self.assertEqual(response.status_code, 302)
+        report.refresh_from_db()
+        trend = report.payload["trend"][0]
+        self.assertEqual(trend["money"], 200.0)
+        self.assertEqual(trend["height"], 100.0)
+        self.assertEqual(trend["prev_h"], 50.0)
+
+    def test_snapshot_edit_recalculates_growth_heights(self):
+        payload = customer_payload()
+        payload["growth"] = [{
+            "label": "Jan", "full": "Jan 2024", "act": 30, "nw": 10, "ret": 20,
+            "new_h": 33.33, "ret_h": 66.67,
+        }]
+        report = self.make_report(module="customer-profile", payload=payload)
+        self.client.force_login(make_superuser("growth-root@example.com"))
+        response = self.client.post(
+            f"/customer-profile/reports/{report.pk}/edit/",
+            self.edit_data(report, **{
+                "editor-growth-0-nw": "20",
+                "editor-growth-0-ret": "20",
+            }),
+        )
+        self.assertEqual(response.status_code, 302)
+        report.refresh_from_db()
+        growth = report.payload["growth"][0]
+        self.assertEqual(growth["act"], 40)
+        self.assertEqual(growth["new_h"], 50.0)
+        self.assertEqual(growth["ret_h"], 50.0)
+
+    def test_snapshot_edit_recalculates_revenue_trend_heights(self):
+        payload = revenue_payload()
+        payload["rev_trend"] = [{
+            "label": "Jan", "full": "Jan 2024", "money": 100.0, "height": 50.0,
+            "prev_full": "Jan 2023", "prev_money": 40.0, "prev_h": 20.0,
+        }]
+        report = self.make_report(module="revenue-and-loss", payload=payload)
+        self.client.force_login(make_superuser("rev-trend-root@example.com"))
+        response = self.client.get(
+            f"/revenue-and-loss/reports/{report.pk}/edit/")
+        self.assertContains(response, 'name="editor-rev_trend-0-money"')
+        self.assertNotContains(response, 'name="editor-rev_trend-0-height"')
+        self.assertNotContains(response, 'name="editor-rev_trend-0-prev_h"')
+
+        response = self.client.post(
+            f"/revenue-and-loss/reports/{report.pk}/edit/",
+            self.edit_data(report, **{
+                "editor-rev_trend-0-money": "200",
+                "editor-rev_trend-0-prev_money": "100",
+            }),
+        )
+        self.assertEqual(response.status_code, 302)
+        report.refresh_from_db()
+        trend = report.payload["rev_trend"][0]
+        self.assertEqual(trend["height"], 100.0)
+        self.assertEqual(trend["prev_h"], 50.0)
+
+    def test_snapshot_edit_recalculates_cost_trend_heights(self):
+        payload = cost_payload()
+        payload["trend"] = [{
+            "label": "Jan", "full": "Jan 2024", "money": 100.0, "margin": 10.0,
+            "height": 50.0, "prev_full": "Jan 2023", "prev_money": 40.0,
+            "prev_h": 20.0,
+        }]
+        report = self.make_report(module="cost", payload=payload)
+        self.client.force_login(make_superuser("cost-trend-root@example.com"))
+        response = self.client.get(f"/cost/reports/{report.pk}/edit/")
+        self.assertContains(response, 'name="editor-trend-0-money"')
+        self.assertNotContains(response, 'name="editor-trend-0-height"')
+        self.assertNotContains(response, 'name="editor-trend-0-prev_h"')
+
+        response = self.client.post(
+            f"/cost/reports/{report.pk}/edit/",
+            self.edit_data(report, **{
+                "editor-trend-0-money": "200",
+                "editor-trend-0-prev_money": "100",
+            }),
+        )
+        self.assertEqual(response.status_code, 302)
+        report.refresh_from_db()
+        trend = report.payload["trend"][0]
+        self.assertEqual(trend["height"], 100.0)
+        self.assertEqual(trend["prev_h"], 50.0)
+
+    def test_snapshot_edit_recalculates_combo_geometry(self):
+        payload = revenue_payload()
+        payload["profit_rows"] = [{
+            "label": "Jan", "full": "Jan 2024", "profit": 100.0,
+        }]
+        payload["margin_rows"] = [{
+            "label": "Jan", "full": "Jan 2024", "margin": 25.0,
+            "prev_full": "Jan 2023", "prev_margin": 20.0,
+        }]
+        report = self.make_report(module="revenue-and-loss", payload=payload)
+        self.client.force_login(make_superuser("combo-root@example.com"))
+        response = self.client.post(
+            f"/revenue-and-loss/reports/{report.pk}/edit/",
+            self.edit_data(report, **{
+                "editor-profit_rows-0-profit": "200",
+                "editor-margin_rows-0-margin": "40",
+                "editor-margin_rows-0-prev_margin": "30",
+            }),
+        )
+        self.assertEqual(response.status_code, 302)
+        report.refresh_from_db()
+        combo = report.payload["combo"]
+        self.assertEqual(len(combo["bars"]), 1)
+        self.assertEqual(combo["bars"][0]["h"], 226.0)
+        self.assertIn("$200 gross profit", combo["bars"][0]["t"])
+        self.assertEqual(len(combo["cur_pts"].split()), 1)
+        self.assertEqual(len(combo["prev_pts"].split()), 1)
+        self.assertEqual({dot["cls"] for dot in combo["dots"]}, {"dotc", "dotp"})
+
+    def test_snapshot_editor_backfills_legacy_profit_and_margin_rows(self):
+        payload = revenue_payload()
+        payload.pop("profit_rows")
+        payload.pop("margin_rows")
+        report = self.make_report(module="revenue-and-loss", payload=payload)
+        self.assertNotIn("profit_rows", report.payload)
+        self.assertNotIn("margin_rows", report.payload)
+        self.client.force_login(make_superuser("legacy-root@example.com"))
+        response = self.client.get(
+            f"/revenue-and-loss/reports/{report.pk}/edit/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'name="editor-profit_rows-0-profit"')
+        self.assertContains(response, 'name="editor-margin_rows-0-prev_margin"')
+
+        response = self.client.post(
+            f"/revenue-and-loss/reports/{report.pk}/edit/",
+            self.edit_data(report, **{
+                "editor-profit_rows-0-profit": "200",
+                "editor-margin_rows-0-margin": "40",
+                "editor-margin_rows-0-prev_margin": "30",
+            }),
+        )
+        self.assertEqual(response.status_code, 302)
+        report.refresh_from_db()
+        self.assertIn("profit_rows", report.payload)
+        self.assertIn("margin_rows", report.payload)
+        self.assertEqual(report.payload["kpis"], payload["kpis"])
+        self.assertEqual(report.payload["rev_trend"], payload["rev_trend"])
+        self.assertEqual(report.payload["profit_rows"][0]["profit"], 200.0)
+        self.assertEqual(len(report.payload["combo"]["bars"]), 6)
+        self.assertEqual(report.payload["combo"]["bars"][0]["h"], 226.0)
+
+    def test_snapshot_edit_recalculates_donut_from_mix(self):
+        payload = revenue_payload()
+        payload["mix"] = [{
+            "name": "Old", "cls": "c1", "pct": 100, "money": 100.0, "margin": 20.0,
+        }]
+        payload["donut"] = [{
+            "cls": "c1", "pct": 100, "t": "Old", "dash": 376.99, "off": 0,
+        }]
+        report = self.make_report(module="revenue-and-loss", payload=payload)
+        self.client.force_login(make_superuser("donut-root@example.com"))
+        response = self.client.post(
+            f"/revenue-and-loss/reports/{report.pk}/edit/",
+            self.edit_data(report, **{
+                "editor-mix-0-name": "Bikes",
+                "editor-mix-0-money": "250",
+                "editor-mix-0-margin": "40",
+            }),
+        )
+        self.assertEqual(response.status_code, 302)
+        report.refresh_from_db()
+        donut = report.payload["donut"]
+        self.assertEqual(len(donut), 1)
+        self.assertIn("Bikes", donut[0]["t"])
+        self.assertIn("$250", donut[0]["t"])
+        self.assertIn("revenue", donut[0]["t"])
+        self.assertEqual(donut[0]["dash"], 376.99)
+        self.assertEqual(donut[0]["off"], 0)
+
 
 class ReportDataTests(TestCase):
     @classmethod
@@ -508,6 +761,10 @@ class ReportDataTests(TestCase):
             revenue_and_loss, **{"from": "2025-01-16", "to": "2025-03-15"})
         self.assertEqual([tick["lab"] for tick in context["combo"]["xticks"]],
                          ["Jan", "Feb", "Mar"])
+        self.assertEqual([row["label"] for row in context["profit_rows"]],
+                         ["Jan", "Feb", "Mar"])
+        self.assertEqual([row["label"] for row in context["margin_rows"]],
+                         ["Jan", "Feb", "Mar"])
         self.assertEqual(len(context["combo"]["bars"]), 3)
 
     def test_margin_chart_compares_selected_and_previous_like_dashboard(self):
@@ -543,6 +800,8 @@ class ReportDataTests(TestCase):
         self.assertEqual(rl_by_full["Apr 2024"]["height"], 0)
         self.assertEqual(len(rl_context["combo"]["bars"]), 12)
         self.assertEqual(len(rl_context["combo"]["xticks"]), 12)
+        self.assertEqual(len(rl_context["profit_rows"]), 12)
+        self.assertEqual(len(rl_context["margin_rows"]), 12)
 
         request = RequestFactory().get("/", {"report": ""})
         request.user = self.root
@@ -831,6 +1090,28 @@ class PayloadValidationTests(SimpleTestCase):
             "margin": 10,
         }]
         with self.assertRaisesMessage(PayloadValidationError, "pct values must add up to 100"):
+            validate_report_payload("revenue-and-loss", payload)
+
+    def test_rejects_misaligned_profit_and_margin_rows(self):
+        payload = revenue_payload()
+        payload["profit_rows"] = [{
+            "label": "Jan", "full": "Jan 2024", "profit": 100.0,
+        }]
+        with self.assertRaisesMessage(
+                PayloadValidationError, "must align with the gross profit rows"):
+            validate_report_payload("revenue-and-loss", payload)
+
+    def test_rejects_profit_and_margin_rows_with_different_months(self):
+        payload = revenue_payload()
+        payload["profit_rows"] = [{
+            "label": "Jan", "full": "Jan 2024", "profit": 100.0,
+        }]
+        payload["margin_rows"] = [{
+            "label": "Feb", "full": "Feb 2024", "margin": 25.0,
+            "prev_full": "Feb 2023", "prev_margin": 20.0,
+        }]
+        with self.assertRaisesMessage(
+                PayloadValidationError, "must match the gross profit row"):
             validate_report_payload("revenue-and-loss", payload)
 
     def test_rejects_donut_not_100(self):

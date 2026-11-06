@@ -11,6 +11,7 @@ urlpatterns = [
     path("revenue-and-loss/", views.revenue_and_loss, name="revenue-and-loss"),
     path("cost/", views.cost, name="cost"),
     path("<slug:tab>/report/generate/", views.report_generate, name="report_generate"),
+    path("<slug:tab>/report/export/", views.report_export, name="report_export"),
     path("<slug:tab>/reports/", views.SnapshotList.as_view(), name="snapshot_list"),
     path("<slug:tab>/reports/<int:pk>/edit/", views.SnapshotEdit.as_view(), name="snapshot_edit"),
     path("<slug:tab>/reports/<int:pk>/delete/", views.SnapshotDelete.as_view(), name="snapshot_delete"),
