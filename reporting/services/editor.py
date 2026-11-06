@@ -69,6 +69,8 @@ def _editor_field(tab, section, name, value):
 
 def prepare_editor_payload(tab, payload, snapshot=None):
     payload = copy.deepcopy(payload)
+    if tab == "cost":
+        payload.pop("pipeline", None)
     if (tab == "revenue-and-loss" and snapshot is not None
             and ("profit_rows" not in payload or "margin_rows" not in payload)):
         from .revenue_and_loss import profit_margin_rows_for_dates

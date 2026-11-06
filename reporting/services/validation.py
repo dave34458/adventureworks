@@ -343,13 +343,6 @@ REV_PRODUCT_FIELDS = {
     "profit": _number(),
     "margin": _number(-100, 100),
 }
-COST_PIPELINE_FIELDS = {
-    "k": _text(80, 1),
-    "big": _number(0),
-    "kind": _choice(*KPI_KINDS),
-    "cap": _text(300),
-    "cls": _choice("", "bad"),
-}
 COST_TREND_FIELDS = {
     "label": _text(20, 1),
     "full": _text(40, 1),
@@ -416,7 +409,6 @@ REPORT_PAYLOADS = {
     },
     "cost": {
         "kpis": _kpis,
-        "pipeline": _rows(COST_PIPELINE_FIELDS, 10),
         "trend": _rows(COST_TREND_FIELDS, 36),
         "mix": _rows(MIX_FIELDS, 20),
         "donut": _rows(DONUT_FIELDS, 20),

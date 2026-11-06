@@ -143,17 +143,6 @@ def cost(request):
     rate = (scrap["scr"] or 0) / (scrap["qty"] or 1) * 100
     rate_prev = (scrap["scr_prev"] or 0) / (scrap["qty_prev"] or 1) * 100
 
-    pipeline = [
-        {"k": "Buy", "big": float(proc["spend"] or 0), "kind": "money",
-         "cap": f"{proc['orders']:,} purchase orders \u00b7 merchandise, excl. rejected", "cls": ""},
-        {"k": "Make", "big": int(scrap["qty"] or 0), "kind": "count",
-         "cap": "units started on work orders", "cls": ""},
-        {"k": "Waste", "big": int(scrap["scr"] or 0), "kind": "count",
-         "cap": f"units scrapped \u00b7 {rate:.2f}%", "cls": "bad"},
-        {"k": "Sell", "big": float(cogs or 0), "kind": "money",
-         "cap": "cost of goods sold to customers", "cls": ""},
-    ]
-
     kpis = []
     for label, value, kind, change, cap in (
         ("Cost of goods sold", float(cogs or 0), "money", delta_pct(cogs, cogs_prev),
@@ -431,7 +420,6 @@ def cost(request):
         "tab": "cost",
         "title": "Cost report",
         "kpis": kpis,
-        "pipeline": pipeline,
         "trend": trend,
         "mix": mix,
         "donut": donut,

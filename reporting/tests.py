@@ -119,7 +119,6 @@ def revenue_payload():
 def cost_payload():
     return {
         "kpis": [kpi_row()],
-        "pipeline": [],
         "trend": [],
         "mix": [],
         "donut": [],
@@ -328,6 +327,25 @@ class HttpTests(TestCase):
         values.update(overrides)
         return values
 
+    def test_legacy_cost_pipeline_is_removed_and_snapshot_remains_editable(self):
+        payload = cost_payload()
+        payload["pipeline"] = [{"k": "Buy", "big": 10, "kind": "money",
+                                "cap": "legacy", "cls": ""}]
+        report = self.make_report(module="cost", payload=payload)
+        self.client.force_login(make_superuser("legacy-cost@example.com"))
+
+        page = self.client.get(f"/cost/?report={report.pk}")
+        self.assertNotIn("pipeline", page.context)
+
+        edit = self.client.get(f"/cost/reports/{report.pk}/edit/")
+        self.assertEqual(edit.status_code, 200)
+        self.assertNotIn("pipeline", [section["key"] for section in edit.context["editor_sections"]])
+
+        response = self.client.post(
+            f"/cost/reports/{report.pk}/edit/", self.edit_data(report))
+        self.assertEqual(response.status_code, 302)
+        report.refresh_from_db()
+        self.assertNotIn("pipeline", report.payload)
     def test_snapshot_edit_updates_metadata_and_payload(self):
         report = self.make_report()
         self.client.force_login(self.users["Sales Manager"])

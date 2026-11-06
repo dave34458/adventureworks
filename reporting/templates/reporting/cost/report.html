@@ -20,21 +20,6 @@
   {% endfor %}
  </section>
 
- <section class="d-panel">
-  <h3>Available cost information</h3>
-  <p class="sub">From buying parts to selling stock · {{ period }}</p>
-  <div class="d-flow">
-   {% for p in pipeline %}
-   {% if not forloop.first %}<div class="arrow" aria-hidden="true">→</div>{% endif %}
-   <div class="step">
-    <div class="k">{{ p.k }}</div>
-    <div class="big {{ p.cls }}">{{ p.big|fmt_metric:p.kind }}</div>
-    <div class="cap">{{ p.cap }}</div>
-   </div>
-   {% endfor %}
-  </div>
- </section>
-
  <section class="d-cols">
   <div class="d-panel">
    <h3>{% if cost_metric == "margin" %}Gross margin trend{% else %}Cost trends and comparisons{% endif %}</h3>

@@ -22,7 +22,7 @@ EDITABLE_KEYS = {
         "products", "donut_mid",
     ],
     "cost": [
-        "kpis", "trend", "pipeline", "mix", "vendors", "products", "reasons",
+        "kpis", "trend", "mix", "vendors", "products", "reasons",
         "changes", "biggest", "performance", "donut_mid",
     ],
 }
@@ -54,7 +54,6 @@ SECTION_LABELS = {
     "mix": "Category mix",
     "declining": "Declining products",
     "leaks": "Below-cost products",
-    "pipeline": "Buy / make / waste / sell",
     "vendors": "Vendors",
     "reasons": "Scrap reasons",
     "changes": "Standard-cost changes",

@@ -207,6 +207,7 @@ def _snapshot_title(title, filters):
 
 def _render_snapshot(request, module, template, snapshot):
     context = copy.deepcopy(snapshot.payload or {})
+    context.pop("pipeline", None)
     title = snapshot.title or module
     category_ids = []
     country_codes = []
