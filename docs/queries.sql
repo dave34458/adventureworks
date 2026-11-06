@@ -21,7 +21,16 @@ GROUP BY co.Name
 ORDER BY rev DESC
 OFFSET 0 ROWS FETCH NEXT 6 ROWS ONLY;
 
--- Q3. Lowest-performing products by merchandise sales
+-- Q3. Purchase-order spend by vendor
+SELECT v.Name, SUM(po.SubTotal) AS spend, COUNT(*) AS orders, v.ActiveFlag
+FROM Purchasing_PurchaseOrderHeader po
+JOIN Purchasing_Vendor v ON v.BusinessEntityID = po.VendorID
+WHERE po.OrderDate >= %s AND po.OrderDate <= %s AND po.Status <> 3
+GROUP BY v.Name, v.ActiveFlag
+ORDER BY spend DESC
+OFFSET 0 ROWS FETCH NEXT 8 ROWS ONLY;
+
+-- Q4. Lowest-performing products by merchandise sales
 SELECT pr.Name, SUM(d.LineTotal) AS rev
 FROM Sales_SalesOrderDetail d
 JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
@@ -30,12 +39,3 @@ WHERE h.OrderDate >= %s AND h.OrderDate <= %s
 GROUP BY pr.Name
 ORDER BY rev ASC
 OFFSET 0 ROWS FETCH NEXT 6 ROWS ONLY;
-
--- Q4. Purchase-order spend by vendor
-SELECT v.Name, SUM(po.SubTotal) AS spend, COUNT(*) AS orders, v.ActiveFlag
-FROM Purchasing_PurchaseOrderHeader po
-JOIN Purchasing_Vendor v ON v.BusinessEntityID = po.VendorID
-WHERE po.OrderDate >= %s AND po.OrderDate <= %s AND po.Status <> 3
-GROUP BY v.Name, v.ActiveFlag
-ORDER BY spend DESC
-OFFSET 0 ROWS FETCH NEXT 8 ROWS ONLY;
