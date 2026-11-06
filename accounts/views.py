@@ -28,3 +28,4 @@ class EmailLogin(LoginView):
 
     template_name = "registration/login.html"
     form_class = EmailAuthenticationForm
+    redirect_authenticated_user = True

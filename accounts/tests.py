@@ -5,6 +5,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.core.management import call_command
 from django.test import TestCase
+from django.urls import reverse
 
 from accounts.roles import ROLES, TABLES, apply_roles
 
@@ -77,6 +78,14 @@ class RoleTests(TestCase):
         with self.assertRaisesMessage(ValueError, "Broken"):
             apply_roles({"Broken": {"tabs": ["sales"], "view": ["NoSuchReport"]}})
         self.assertFalse(Group.objects.filter(name="Broken").exists())
+
+
+class LoginViewTests(TestCase):
+    def test_authenticated_user_is_redirected_from_login(self):
+        user = User.objects.create_user(email="u@example.com", password="p")
+        self.client.force_login(user)
+        response = self.client.get(reverse("login"))
+        self.assertRedirects(response, reverse("home"), fetch_redirect_response=False)
 
 
 class SeedUsersTests(TestCase):
