@@ -118,7 +118,7 @@ jobs:
             --container=app \
             --image="$IMAGE:${GITHUB_SHA}" \
             --port=8080 \
-            --set-env-vars="MSSQL_HOST=127.0.0.1,MSSQL_PORT=1433,MSSQL_DATABASE=AdventureWorks2025_clean,MSSQL_USER=sqlserver,MSSQL_DRIVER=ODBC Driver 18 for SQL Server,DJANGO_DEBUG=0,DJANGO_ALLOWED_HOSTS=.run.app,DJANGO_CSRF_TRUSTED_ORIGINS=https://adventureworks-4cfcg3oqqq-uc.a.run.app" \
+            --set-env-vars="MSSQL_HOST=127.0.0.1,MSSQL_PORT=1433,MSSQL_DATABASE=AdventureWorks2025_fresh,MSSQL_USER=sqlserver,MSSQL_DRIVER=ODBC Driver 18 for SQL Server,DJANGO_DEBUG=0,DJANGO_ALLOWED_HOSTS=.run.app,DJANGO_CSRF_TRUSTED_ORIGINS=https://adventureworks-4cfcg3oqqq-uc.a.run.app" \
             --set-secrets="DJANGO_SECRET_KEY=adventureworks-django-secret-key:latest,MSSQL_PASSWORD=adventureworks-mssql-password:latest" \
             --cpu=1 --memory=512Mi \
             --container=cloud-sql-proxy \

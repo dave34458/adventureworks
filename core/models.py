@@ -32,6 +32,7 @@ class PersonAddress(models.Model):
 
     class Meta:
         db_table = '[Person].[Address]'
+        managed = False
         constraints = [
             models.UniqueConstraint(fields=['address_line1', 'address_line2', 'city', 'state_province', 'postal_code'], name='uq_person_address_address_line1_address_line2_city_state_province_id_postal_code'[:100]),
         ]
@@ -53,6 +54,7 @@ class PersonBusinessEntity(models.Model):
 
     class Meta:
         db_table = '[Person].[BusinessEntity]'
+        managed = False
 
     def __str__(self):
         return f"PersonBusinessEntity {self.pk}"
@@ -73,6 +75,7 @@ class PersonCountryRegion(models.Model):
 
     class Meta:
         db_table = '[Person].[CountryRegion]'
+        managed = False
 
     def __str__(self):
         return str(self.name)
@@ -97,6 +100,7 @@ class SalesCustomer(models.Model):
 
     class Meta:
         db_table = '[Sales].[Customer]'
+        managed = False
 
     def __str__(self):
         if self.person_id:
@@ -143,6 +147,7 @@ class Person(models.Model):
 
     class Meta:
         db_table = '[Person].[Person]'
+        managed = False
         constraints = [
             models.CheckConstraint(condition=(models.Q(email_promotion__gte=0) & models.Q(email_promotion__lte=2)), name='CK_Person_EmailPromotion'),
             models.CheckConstraint(condition=(models.Q(person_type__isnull=True) | models.Q(person_type__in=['SC', 'VC', 'IN', 'EM', 'SP', 'GC', 'sc', 'vc', 'in', 'em', 'sp', 'gc'])), name='CK_Person_PersonType'),
@@ -184,6 +189,7 @@ class ProductionProduct(models.Model):
 
     class Meta:
         db_table = '[Production].[Product]'
+        managed = False
         constraints = [
             models.CheckConstraint(condition=models.Q(safety_stock_level__gt=0), name='CK_Product_SafetyStockLevel'),
             models.CheckConstraint(condition=models.Q(reorder_point__gt=0), name='CK_Product_ReorderPoint'),
@@ -211,6 +217,7 @@ class ProductionProductCategory(models.Model):
 
     class Meta:
         db_table = '[Production].[ProductCategory]'
+        managed = False
 
     def __str__(self):
         return str(self.name)
@@ -226,6 +233,7 @@ class ProductionProductCostHistory(models.Model):
 
     class Meta:
         db_table = '[Production].[ProductCostHistory]'
+        managed = False
         constraints = [
             models.CheckConstraint(condition=(models.Q(end_date__gte=F('start_date')) | models.Q(end_date__isnull=True)), name='CK_ProductCostHistory_EndDate'),
             models.CheckConstraint(condition=models.Q(standard_cost__gte=0.00), name='CK_ProductCostHistory_StandardCost'),
@@ -264,6 +272,7 @@ class ProductionProductSubcategory(models.Model):
 
     class Meta:
         db_table = '[Production].[ProductSubcategory]'
+        managed = False
 
     def __str__(self):
         return str(self.name)
@@ -286,6 +295,7 @@ class PurchasingPurchaseOrderDetail(models.Model):
 
     class Meta:
         db_table = '[Purchasing].[PurchaseOrderDetail]'
+        managed = False
         constraints = [
             models.CheckConstraint(condition=models.Q(order_qty__gt=0), name='CK_PurchaseOrderDetail_OrderQty'),
             models.CheckConstraint(condition=models.Q(unit_price__gte=0.00), name='CK_PurchaseOrderDetail_UnitPrice'),
@@ -312,6 +322,7 @@ class PurchasingPurchaseOrderHeader(models.Model):
 
     class Meta:
         db_table = '[Purchasing].[PurchaseOrderHeader]'
+        managed = False
         constraints = [
             models.CheckConstraint(condition=(models.Q(status__gte=1) & models.Q(status__lte=4)), name='CK_PurchaseOrderHeader_Status'),
             models.CheckConstraint(condition=(models.Q(ship_date__gte=F('order_date')) | models.Q(ship_date__isnull=True)), name='CK_PurchaseOrderHeader_ShipDate'),
@@ -338,6 +349,7 @@ class SalesOrderDetail(models.Model):
 
     class Meta:
         db_table = '[Sales].[SalesOrderDetail]'
+        managed = False
         constraints = [
             models.CheckConstraint(condition=models.Q(order_qty__gt=0), name='CK_SalesOrderDetail_OrderQty'),
             models.CheckConstraint(condition=models.Q(unit_price__gte=0.00), name='CK_SalesOrderDetail_UnitPrice'),
@@ -375,6 +387,7 @@ class SalesOrderHeader(models.Model):
 
     class Meta:
         db_table = '[Sales].[SalesOrderHeader]'
+        managed = False
         constraints = [
             models.CheckConstraint(condition=(models.Q(status__gte=0) & models.Q(status__lte=8)), name='CK_SalesOrderHeader_Status'),
             models.CheckConstraint(condition=models.Q(due_date__gte=F('order_date')), name='CK_SalesOrderHeader_DueDate'),
@@ -412,6 +425,7 @@ class SalesTerritory(models.Model):
 
     class Meta:
         db_table = '[Sales].[SalesTerritory]'
+        managed = False
         constraints = [
             models.CheckConstraint(condition=models.Q(sales_ytd__gte=0.00), name='CK_SalesTerritory_SalesYTD'),
             models.CheckConstraint(condition=models.Q(sales_last_year__gte=0.00), name='CK_SalesTerritory_SalesLastYear'),
@@ -432,6 +446,7 @@ class ProductionScrapReason(models.Model):
 
     class Meta:
         db_table = '[Production].[ScrapReason]'
+        managed = False
 
     def __str__(self):
         return str(self.name)
@@ -459,6 +474,7 @@ class PersonStateProvince(models.Model):
 
     class Meta:
         db_table = '[Person].[StateProvince]'
+        managed = False
         constraints = [
             models.UniqueConstraint(fields=['state_province_code', 'country_region'], name='uq_person_stateprovince_state_province_code_country_region_code'[:100]),
         ]
@@ -476,6 +492,7 @@ class SalesStore(models.Model):
 
     class Meta:
         db_table = '[Sales].[Store]'
+        managed = False
 
     def __str__(self):
         return self.name
@@ -499,6 +516,7 @@ class PurchasingVendor(models.Model):
 
     class Meta:
         db_table = '[Purchasing].[Vendor]'
+        managed = False
         constraints = [
             models.CheckConstraint(condition=(models.Q(credit_rating__gte=1) & models.Q(credit_rating__lte=5)), name='CK_Vendor_CreditRating'),
         ]
@@ -521,6 +539,7 @@ class ProductionWorkOrder(models.Model):
 
     class Meta:
         db_table = '[Production].[WorkOrder]'
+        managed = False
         constraints = [
             models.CheckConstraint(condition=models.Q(order_qty__gt=0), name='CK_WorkOrder_OrderQty'),
             models.CheckConstraint(condition=models.Q(scrapped_qty__gte=0), name='CK_WorkOrder_ScrappedQty'),

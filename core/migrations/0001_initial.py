@@ -7,6 +7,51 @@ import uuid
 from decimal import Decimal
 from django.db import migrations, models
 
+def create_test_tables(apps, schema_editor):
+    connection = schema_editor.connection
+    if not connection.settings_dict["NAME"].lower().startswith("test_"):
+        return
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "IF SCHEMA_ID(N'Person') IS NULL EXEC(N'CREATE SCHEMA [Person]'); "
+            "IF SCHEMA_ID(N'Sales') IS NULL EXEC(N'CREATE SCHEMA [Sales]'); "
+            "IF SCHEMA_ID(N'Production') IS NULL EXEC(N'CREATE SCHEMA [Production]'); "
+            "IF SCHEMA_ID(N'Purchasing') IS NULL EXEC(N'CREATE SCHEMA [Purchasing]');"
+        )
+
+    models = list(apps.get_app_config("core").get_models())
+    remaining = models.copy()
+    existing = set()
+    with connection.cursor() as cursor:
+        for model in models:
+            cursor.execute("SELECT OBJECT_ID(%s, 'U')", [model._meta.db_table])
+            if cursor.fetchone()[0]:
+                existing.add(model._meta.db_table)
+
+    while remaining:
+        ready = [
+            model for model in remaining
+            if all(
+                not field.is_relation
+                or field.remote_field.model not in remaining
+                or field.remote_field.model._meta.db_table in existing
+                for field in model._meta.local_fields
+            )
+        ]
+        if not ready:
+            raise RuntimeError("Circular foreign keys in core test models")
+        for model in ready:
+            table = model._meta.db_table
+            if table not in existing:
+                model._meta.managed = True
+                try:
+                    schema_editor.create_model(model)
+                finally:
+                    model._meta.managed = False
+                existing.add(table)
+            remaining.remove(model)
+
 
 class Migration(migrations.Migration):
 
@@ -15,14 +60,7 @@ class Migration(migrations.Migration):
     dependencies = [
     ]
 
-    operations = [
-        migrations.RunSQL(
-            "IF SCHEMA_ID(N'Person') IS NULL EXEC(N'CREATE SCHEMA [Person]'); "
-            "IF SCHEMA_ID(N'Sales') IS NULL EXEC(N'CREATE SCHEMA [Sales]'); "
-            "IF SCHEMA_ID(N'Production') IS NULL EXEC(N'CREATE SCHEMA [Production]'); "
-            "IF SCHEMA_ID(N'Purchasing') IS NULL EXEC(N'CREATE SCHEMA [Purchasing]');",
-            migrations.RunSQL.noop,
-        ),
+    _core_state_operations = [
         migrations.CreateModel(
             name='PersonBusinessEntity',
             fields=[
@@ -31,6 +69,7 @@ class Migration(migrations.Migration):
                 ('modified_date', models.DateTimeField(db_column='ModifiedDate', default=django.utils.timezone.now)),
             ],
             options={
+                'managed': False,
                 'db_table': '[Person].[BusinessEntity]',
             },
         ),
@@ -42,6 +81,7 @@ class Migration(migrations.Migration):
                 ('modified_date', models.DateTimeField(db_column='ModifiedDate', default=django.utils.timezone.now)),
             ],
             options={
+                'managed': False,
                 'db_table': '[Person].[CountryRegion]',
             },
         ),
@@ -71,6 +111,7 @@ class Migration(migrations.Migration):
                 ('modified_date', models.DateTimeField(db_column='ModifiedDate', default=django.utils.timezone.now)),
             ],
             options={
+                'managed': False,
                 'db_table': '[Production].[Product]',
             },
         ),
@@ -83,6 +124,7 @@ class Migration(migrations.Migration):
                 ('modified_date', models.DateTimeField(db_column='ModifiedDate', default=django.utils.timezone.now)),
             ],
             options={
+                'managed': False,
                 'db_table': '[Production].[ProductCategory]',
             },
         ),
@@ -94,6 +136,7 @@ class Migration(migrations.Migration):
                 ('modified_date', models.DateTimeField(db_column='ModifiedDate', default=django.utils.timezone.now)),
             ],
             options={
+                'managed': False,
                 'db_table': '[Production].[ScrapReason]',
             },
         ),
@@ -112,6 +155,7 @@ class Migration(migrations.Migration):
                 ('modified_date', models.DateTimeField(db_column='ModifiedDate', default=django.utils.timezone.now)),
             ],
             options={
+                'managed': False,
                 'db_table': '[Purchasing].[PurchaseOrderHeader]',
             },
         ),
@@ -124,6 +168,7 @@ class Migration(migrations.Migration):
                 ('modified_date', models.DateTimeField(db_column='ModifiedDate', default=django.utils.timezone.now)),
             ],
             options={
+                'managed': False,
                 'db_table': '[Sales].[Customer]',
             },
         ),
@@ -145,6 +190,7 @@ class Migration(migrations.Migration):
                 ('modified_date', models.DateTimeField(db_column='ModifiedDate', default=django.utils.timezone.now)),
             ],
             options={
+                'managed': False,
                 'db_table': '[Person].[Person]',
             },
         ),
@@ -161,6 +207,7 @@ class Migration(migrations.Migration):
                 ('modified_date', models.DateTimeField(db_column='ModifiedDate', default=django.utils.timezone.now)),
             ],
             options={
+                'managed': False,
                 'db_table': '[Purchasing].[Vendor]',
             },
         ),
@@ -174,6 +221,7 @@ class Migration(migrations.Migration):
                 ('modified_date', models.DateTimeField(db_column='ModifiedDate', default=django.utils.timezone.now)),
             ],
             options={
+                'managed': False,
                 'db_table': '[Sales].[Store]',
             },
         ),
@@ -189,6 +237,7 @@ class Migration(migrations.Migration):
                 ('country_region', models.ForeignKey(db_column='CountryRegionCode', on_delete=django.db.models.deletion.PROTECT, to='core.personcountryregion')),
             ],
             options={
+                'managed': False,
                 'db_table': '[Person].[StateProvince]',
             },
         ),
@@ -205,6 +254,7 @@ class Migration(migrations.Migration):
                 ('state_province', models.ForeignKey(db_column='StateProvinceID', on_delete=django.db.models.deletion.PROTECT, to='core.personstateprovince')),
             ],
             options={
+                'managed': False,
                 'db_table': '[Person].[Address]',
             },
         ),
@@ -219,6 +269,7 @@ class Migration(migrations.Migration):
                 ('product', models.ForeignKey(db_column='ProductID', on_delete=django.db.models.deletion.PROTECT, to='core.productionproduct')),
             ],
             options={
+                'managed': False,
                 'db_table': '[Production].[ProductCostHistory]',
             },
         ),
@@ -232,6 +283,7 @@ class Migration(migrations.Migration):
                 ('product_category', models.ForeignKey(db_column='ProductCategoryID', on_delete=django.db.models.deletion.PROTECT, to='core.productionproductcategory')),
             ],
             options={
+                'managed': False,
                 'db_table': '[Production].[ProductSubcategory]',
             },
         ),
@@ -255,6 +307,7 @@ class Migration(migrations.Migration):
                 ('scrap_reason', models.ForeignKey(blank=True, db_column='ScrapReasonID', null=True, on_delete=django.db.models.deletion.PROTECT, to='core.productionscrapreason')),
             ],
             options={
+                'managed': False,
                 'db_table': '[Production].[WorkOrder]',
             },
         ),
@@ -274,6 +327,7 @@ class Migration(migrations.Migration):
                 ('purchase_order', models.ForeignKey(db_column='PurchaseOrderID', on_delete=django.db.models.deletion.PROTECT, to='core.purchasingpurchaseorderheader')),
             ],
             options={
+                'managed': False,
                 'db_table': '[Purchasing].[PurchaseOrderDetail]',
             },
         ),
@@ -303,6 +357,7 @@ class Migration(migrations.Migration):
                 ('ship_to_address', models.ForeignKey(db_column='ShipToAddressID', on_delete=django.db.models.deletion.PROTECT, related_name='salesorderheader_ship_to_address_set', to='core.personaddress')),
             ],
             options={
+                'managed': False,
                 'db_table': '[Sales].[SalesOrderHeader]',
             },
         ),
@@ -321,6 +376,7 @@ class Migration(migrations.Migration):
                 ('sales_order', models.ForeignKey(db_column='SalesOrderID', on_delete=django.db.models.deletion.PROTECT, to='core.salesorderheader')),
             ],
             options={
+                'managed': False,
                 'db_table': '[Sales].[SalesOrderDetail]',
             },
         ),
@@ -339,6 +395,7 @@ class Migration(migrations.Migration):
                 ('country_region', models.ForeignKey(db_column='CountryRegionCode', on_delete=django.db.models.deletion.PROTECT, to='core.personcountryregion')),
             ],
             options={
+                'managed': False,
                 'db_table': '[Sales].[SalesTerritory]',
             },
         ),
@@ -540,4 +597,9 @@ class Migration(migrations.Migration):
             model_name='purchasingpurchaseorderheader',
             constraint=models.CheckConstraint(condition=models.Q(('freight__gte', 0.0)), name='CK_PurchaseOrderHeader_Freight'),
         ),
+    ]
+
+    operations = [
+        migrations.SeparateDatabaseAndState(database_operations=[], state_operations=_core_state_operations),
+        migrations.RunPython(create_test_tables, migrations.RunPython.noop),
     ]
