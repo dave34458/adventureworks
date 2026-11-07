@@ -97,8 +97,8 @@ class LoginViewTests(TestCase):
 class SeedUsersTests(TestCase):
     def test_seed_creates_one_user_per_role(self):
         call_command("seed_users", stdout=StringIO())
-        self.assertEqual(User.objects.count(), 16)
-        self.assertFalse(User.objects.filter(is_superuser=True).exists())
+        self.assertEqual(User.objects.count(), 17)
+        self.assertTrue(User.objects.get(email="admin@example.com").is_superuser)
         for role in MATRIX:
             user = User.objects.get(email=email_for(role))
             self.assertEqual(
@@ -106,13 +106,15 @@ class SeedUsersTests(TestCase):
 
     def test_seed_if_empty_seeds_a_blank_database(self):
         call_command("seed_users", if_empty=True, stdout=StringIO())
-        self.assertEqual(User.objects.count(), 16)
+        self.assertEqual(User.objects.count(), 17)
+        self.assertTrue(User.objects.get(email="admin@example.com").is_superuser)
 
     def test_seed_if_empty_skips_when_a_user_exists(self):
         User.objects.create_user("existing@example.com", "password123")
         output = StringIO()
         call_command("seed_users", if_empty=True, stdout=output)
-        self.assertEqual(User.objects.count(), 1)
+        self.assertEqual(User.objects.count(), 2)
+        self.assertTrue(User.objects.get(email="admin@example.com").is_superuser)
         self.assertIn("skipping", output.getvalue())
 
 

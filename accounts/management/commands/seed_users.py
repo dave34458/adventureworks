@@ -5,9 +5,8 @@
     python manage.py seed_users --reset --prune # also remove the old 17 demo users
 
 The email and password use the role in lower.dot.case: "Sales Manager" ->
-sales.manager@example.com / sales.manager. The single Administrator is the superuser
-account; this command never creates or changes it. These are demo logins; change the
-passwords on /manage/ before real use.
+sales.manager@example.com / sales.manager. On an empty database it also creates the
+demo global Administrator: admin@example.com / admin.
 """
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
@@ -52,9 +51,24 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         if options["if_empty"] and User.objects.exists():
+            if not User.objects.filter(is_superuser=True).exists():
+                admin = User.objects.create_superuser(
+                    email="admin@example.com", password="admin",
+                    first_name="Administrator")
+                self.stdout.write(f"{admin.email:40} created")
             self.stdout.write("Users already exist; skipping demo-user seed.")
             return
         apply_roles(ROLES, prune=True)
+        if not User.objects.filter(is_superuser=True).exists():
+            admin, is_new = User.objects.get_or_create(
+                email="admin@example.com", defaults={"first_name": "Administrator"})
+            if is_new or options["reset"]:
+                admin.set_password("admin")
+            admin.first_name = "Administrator"
+            admin.is_staff = True
+            admin.is_superuser = True
+            admin.save()
+            self.stdout.write(f"{'admin@example.com':40} {'created' if is_new else 'exists'}")
         created = reset = 0
         emails = []
         for role in ROLES:
