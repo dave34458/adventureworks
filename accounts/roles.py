@@ -62,7 +62,7 @@ def _scope(tab, kind):
         return {"tabs": [tab], "view": ["Report"], "change": [], "delete": []}
     if kind == "Admin":
         return {"tabs": [tab], "view": TABLES[tab] + ["Report"],
-                "change": [], "delete": [], "manage_users": True}
+                "change": ["Report"], "delete": ["Report"], "manage_users": True}
     raise ValueError(f"unknown role kind: {kind}")
 
 

@@ -30,7 +30,7 @@ for _department, _tab in DEPARTMENTS.items():
     MATRIX[f"{_department} Employee"] = (
         [_tab], {"view_report"}, set(), set())
     MATRIX[f"{_department} Admin"] = (
-        [_tab], _tables | {"view_report"}, set(), set())
+        [_tab], _tables | {"view_report"}, {"change_report"}, {"delete_report"})
 
 
 def email_for(role):
