@@ -275,7 +275,7 @@ class TableList(TableMixin, ListView):
             fields = {f.name: f for f in self.model._meta.fields
                       if f.get_internal_type() != "CompositePrimaryKey"}
             targets = [fields[col]] if col in fields else list(fields.values())
-            conds, ann = [], {}
+            conds, ann, related_ids = [], {}, {}
             for f in targets:
                 t = f.get_internal_type()
                 if t in ("BinaryField", "BooleanField"):
@@ -290,6 +290,16 @@ class TableList(TableMixin, ListView):
                     subs = [s for s in rel._meta.fields
                             if s.get_internal_type() == "CharField"][:2]
                     conds += [Q(**{f"{f.name}__{s.name}__icontains": q}) for s in subs]
+                    cache_key = (rel, f.target_field.attname)
+                    if cache_key not in related_ids:
+                        related = rel._default_manager.all()
+                        if name_needs_joins(rel):
+                            related = related.select_related(*[
+                                r.name for r in rel._meta.fields if r.is_relation])
+                        related_ids[cache_key] = [
+                            getattr(obj, f.target_field.attname) for obj in related
+                            if q.casefold() in str(obj).casefold()]
+                    conds.append(Q(**{f"{f.name}__in": related_ids[cache_key]}))
                     # names often live one hop away, via a FK to Person (customer, employee, ...)
                     pf = next((r.name for r in rel._meta.fields
                                if r.is_relation and r.related_model.__name__ == "Person"), None)
