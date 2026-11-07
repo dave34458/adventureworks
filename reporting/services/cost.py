@@ -26,7 +26,7 @@ def cost(request):
     saved = _saved_report(request, "cost", "reporting/cost/report.html")
     if saved:
         return saved
-    filters = report_dimension_filters(request, include_country=False)
+    filters = report_dimension_filters(request, "cost", include_country=False)
     line_filter, line_params = dimension_sql(filters, header_ref=None)
     work_filter, work_params = dimension_sql(
         filters, product_ref="w.ProductID", header_ref=None)
@@ -265,7 +265,7 @@ def cost(request):
             WHERE po.OrderDate >= %s AND po.OrderDate <= %s AND po.Status <> 3{purchase_filter}
             GROUP BY v.Name, v.ActiveFlag
             ORDER BY spend DESC
-            {limit_clause(8)}
+            {limit_clause(100)}
             """,
             [cur_lo, cur_hi] + purchase_params,
         )
@@ -293,7 +293,7 @@ def cost(request):
             WHERE h.OrderDate >= %s AND h.OrderDate <= %s{line_filter}
             GROUP BY p.Name
             ORDER BY cogs DESC
-            {limit_clause(8)}
+            {limit_clause(100)}
             """,
             [cur_lo, cur_hi] + line_params,
         )
@@ -320,7 +320,7 @@ def cost(request):
             WHERE w.StartDate >= %s AND w.StartDate <= %s{work_filter}
             GROUP BY sr.Name
             ORDER BY cost DESC
-            {limit_clause(8)}
+            {limit_clause(100)}
             """,
             [cur_lo, cur_hi] + work_params,
         )
@@ -332,36 +332,39 @@ def cost(request):
 
     with connection.cursor() as c:  # chart 7: standard cost changes
         c.execute(
-            f"SELECT h.ProductID, h.StandardCost FROM Production_ProductCostHistory h "
-            f"WHERE h.EndDate IS NULL{history_filter}", history_params)
-        open_cost = dict(c.fetchall())
-
-        c.execute(
             f"""
-            SELECT h.ProductID, p.Name, h.StandardCost
-            FROM Production_ProductCostHistory h
-            JOIN Production_Product p ON p.ProductID = h.ProductID
-            WHERE h.EndDate IS NOT NULL{history_filter}
-            ORDER BY h.StartDate
+            WITH product_costs AS (
+                SELECT h.ProductID, p.Name, h.StartDate, h.StandardCost,
+                       ROW_NUMBER() OVER (PARTITION BY h.ProductID ORDER BY h.StartDate) AS product_rank
+                FROM Production_ProductCostHistory h
+                JOIN Production_Product p ON p.ProductID = h.ProductID
+                WHERE h.EndDate IS NOT NULL{history_filter}
+            ), increases AS (
+                SELECT first_cost.Name, first_cost.StartDate, first_cost.StandardCost AS old_cost,
+                       current_cost.StandardCost AS new_cost,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY LTRIM(RTRIM(LEFT(first_cost.Name,
+                               CHARINDEX(',', first_cost.Name + ',') - 1)))
+                           ORDER BY first_cost.StartDate
+                       ) AS name_rank
+                FROM product_costs first_cost
+                JOIN Production_ProductCostHistory current_cost
+                  ON current_cost.ProductID = first_cost.ProductID
+                 AND current_cost.EndDate IS NULL
+                WHERE first_cost.product_rank = 1
+                  AND current_cost.StandardCost > first_cost.StandardCost
+            )
+            SELECT Name, old_cost, new_cost
+            FROM increases
+            WHERE name_rank = 1
+            ORDER BY (new_cost - old_cost) / NULLIF(old_cost, 0) DESC
+            {limit_clause(100)}
             """,
             history_params,
         )
-        earliest = {}
-        for product_id, product_name, standard_cost in c.fetchall():
-            earliest.setdefault(product_id, {"product_id": product_id, "product__name": product_name,
-                                             "standard_cost": standard_cost})
-    hikes, seen = [], set()
-    for r in earliest.values():
-        now = open_cost.get(r["product_id"])
-        if now and now > r["standard_cost"]:
-            base = r["product__name"].split(",")[0].strip()
-            if base in seen:
-                continue
-            seen.add(base)
-            hikes.append({"name": r["product__name"], "old": r["standard_cost"], "now": now,
-                          "pct": round((now - r["standard_cost"]) / r["standard_cost"] * 100, 1)})
-    hikes.sort(key=lambda h: -h["pct"])
-    hikes = hikes[:6]
+        hikes = [{"name": name, "old": old, "now": now,
+                  "pct": round((now - old) / old * 100, 1)}
+                 for name, old, now in c.fetchall()]
     changes = [
         {
             "name": h["name"],
@@ -385,7 +388,7 @@ def cost(request):
             WHERE po.OrderDate >= %s AND po.OrderDate <= %s AND po.Status <> 3{purchase_filter}
             {biggest_po_group}
             ORDER BY {biggest_po_order} DESC
-            {limit_clause(8)}
+            {limit_clause(100)}
             """,
             [cur_lo, cur_hi] + purchase_params,
         )

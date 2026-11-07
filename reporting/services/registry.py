@@ -1,6 +1,6 @@
 """Report registry and snapshot generation entry points."""
 from django.core.exceptions import PermissionDenied
-from django.http import Http404
+from django.http import Http404, HttpResponseBadRequest
 
 from ..models import Report
 from .cost import cost
@@ -23,6 +23,11 @@ def report_generate(request, tab):
     if not (request.user.has_perm(f"reporting.access_{tab.replace('-', '_')}")
             and request.user.has_perm("reporting.change_report")):
         raise PermissionDenied
+    report_name = request.POST.get("report_name", "").strip()
+    if request.POST.get("overwrite_report") and (not report_name or len(report_name) > 120):
+        return HttpResponseBadRequest(
+            "Report name is required and must be 120 characters or fewer.")
+
     request._range_params = request.POST
     request._capture_snapshot = tab
     return REPORT_VIEWS[tab](request)

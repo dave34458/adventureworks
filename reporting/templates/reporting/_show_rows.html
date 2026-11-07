@@ -1,0 +1,6 @@
+<label class="d-filter">Show{% if label %} {{ label }}{% endif %}
+ <select name="show_{{ key }}" form="{{ form_id }}" onchange="this.form.requestSubmit()">
+  {% for amount in show_options %}<option value="{{ amount }}"{% if selected == amount %} selected{% endif %}>{{ amount }}</option>{% endfor %}
+ </select>
+ results
+</label>

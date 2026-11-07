@@ -19,7 +19,7 @@ def sales(request):
     saved = _saved_report(request, "sales", "reporting/sales/report.html")
     if saved:
         return saved
-    filters = report_dimension_filters(request, include_country=True)
+    filters = report_dimension_filters(request, "sales", include_country=True)
     line_filter, filter_params = dimension_sql(filters)
     w = window_for(request, SalesOrderHeader)
     if w is None:
@@ -138,7 +138,7 @@ def sales(request):
             WHERE h.OrderDate >= %s AND h.OrderDate <= %s{line_filter}
             GROUP BY pr.Name
             ORDER BY rev DESC
-            {limit_clause(8)}
+            {limit_clause(100)}
             """,
             [cur_lo, cur_hi] + filter_params,
         )
@@ -155,7 +155,7 @@ def sales(request):
             WHERE h.OrderDate >= %s AND h.OrderDate <= %s{line_filter}
             GROUP BY pr.Name
             ORDER BY rev ASC
-            {limit_clause(6)}
+            {limit_clause(100)}
             """,
             [cur_lo, cur_hi] + filter_params,
         )

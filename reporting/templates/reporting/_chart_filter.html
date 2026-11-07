@@ -1,17 +1,24 @@
-<form class="d-filter" method="get">
+<form class="d-filter" method="get" id="report-chart-filter">
  {% if snapshot %}
  <input type="hidden" name="report" value="{{ snapshot.pk }}">
+ {% if filter_preview %}
+ <input type="hidden" name="filter_preview" value="1">
+ <input type="hidden" name="from" value="{{ w_from }}">
+ <input type="hidden" name="to" value="{{ w_to }}">
+ {% endif %}
  {% elif has_range_filter %}
  <input type="hidden" name="from" value="{{ filter_from }}">
  <input type="hidden" name="to" value="{{ filter_to }}">
  {% endif %}
  {% if not snapshot %}<input type="hidden" name="report" value="">{% endif %}
+ {% if snapshot and can_manage %}<input type="hidden" name="report_name" value="{{ title }}">{% endif %}
  {% for category in category_ids %}<input type="hidden" name="category" value="{{ category }}">{% endfor %}
  {% for country in country_codes %}<input type="hidden" name="country" value="{{ country }}">{% endfor %}
+ {% for key, value in show_values.items %}<input type="hidden" name="show_{{ key }}" value="{{ value }}">{% endfor %}
  <label>{{ chart_filter_label }}
   <select name="{{ chart_filter_name }}">
    {% for value, label in chart_filter_options %}<option value="{{ value }}"{% if chart_filter_value == value %} selected{% endif %}>{{ label }}</option>{% endfor %}
   </select>
  </label>
- <button type="submit">Apply</button>
+ <button type="submit">Update chart</button>
 </form>

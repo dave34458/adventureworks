@@ -106,7 +106,7 @@ def revenue_and_loss(request):
     saved = _saved_report(request, "revenue-and-loss", "reporting/revenue-and-loss/report.html")
     if saved:
         return saved
-    filters = report_dimension_filters(request, include_country=True)
+    filters = report_dimension_filters(request, "revenue-and-loss", include_country=True)
     line_filter, filter_params = dimension_sql(filters)
     order_filter, order_filter_params = dimension_sql(
         filters, product_ref=None, order_ref="h.SalesOrderID")
@@ -326,7 +326,7 @@ def revenue_and_loss(request):
             ) product_rev
             WHERE prev_rev > 0 AND cur_rev < prev_rev
             ORDER BY (prev_rev - cur_rev) DESC
-            {limit_clause(8)}
+            {limit_clause(100)}
             """,
             [cur_lo, cur_lo, w.window_start, w.last] + filter_params,
         )
@@ -357,7 +357,7 @@ def revenue_and_loss(request):
                   < d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost)
             GROUP BY p.Name
             ORDER BY gap DESC
-            {limit_clause(6)}
+            {limit_clause(100)}
             """,
             [cur_lo, cur_hi] + filter_params,
         )
@@ -382,7 +382,7 @@ def revenue_and_loss(request):
             WHERE h.OrderDate >= %s AND h.OrderDate <= %s{line_filter}
             GROUP BY p.ProductID, p.Name
             ORDER BY rev DESC
-            {limit_clause(12)}
+            {limit_clause(100)}
             """,
             [cur_lo, cur_hi] + filter_params,
         )
@@ -396,7 +396,7 @@ def revenue_and_loss(request):
             "margin": round((float(r["rev"]) - float(r["cogs"])) / float(r["rev"]) * 100, 1)
                       if r["rev"] else 0,
         }
-        for r in prods[:8]
+        for r in prods
     ]
 
     return _report_response(request, "revenue-and-loss",

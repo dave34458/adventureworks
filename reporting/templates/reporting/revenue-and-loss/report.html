@@ -92,6 +92,7 @@
  <section class="d-cols">
   <div class="d-panel">
    <h3>Declining revenue by product</h3>
+   {% include "reporting/_show_rows.html" with key="declining" selected=show_values.declining form_id="report-dimensions" %}
    <p class="sub">Largest drops versus {{ prev_label }} · {{ period }}</p>
    <ul class="d-rank">
     {% for r in declining %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value|fmt_money }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% empty %}<li class="note">No product sold less than in the previous period.</li>{% endfor %}
@@ -99,6 +100,7 @@
   </div>
   <div class="d-panel">
    <h3>Below-cost shortfall</h3>
+   {% include "reporting/_show_rows.html" with key="leaks" selected=show_values.leaks form_id="report-dimensions" %}
    <p class="sub">Negative financial performance: products sold under standard cost · {{ period }}</p>
    <ul class="d-rank">
     {% for r in leaks %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value|fmt_money }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% empty %}<li class="note">No line was sold below standard cost.</li>{% endfor %}
@@ -108,6 +110,7 @@
 
  <section class="d-panel">
   <h3>Revenue contribution by product</h3>
+  {% include "reporting/_show_rows.html" with key="products" selected=show_values.products form_id="report-dimensions" %}
   <p class="sub">Revenue, cost, gross profit and margin by product · {{ period }}</p>
   <div class="scroll">
   <table class="d-table">

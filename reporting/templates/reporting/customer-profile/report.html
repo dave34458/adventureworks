@@ -45,7 +45,6 @@
   <div class="d-panel">
    <h3>Who buys: segmentation and spending</h3>
    <p class="sub">Individuals vs stores · revenue and buyer shares · {{ period }}</p>
-   {% include "reporting/_chart_filter.html" %}
    <p class="sub">Revenue share</p>
    <div class="d-splitbar">
     {% for c in channels %}<i class="{{ c.cls }}" style="width:{{ c.pct }}%"></i>{% endfor %}
@@ -73,6 +72,7 @@
     <p class="sub">Simplified country outlines · Natural Earth</p></div>
    <div>
     <p class="sub">Revenue by country · {{ period }}</p>
+    {% include "reporting/_show_rows.html" with key="countries" selected=show_values.countries form_id="report-dimensions" %}
     <ul class="d-rank">
      {% for r in countries %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value|fmt_money }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div></li>{% endfor %}
     </ul>
@@ -83,6 +83,7 @@
  <section class="d-tops">
   <div class="d-panel">
    <h3>Customer distribution by city</h3>
+   {% include "reporting/_show_rows.html" with key="cities" selected=show_values.cities form_id="report-dimensions" %}
    <p class="sub">Revenue by shipping city · {{ period }}</p>
    <ul class="d-rank">
     {% for r in cities %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value|fmt_money }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
@@ -105,9 +106,9 @@
  </section>
 
  <section class="d-panel">
-  <h3>Top customers by segment</h3>
-  <p class="sub">Top 6 stores and top 3 individuals by revenue · {{ period }}</p>
-  <p class="sub">Stores and individuals are ranked separately; their order sizes are not directly comparable.</p>
+  <h3>Top customers</h3>
+  <p class="sub">Ranked by revenue · {{ period }}</p>
+  {% include "reporting/_show_rows.html" with key="biggest" label="customers" selected=show_values.biggest form_id="report-dimensions" %}
   <div class="scroll">
   <table class="d-table">
    <tr><th>Customer</th><th>Type</th><th class="d-hide-m">Territory</th><th class="num">Orders</th><th class="num">Revenue</th></tr>

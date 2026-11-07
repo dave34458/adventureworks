@@ -3,7 +3,7 @@ from django.db import connection
 
 from core.models import SalesOrderHeader
 from ..utils import delta, money, ring, shift_months, window_for
-from .common import ReportResult
+from .common import SHOW_OPTIONS, ReportResult, show_amount
 from .dialect import limit_clause, month_expr
 
 
@@ -35,6 +35,7 @@ def dashboard(request):
     selected_category = next((c for c in categories if c["id"] == category_id), None)
     if selected_category is None:
         category_id = None
+    row_limit = show_amount(request.GET, "products", 10)
     cat_sql = " AND pc.ProductCategoryID = %s" if category_id is not None else ""
     cat_params = [category_id] if category_id is not None else []
 
@@ -50,6 +51,8 @@ def dashboard(request):
         "title": "Business performance dashboard",
         "categories": categories,
         "category_id": category_id,
+        "show_values": {"products": row_limit},
+        "show_options": SHOW_OPTIONS,
         "selected_category": selected_category,
         "show_profit": show_profit,
         "has_data": False,
@@ -318,7 +321,7 @@ def dashboard(request):
                 WHERE h.OrderDate >= %s AND h.OrderDate <= %s{cat_sql}
                 GROUP BY p.ProductID, p.Name, pc.Name
                 ORDER BY {order_expr} DESC
-                {limit_clause(10)}
+                {limit_clause(100)}
                 """,
                 [w.trend_start, w.last] + cat_params,
             )
@@ -343,6 +346,7 @@ def dashboard(request):
                 "share": round(value / metric_total * 100, 1) if metric_total else 0,
             })
         products_top = products[:6]
+        products = products[:row_limit]
 
         if category_id is None:
             # panel 6: category ring

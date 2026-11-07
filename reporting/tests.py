@@ -10,6 +10,7 @@ from django.test import RequestFactory, SimpleTestCase, TestCase
 
 from accounts.roles import ROLES, apply_roles
 from core.models import (
+    Person,
     PersonAddress,
     PersonBusinessEntity,
     PersonCountryRegion,
@@ -26,13 +27,8 @@ from core.models import (
     SalesStore,
     SalesTerritory,
 )
-from reporting.models import PRIVACY_NOTICE_VERSION, Report
-from reporting.services import (
-    PayloadValidationError,
-    humanize_payload_error,
-    report_generate,
-    validate_report_payload,
-)
+from reporting.models import AuditLog, PRIVACY_NOTICE_VERSION, Report
+from reporting.services import capture_snapshot, report_generate
 from reporting.services.cost import cost
 from reporting.services.customer_profile import customer_profile
 from reporting.services.dashboard import dashboard
@@ -133,14 +129,6 @@ def cost_payload():
     }
 
 
-VALID_PAYLOADS = {
-    "sales": sales_payload,
-    "customer-profile": customer_payload,
-    "revenue-and-loss": revenue_payload,
-    "cost": cost_payload,
-}
-
-
 def email_for(role):
     return f"{role.lower().replace(' ', '.')}@example.com"
 
@@ -174,11 +162,11 @@ class HttpTests(TestCase):
             with self.subTest(role=role, page="dashboard"):
                 self.assertEqual(self.client.get("/dashboard/").status_code, 200)
 
-    def test_snapshot_manage_gate(self):
+    def test_snapshot_edit_route_is_removed(self):
         self.client.force_login(self.users["Sales Manager"])
         self.assertEqual(self.client.get("/sales/reports/1/edit/").status_code, 404)
         self.client.force_login(self.users["Sales Supervisor"])
-        self.assertEqual(self.client.get("/sales/reports/1/edit/").status_code, 403)
+        self.assertEqual(self.client.get("/sales/reports/1/edit/").status_code, 404)
         self.assertEqual(self.client.get("/sales/reports/1/delete/").status_code, 403)
 
     def test_report_tab_opens_latest_snapshot_but_live_link_is_live(self):
@@ -197,6 +185,14 @@ class HttpTests(TestCase):
         response = self.client.get("/sales/?from=2024-01-01&to=2024-06-30")
         self.assertNotIn("snapshot", response.context)
 
+    def test_legacy_snapshot_title_is_cleaned_in_report_dropdown(self):
+        report = self.make_report(title="Sales | Categories: Bikes | Countries: US")
+        self.client.force_login(self.users["Sales Manager"])
+
+        response = self.client.get(f"/sales/?report={report.pk}")
+        self.assertEqual(response.context["snapshots"][0].display_title, "Sales")
+        self.assertNotContains(response, "Categories: Bikes")
+
     def test_report_export_csv_uses_saved_payload(self):
         payload = sales_payload()
         payload["products"][0]["name"] = "=Product"
@@ -212,11 +208,12 @@ class HttpTests(TestCase):
         body = response.content.decode("utf-8-sig")
         self.assertIn("Sales snapshot", body)
         self.assertIn("KPI cards", body)
+        self.assertNotIn("Show Values", body)
         self.assertIn("'=Product", body)
         self.assertContains(self.client.get(f"/sales/?report={report.pk}"), "Export CSV")
         self.assertEqual(self.client.get("/cost/report/export/").status_code, 403)
 
-    def test_chart_filter_is_transient_and_used_by_csv_export(self):
+    def test_chart_filter_override_is_used_by_csv_export(self):
         report = self.make_report()
         self.client.force_login(self.users["Sales Manager"])
 
@@ -311,385 +308,6 @@ class HttpTests(TestCase):
         values.update(overrides)
         return Report.objects.create(**values)
 
-    def edit_data(self, report, **overrides):
-        values = {
-            "title": report.title,
-            "range_start": report.range_start.isoformat(),
-            "range_end": report.range_end.isoformat(),
-            "compare_start": report.compare_start.isoformat() if report.compare_start else "",
-            "compare_end": report.compare_end.isoformat() if report.compare_end else "",
-            "source_through": report.source_through.isoformat(),
-            "window_label": report.window_label,
-            "prev_label": report.prev_label,
-            "period": report.period,
-            "custom": "on" if report.custom else "",
-        }
-        values.update(overrides)
-        return values
-
-    def test_legacy_cost_pipeline_is_removed_and_snapshot_remains_editable(self):
-        payload = cost_payload()
-        payload["pipeline"] = [{"k": "Buy", "big": 10, "kind": "money",
-                                "cap": "legacy", "cls": ""}]
-        report = self.make_report(module="cost", payload=payload)
-        self.client.force_login(make_superuser("legacy-cost@example.com"))
-
-        page = self.client.get(f"/cost/?report={report.pk}")
-        self.assertNotIn("pipeline", page.context)
-
-        edit = self.client.get(f"/cost/reports/{report.pk}/edit/")
-        self.assertEqual(edit.status_code, 200)
-        self.assertNotIn("pipeline", [section["key"] for section in edit.context["editor_sections"]])
-
-        response = self.client.post(
-            f"/cost/reports/{report.pk}/edit/", self.edit_data(report))
-        self.assertEqual(response.status_code, 302)
-        report.refresh_from_db()
-        self.assertNotIn("pipeline", report.payload)
-    def test_snapshot_edit_updates_metadata_and_payload(self):
-        report = self.make_report()
-        self.client.force_login(self.users["Sales Manager"])
-        response = self.client.post(
-            f"/sales/reports/{report.pk}/edit/",
-            self.edit_data(
-                report,
-                title="Updated snapshot",
-                range_start="2024-02-01",
-                range_end="2024-07-31",
-                compare_start="2023-02-01",
-                compare_end="2024-01-31",
-                window_label="Feb-Jul 2024",
-                prev_label="Feb 2023-Jan 2024",
-                custom="on",
-                **{"editor-products-0-pct": "55"},
-            ),
-        )
-        self.assertEqual(response.status_code, 302)
-        report.refresh_from_db()
-        self.assertEqual(report.title, "Updated snapshot")
-        self.assertEqual(report.range_start, date(2024, 2, 1))
-        self.assertEqual(report.range_end, date(2024, 7, 31))
-        self.assertEqual(report.payload["products"][0]["pct"], 55)
-
-    def test_snapshot_edit_rejects_invalid_range(self):
-        report = self.make_report()
-        self.client.force_login(self.users["Sales Manager"])
-        response = self.client.post(
-            f"/sales/reports/{report.pk}/edit/",
-            self.edit_data(report, range_start="2024-07-01", range_end="2024-01-01"),
-        )
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "End date must be on or after the start date.")
-        report.refresh_from_db()
-        self.assertEqual(report.range_start, date(2024, 1, 1))
-
-    def test_snapshot_edit_rejects_blank_label(self):
-        report = self.make_report()
-        self.client.force_login(self.users["Sales Manager"])
-        response = self.client.post(
-            f"/sales/reports/{report.pk}/edit/",
-            self.edit_data(report, title="   "),
-        )
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "This field is required.")
-        report.refresh_from_db()
-        self.assertEqual(report.title, "Sales snapshot")
-
-    def test_snapshot_edit_rejects_comparison_after_range_start(self):
-        report = self.make_report()
-        self.client.force_login(self.users["Sales Manager"])
-        response = self.client.post(
-            f"/sales/reports/{report.pk}/edit/",
-            self.edit_data(report, compare_end="2024-02-01"),
-        )
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Comparison end must be before the report start.")
-        report.refresh_from_db()
-        self.assertEqual(report.compare_end, date(2023, 12, 31))
-
-    def test_snapshot_edit_allows_duplicate_range(self):
-        report = self.make_report()
-        self.make_report(
-            range_start=date(2024, 8, 1), range_end=date(2024, 9, 30),
-            source_through=date(2024, 12, 31),
-        )
-        self.client.force_login(self.users["Sales Manager"])
-        response = self.client.post(
-            f"/sales/reports/{report.pk}/edit/",
-            self.edit_data(report, range_start="2024-08-01", range_end="2024-09-30"),
-        )
-        self.assertEqual(response.status_code, 302)
-        report.refresh_from_db()
-        self.assertEqual(report.range_start, date(2024, 8, 1))
-        self.assertEqual(report.range_end, date(2024, 9, 30))
-
-    def test_snapshot_edit_rejects_invalid_payload_number(self):
-        report = self.make_report()
-        self.client.force_login(self.users["Sales Manager"])
-        response = self.client.post(
-            f"/sales/reports/{report.pk}/edit/",
-            self.edit_data(report, **{"editor-products-0-pct": "not a number"}),
-        )
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Product rows, row 1, Percent: must be a number.")
-        report.refresh_from_db()
-        self.assertEqual(report.payload["products"][0]["pct"], 100)
-
-    def test_snapshot_edit_rejects_percentage_over_100(self):
-        report = self.make_report()
-        self.client.force_login(self.users["Sales Manager"])
-        response = self.client.post(
-            f"/sales/reports/{report.pk}/edit/",
-            self.edit_data(report, **{"editor-products-0-pct": "900"}),
-        )
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Product rows, row 1, Percent: must be at most 100")
-        report.refresh_from_db()
-        self.assertEqual(report.payload["products"][0]["pct"], 100)
-
-    def cost_report(self):
-        payload = cost_payload()
-        payload["biggest"] = [{
-            "id": 1,
-            "vendor": "Vendor",
-            "date": "2024-01-01",
-            "lines": 1,
-            "total": 1.0,
-            "status": "Approved",
-            "cls": "online",
-        }]
-        return self.make_report(module="cost", payload=payload)
-
-    def test_snapshot_editor_uses_numeric_and_date_inputs(self):
-        report = self.cost_report()
-        self.client.force_login(make_superuser("cost-root@example.com"))
-        response = self.client.get(f"/cost/reports/{report.pk}/edit/")
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'type="number"')
-        self.assertContains(response, 'type="date"')
-        self.assertContains(response, '<select name="editor-kpis-0-value_kind">')
-        self.assertContains(response, '<select name="editor-biggest-0-status">')
-
-    def test_snapshot_edit_keeps_date_only(self):
-        report = self.cost_report()
-        self.client.force_login(make_superuser("cost-root@example.com"))
-        response = self.client.post(
-            f"/cost/reports/{report.pk}/edit/",
-            self.edit_data(report, **{"editor-biggest-0-date": "2024-02-03"}),
-        )
-        self.assertEqual(response.status_code, 302)
-        report.refresh_from_db()
-        self.assertEqual(report.payload["biggest"][0]["date"], "2024-02-03")
-
-    def test_snapshot_editor_exposes_raw_chart_values_only(self):
-        report = self.make_report()
-        self.client.force_login(self.users["Sales Manager"])
-        response = self.client.get(f"/sales/reports/{report.pk}/edit/")
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'name="editor-trend-0-money"')
-        self.assertContains(response, 'name="editor-trend-0-prev_money"')
-        self.assertNotContains(response, 'name="editor-trend-0-height"')
-        self.assertNotContains(response, 'name="editor-trend-0-prev_h"')
-
-        payload = revenue_payload()
-        payload["profit_rows"] = [{
-            "label": "Jan", "full": "Jan 2024", "profit": 100.0,
-        }]
-        payload["margin_rows"] = [{
-            "label": "Jan", "full": "Jan 2024", "margin": 25.0,
-            "prev_full": "Jan 2023", "prev_margin": 20.0,
-        }]
-        report = self.make_report(module="revenue-and-loss", payload=payload)
-        self.client.force_login(make_superuser("chart-root@example.com"))
-        response = self.client.get(
-            f"/revenue-and-loss/reports/{report.pk}/edit/")
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Gross profit \u00b7 selected period")
-        self.assertContains(response, "Gross margin by month")
-        self.assertContains(response, 'name="editor-profit_rows-0-profit"')
-        self.assertContains(response, 'name="editor-margin_rows-0-prev_margin"')
-
-    def test_snapshot_edit_recalculates_sales_bar_heights(self):
-        report = self.make_report()
-        self.client.force_login(self.users["Sales Manager"])
-        response = self.client.post(
-            f"/sales/reports/{report.pk}/edit/",
-            self.edit_data(report, **{
-                "editor-trend-0-money": "200",
-                "editor-trend-0-prev_money": "100",
-            }),
-        )
-        self.assertEqual(response.status_code, 302)
-        report.refresh_from_db()
-        trend = report.payload["trend"][0]
-        self.assertEqual(trend["money"], 200.0)
-        self.assertEqual(trend["height"], 100.0)
-        self.assertEqual(trend["prev_h"], 50.0)
-
-    def test_snapshot_edit_recalculates_growth_heights(self):
-        payload = customer_payload()
-        payload["growth"] = [{
-            "label": "Jan", "full": "Jan 2024", "act": 30, "nw": 10, "ret": 20,
-            "new_h": 33.33, "ret_h": 66.67,
-        }]
-        report = self.make_report(module="customer-profile", payload=payload)
-        self.client.force_login(make_superuser("growth-root@example.com"))
-        response = self.client.post(
-            f"/customer-profile/reports/{report.pk}/edit/",
-            self.edit_data(report, **{
-                "editor-growth-0-nw": "20",
-                "editor-growth-0-ret": "20",
-            }),
-        )
-        self.assertEqual(response.status_code, 302)
-        report.refresh_from_db()
-        growth = report.payload["growth"][0]
-        self.assertEqual(growth["act"], 40)
-        self.assertEqual(growth["new_h"], 50.0)
-        self.assertEqual(growth["ret_h"], 50.0)
-
-    def test_snapshot_edit_recalculates_revenue_trend_heights(self):
-        payload = revenue_payload()
-        payload["rev_trend"] = [{
-            "label": "Jan", "full": "Jan 2024", "money": 100.0, "height": 50.0,
-            "prev_full": "Jan 2023", "prev_money": 40.0, "prev_h": 20.0,
-        }]
-        report = self.make_report(module="revenue-and-loss", payload=payload)
-        self.client.force_login(make_superuser("rev-trend-root@example.com"))
-        response = self.client.get(
-            f"/revenue-and-loss/reports/{report.pk}/edit/")
-        self.assertContains(response, 'name="editor-rev_trend-0-money"')
-        self.assertNotContains(response, 'name="editor-rev_trend-0-height"')
-        self.assertNotContains(response, 'name="editor-rev_trend-0-prev_h"')
-
-        response = self.client.post(
-            f"/revenue-and-loss/reports/{report.pk}/edit/",
-            self.edit_data(report, **{
-                "editor-rev_trend-0-money": "200",
-                "editor-rev_trend-0-prev_money": "100",
-            }),
-        )
-        self.assertEqual(response.status_code, 302)
-        report.refresh_from_db()
-        trend = report.payload["rev_trend"][0]
-        self.assertEqual(trend["height"], 100.0)
-        self.assertEqual(trend["prev_h"], 50.0)
-
-    def test_snapshot_edit_recalculates_cost_trend_heights(self):
-        payload = cost_payload()
-        payload["trend"] = [{
-            "label": "Jan", "full": "Jan 2024", "money": 100.0, "margin": 10.0,
-            "height": 50.0, "prev_full": "Jan 2023", "prev_money": 40.0,
-            "prev_h": 20.0,
-        }]
-        report = self.make_report(module="cost", payload=payload)
-        self.client.force_login(make_superuser("cost-trend-root@example.com"))
-        response = self.client.get(f"/cost/reports/{report.pk}/edit/")
-        self.assertContains(response, 'name="editor-trend-0-money"')
-        self.assertNotContains(response, 'name="editor-trend-0-height"')
-        self.assertNotContains(response, 'name="editor-trend-0-prev_h"')
-
-        response = self.client.post(
-            f"/cost/reports/{report.pk}/edit/",
-            self.edit_data(report, **{
-                "editor-trend-0-money": "200",
-                "editor-trend-0-prev_money": "100",
-            }),
-        )
-        self.assertEqual(response.status_code, 302)
-        report.refresh_from_db()
-        trend = report.payload["trend"][0]
-        self.assertEqual(trend["height"], 100.0)
-        self.assertEqual(trend["prev_h"], 50.0)
-
-    def test_snapshot_edit_recalculates_combo_geometry(self):
-        payload = revenue_payload()
-        payload["profit_rows"] = [{
-            "label": "Jan", "full": "Jan 2024", "profit": 100.0,
-        }]
-        payload["margin_rows"] = [{
-            "label": "Jan", "full": "Jan 2024", "margin": 25.0,
-            "prev_full": "Jan 2023", "prev_margin": 20.0,
-        }]
-        report = self.make_report(module="revenue-and-loss", payload=payload)
-        self.client.force_login(make_superuser("combo-root@example.com"))
-        response = self.client.post(
-            f"/revenue-and-loss/reports/{report.pk}/edit/",
-            self.edit_data(report, **{
-                "editor-profit_rows-0-profit": "200",
-                "editor-margin_rows-0-margin": "40",
-                "editor-margin_rows-0-prev_margin": "30",
-            }),
-        )
-        self.assertEqual(response.status_code, 302)
-        report.refresh_from_db()
-        combo = report.payload["combo"]
-        self.assertEqual(len(combo["bars"]), 1)
-        self.assertEqual(combo["bars"][0]["h"], 226.0)
-        self.assertIn("$200 gross profit", combo["bars"][0]["t"])
-        self.assertEqual(len(combo["cur_pts"].split()), 1)
-        self.assertEqual(len(combo["prev_pts"].split()), 1)
-        self.assertEqual({dot["cls"] for dot in combo["dots"]}, {"dotc", "dotp"})
-
-    def test_snapshot_editor_backfills_legacy_profit_and_margin_rows(self):
-        payload = revenue_payload()
-        payload.pop("profit_rows")
-        payload.pop("margin_rows")
-        report = self.make_report(module="revenue-and-loss", payload=payload)
-        self.assertNotIn("profit_rows", report.payload)
-        self.assertNotIn("margin_rows", report.payload)
-        self.client.force_login(make_superuser("legacy-root@example.com"))
-        response = self.client.get(
-            f"/revenue-and-loss/reports/{report.pk}/edit/")
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'name="editor-profit_rows-0-profit"')
-        self.assertContains(response, 'name="editor-margin_rows-0-prev_margin"')
-
-        response = self.client.post(
-            f"/revenue-and-loss/reports/{report.pk}/edit/",
-            self.edit_data(report, **{
-                "editor-profit_rows-0-profit": "200",
-                "editor-margin_rows-0-margin": "40",
-                "editor-margin_rows-0-prev_margin": "30",
-            }),
-        )
-        self.assertEqual(response.status_code, 302)
-        report.refresh_from_db()
-        self.assertIn("profit_rows", report.payload)
-        self.assertIn("margin_rows", report.payload)
-        self.assertEqual(report.payload["kpis"], payload["kpis"])
-        self.assertEqual(report.payload["rev_trend"], payload["rev_trend"])
-        self.assertEqual(report.payload["profit_rows"][0]["profit"], 200.0)
-        self.assertEqual(len(report.payload["combo"]["bars"]), 6)
-        self.assertEqual(report.payload["combo"]["bars"][0]["h"], 226.0)
-
-    def test_snapshot_edit_recalculates_donut_from_mix(self):
-        payload = revenue_payload()
-        payload["mix"] = [{
-            "name": "Old", "cls": "c1", "pct": 100, "money": 100.0, "margin": 20.0,
-        }]
-        payload["donut"] = [{
-            "cls": "c1", "pct": 100, "t": "Old", "dash": 376.99, "off": 0,
-        }]
-        report = self.make_report(module="revenue-and-loss", payload=payload)
-        self.client.force_login(make_superuser("donut-root@example.com"))
-        response = self.client.post(
-            f"/revenue-and-loss/reports/{report.pk}/edit/",
-            self.edit_data(report, **{
-                "editor-mix-0-name": "Bikes",
-                "editor-mix-0-money": "250",
-                "editor-mix-0-margin": "40",
-            }),
-        )
-        self.assertEqual(response.status_code, 302)
-        report.refresh_from_db()
-        donut = report.payload["donut"]
-        self.assertEqual(len(donut), 1)
-        self.assertIn("Bikes", donut[0]["t"])
-        self.assertIn("$250", donut[0]["t"])
-        self.assertIn("revenue", donut[0]["t"])
-        self.assertEqual(donut[0]["dash"], 376.99)
-        self.assertEqual(donut[0]["off"], 0)
 
 
 class ReportDataTests(TestCase):
@@ -827,18 +445,23 @@ class ReportDataTests(TestCase):
         self.assertFalse(cost_context["include_country"])
         self.assertEqual(cost_context["country_options"], [])
 
-    def test_generated_snapshot_captures_filter_data_and_describes_filters_in_title(self):
+    def test_generated_snapshot_captures_report_level_filters(self):
         category_id = ProductionProductCategory.objects.get(name="Bikes").pk
         request = RequestFactory().post("/sales/report/generate/", {
             "from": "2024-04-01", "to": "2025-03-31",
             "category": str(category_id), "country": "US",
+            "show_products": "25", "show_low_products": "100",
         })
         request.user = self.root
 
         result = report_generate(request, "sales")
         snapshot = request._captured_snapshot
-        self.assertIn("Categories: Bikes", snapshot.title)
-        self.assertIn("Countries: US", snapshot.title)
+        self.assertEqual(snapshot.title, "Sales report")
+        self.assertEqual(snapshot.filters, {
+            "category_ids": [category_id], "country_codes": ["US"],
+            "show_products": 25, "show_low_products": 100,
+            "sales_metric": "revenue",
+        })
         total = next(row["value"] for row in snapshot.payload["kpis"]
                      if row["label"] == "Total sales")
         self.assertEqual(float(total), 320.0)
@@ -849,6 +472,52 @@ class ReportDataTests(TestCase):
         saved_context = sales(saved_request).context
         self.assertEqual(saved_context["category_ids"], [category_id])
         self.assertEqual(saved_context["country_codes"], ["US"])
+        self.assertEqual(saved_context["show_values"], {"products": 25, "low_products": 100})
+
+    def test_capture_snapshot_builds_a_report_for_the_seed_command(self):
+        request = RequestFactory().get("/sales/")
+        request.user = self.root
+
+        snapshot = capture_snapshot(request, "sales", date(2024, 4, 1), date(2025, 3, 31))
+
+        self.assertIsNotNone(snapshot)
+        self.assertEqual(snapshot.module, "sales")
+        self.assertEqual(snapshot.range_start, date(2024, 4, 1))
+        self.assertEqual(snapshot.range_end, date(2025, 3, 31))
+        self.assertFalse(AuditLog.objects.filter(
+            model="Report", object_pk=str(snapshot.pk)).exists())
+
+    def test_cost_snapshot_saves_and_restores_trend_metric(self):
+        request = RequestFactory().post("/cost/report/generate/", {
+            "from": "2024-04-01", "to": "2025-03-31", "cost_metric": "margin",
+        })
+        request.user = self.root
+        report_generate(request, "cost")
+        snapshot = request._captured_snapshot
+        self.assertEqual(snapshot.filters["cost_metric"], "margin")
+
+        saved_request = RequestFactory().get("/cost/", {"report": snapshot.pk})
+        saved_request.user = self.root
+        saved_context = cost(saved_request).context
+        self.assertEqual(saved_context["cost_metric"], "margin")
+        self.assertEqual(saved_context["chart_filter_value"], "margin")
+        self.assertEqual(saved_context["trend"][0]["chart_value"],
+                         saved_context["trend"][0]["margin"])
+
+        self.client.force_login(self.root)
+        page = self.client.get(f"/cost/?report={snapshot.pk}")
+        self.assertContains(
+            page, '<input type="hidden" name="cost_metric" value="margin">')
+
+        edit_request = RequestFactory().post("/cost/report/generate/", {
+            "from": "2024-04-01", "to": "2025-03-31",
+            "overwrite_report": str(snapshot.pk), "report_name": "Cost report",
+            "cost_metric": "cost",
+        })
+        edit_request.user = self.root
+        report_generate(edit_request, "cost")
+        snapshot.refresh_from_db()
+        self.assertEqual(snapshot.filters["cost_metric"], "cost")
 
     def test_generation_can_create_new_or_overwrite_selected_snapshot(self):
         existing = Report.objects.create(
@@ -857,7 +526,10 @@ class ReportDataTests(TestCase):
             window_label="2023", prev_label="2022", period="the selected range",
             payload=sales_payload(),
         )
-        data = {"from": "2024-04-01", "to": "2025-03-31"}
+        data = {
+            "from": "2024-04-01", "to": "2025-03-31",
+            "report_name": "Updated snapshot",
+        }
         overwrite = RequestFactory().post(
             "/sales/report/generate/", {**data, "overwrite_report": str(existing.pk)})
         overwrite.user = self.root
@@ -865,6 +537,9 @@ class ReportDataTests(TestCase):
         existing.refresh_from_db()
         self.assertEqual(existing.range_start, date(2024, 4, 1))
         self.assertEqual(Report.objects.filter(module="sales").count(), 1)
+        audit = AuditLog.objects.get(
+            model="Report", object_pk=str(existing.pk), action="update")
+        self.assertEqual(audit.changes["title"], ["Old snapshot", "Updated snapshot"])
 
         create_new = RequestFactory().post("/sales/report/generate/", data)
         create_new.user = self.root
@@ -896,6 +571,47 @@ class ReportDataTests(TestCase):
         names = [row["name"] for row in context["cities"]]
         self.assertIn("Springfield, WA", names)
         self.assertIn("Springfield, BC", names)
+
+    def test_top_customers_ranks_stores_and_individuals_together(self):
+        product = ProductionProduct.objects.get(product_number="TB-1")
+        address = PersonAddress.objects.get(address_line1="1 Main")
+        territory = SalesTerritory.objects.get(name="Northwest")
+        person = Person.objects.create(
+            business_entity=PersonBusinessEntity.objects.create(),
+            person_type="IN", first_name="Ada", last_name="Lovelace",
+        )
+        individual = SalesCustomer.objects.create(
+            person=person, territory=territory, account_number="AW00000099")
+        header = SalesOrderHeader.objects.create(
+            order_date=datetime(2024, 6, 15), due_date=datetime(2024, 6, 20),
+            customer=individual, bill_to_address=address, ship_to_address=address,
+            sales_order_number="SO99",
+        )
+        SalesOrderDetail.objects.create(
+            sales_order=header, order_qty=1, product=product,
+            unit_price=Decimal(1000),
+        )
+
+        rows = self.report_context(customer_profile)["biggest"]
+
+        self.assertEqual(rows[0]["name"], "Ada Lovelace")
+        self.assertFalse(rows[0]["store"])
+        self.assertTrue(any(row["store"] for row in rows))
+
+    def test_show_rows_limits_customer_lists(self):
+        from reporting.services.common import _display_rows
+
+        context = {
+            "countries": [{"name": str(i)} for i in range(10)],
+            "cities": [{"name": str(i)} for i in range(10)],
+            "biggest": [{"name": str(i), "rev": i} for i in range(10)],
+        }
+        _display_rows(context, "customer-profile",
+                      {"countries": 3, "cities": 4, "biggest": 5})
+
+        self.assertEqual(len(context["countries"]), 3)
+        self.assertEqual(len(context["cities"]), 4)
+        self.assertEqual([row["rev"] for row in context["biggest"]], [9, 8, 7, 6, 5])
 
     def test_store_network_counts_only_stores_with_sales(self):
         context = self.report_context(customer_profile)
@@ -1031,11 +747,16 @@ class ReportDataTests(TestCase):
         self.assertContains(response, "No data is available for this report.")
         self.assertNotContains(response, "No sales data is available in the database.")
 
-    def test_high_value_panel_is_labeled_as_segmented(self):
+    def test_top_customers_panel_uses_one_overall_list(self):
         self.client.force_login(self.root)
-        response = self.client.get("/customer-profile/?report=")
-        self.assertContains(response, "Top customers by segment")
-        self.assertContains(response, "Top 6 stores and top 3 individuals by revenue")
+        response = self.client.get("/customer-profile/?report=&show_biggest=10")
+        self.assertEqual(response.context["show_values"]["biggest"], 10)
+        self.assertContains(response, "<h3>Top customers</h3>")
+        self.assertContains(response, 'name="show_biggest"')
+        self.assertNotContains(response, "Top customers by segment")
+        self.assertNotContains(response, "show_biggest_stores")
+        self.assertNotContains(response, 'name="customer_segment"')
+        self.assertNotContains(response, "Update chart")
 
     def test_cost_biggest_panel_labels_merchandise(self):
         self.client.force_login(self.root)
@@ -1199,208 +920,6 @@ class UtilsTests(SimpleTestCase):
                      {"name": "ten", "value": 10}], "name", "value")
         self.assertEqual(rows[0]["pct"], 0)
         self.assertEqual(rows[1]["pct"], 100)
-
-
-class PayloadValidationTests(SimpleTestCase):
-    def test_valid_payloads(self):
-        for module, factory in VALID_PAYLOADS.items():
-            with self.subTest(module=module):
-                validate_report_payload(module, factory())
-
-    def test_rejects_non_object(self):
-        with self.assertRaisesMessage(PayloadValidationError, "payload: must be an object"):
-            validate_report_payload("sales", [])
-
-    def test_rejects_unknown_key(self):
-        payload = sales_payload()
-        payload["extra"] = 1
-        with self.assertRaisesMessage(PayloadValidationError, "unexpected key"):
-            validate_report_payload("sales", payload)
-
-    def test_rejects_percentage_over_100(self):
-        payload = sales_payload()
-        payload["products"][0]["pct"] = 900
-        with self.assertRaisesMessage(PayloadValidationError, "must be at most 100"):
-            validate_report_payload("sales", payload)
-
-    def test_rejects_non_finite_number(self):
-        payload = sales_payload()
-        payload["products"][0]["pct"] = float("nan")
-        with self.assertRaisesMessage(PayloadValidationError, "must be finite"):
-            validate_report_payload("sales", payload)
-
-    def test_rejects_mix_not_100(self):
-        payload = revenue_payload()
-        payload["mix"] = [{
-            "name": "Bikes",
-            "cls": "c1",
-            "pct": 90,
-            "money": 90.0,
-            "margin": 10,
-        }]
-        with self.assertRaisesMessage(PayloadValidationError, "pct values must add up to 100"):
-            validate_report_payload("revenue-and-loss", payload)
-
-    def test_rejects_misaligned_profit_and_margin_rows(self):
-        payload = revenue_payload()
-        payload["profit_rows"] = [{
-            "label": "Jan", "full": "Jan 2024", "profit": 100.0,
-        }]
-        with self.assertRaisesMessage(
-                PayloadValidationError, "must align with the gross profit rows"):
-            validate_report_payload("revenue-and-loss", payload)
-
-    def test_rejects_profit_and_margin_rows_with_different_months(self):
-        payload = revenue_payload()
-        payload["profit_rows"] = [{
-            "label": "Jan", "full": "Jan 2024", "profit": 100.0,
-        }]
-        payload["margin_rows"] = [{
-            "label": "Feb", "full": "Feb 2024", "margin": 25.0,
-            "prev_full": "Feb 2023", "prev_margin": 20.0,
-        }]
-        with self.assertRaisesMessage(
-                PayloadValidationError, "must match the gross profit row"):
-            validate_report_payload("revenue-and-loss", payload)
-
-    def test_rejects_donut_not_100(self):
-        payload = revenue_payload()
-        payload["donut"] = [{
-            "cls": "c1",
-            "pct": 90,
-            "t": "Bikes",
-            "dash": 300,
-            "off": 0,
-        }]
-        with self.assertRaisesMessage(PayloadValidationError, "pct values must add up to 100"):
-            validate_report_payload("revenue-and-loss", payload)
-
-    def test_rejects_channel_shares_not_100(self):
-        payload = customer_payload()
-        payload["channels"] = [{
-            "name": "Individuals",
-            "pct": 100,
-            "cust_pct": 90,
-            "cls": "online",
-            "money": 100.0,
-            "customers": 1,
-            "aov": 100.0,
-        }]
-        with self.assertRaisesMessage(PayloadValidationError, "cust_pct values must add up to 100"):
-            validate_report_payload("customer-profile", payload)
-
-    def test_accepts_performance_values_summing_to_100(self):
-        payload = cost_payload()
-        payload["performance"] = {
-            "cost": 80.0,
-            "margin": 20.0,
-            "note": "test",
-        }
-        validate_report_payload("cost", payload)
-
-    def test_rejects_performance_values_not_100(self):
-        payload = cost_payload()
-        payload["performance"] = {
-            "cost": 80.0,
-            "margin": 10.0,
-            "note": "test",
-        }
-        with self.assertRaisesMessage(
-                PayloadValidationError, "cost and margin must add up to 100"):
-            validate_report_payload("cost", payload)
-
-    def test_humanizes_payload_path(self):
-        message = "payload.mix[0].pct: must be at least 0"
-        self.assertEqual(
-            humanize_payload_error(message),
-            "Category mix, row 1, Percent: must be at least 0",
-        )
-
-    def test_rejects_formatted_percentage_string(self):
-        payload = revenue_payload()
-        payload["products"] = [{
-            "id": 1,
-            "name": "Product",
-            "rev": 100.0,
-            "cost": 90.0,
-            "profit": 10.0,
-            "margin": "900%",
-        }]
-        with self.assertRaisesMessage(PayloadValidationError, "must be a number"):
-            validate_report_payload("revenue-and-loss", payload)
-
-    def test_rejects_formatted_money_string(self):
-        payload = sales_payload()
-        payload["products"][0]["value"] = "$100"
-        with self.assertRaisesMessage(PayloadValidationError, "must be a number"):
-            validate_report_payload("sales", payload)
-
-    def test_rejects_bad_class(self):
-        payload = customer_payload()
-        payload["channels"] = [{
-            "name": "Individuals",
-            "pct": 100,
-            "cust_pct": 100,
-            "cls": "bad",
-            "money": 100.0,
-            "customers": 1,
-            "aov": 100.0,
-        }]
-        with self.assertRaisesMessage(PayloadValidationError, "must be one of"):
-            validate_report_payload("customer-profile", payload)
-
-    def test_rejects_bad_date(self):
-        payload = cost_payload()
-        payload["biggest"] = [{
-            "id": 1,
-            "vendor": "Vendor",
-            "date": "not-a-date",
-            "lines": 1,
-            "total": 1.0,
-            "status": "Approved",
-            "cls": "",
-        }]
-        with self.assertRaisesMessage(PayloadValidationError, "must be an ISO date"):
-            validate_report_payload("cost", payload)
-
-    def test_rejects_datetime_date(self):
-        payload = cost_payload()
-        payload["biggest"] = [{
-            "id": 1,
-            "vendor": "Vendor",
-            "date": "2025-06-23T00:00:00",
-            "lines": 1,
-            "total": 1.0,
-            "status": "Approved",
-            "cls": "",
-        }]
-        with self.assertRaisesMessage(PayloadValidationError, "must be an ISO date"):
-            validate_report_payload("cost", payload)
-
-    def test_rejects_negative_cost_kpi(self):
-        payload = cost_payload()
-        payload["kpis"][0]["label"] = "Cost of goods sold"
-        payload["kpis"][0]["value"] = -1
-        with self.assertRaisesMessage(PayloadValidationError, "must be at least 0"):
-            validate_report_payload("cost", payload)
-
-    def test_allows_negative_gross_profit(self):
-        payload = revenue_payload()
-        payload["kpis"][0]["label"] = "Gross profit"
-        payload["kpis"][0]["value"] = -1
-        validate_report_payload("revenue-and-loss", payload)
-
-    def test_rejects_negative_mix_money(self):
-        payload = revenue_payload()
-        payload["mix"] = [{
-            "name": "Bikes",
-            "cls": "c1",
-            "pct": 100,
-            "money": -1,
-            "margin": 10,
-        }]
-        with self.assertRaisesMessage(PayloadValidationError, "must be at least 0"):
-            validate_report_payload("revenue-and-loss", payload)
 
 
 class PrivacyTests(TestCase):

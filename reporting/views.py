@@ -1,4 +1,4 @@
-"""HTTP views for the dashboard, reports, saved-report editor, and table browser."""
+"""HTTP views for the dashboard, reports, saved-report filters, and table browser."""
 import csv
 
 from django import forms
@@ -23,9 +23,9 @@ from django.views.generic import DeleteView, DetailView, ListView, UpdateView
 
 from . import services
 from .constants import LABEL_COLUMNS, META_KEYS, SECTION_LABELS
-from .forms import ReportEditForm
 from .models import PRIVACY_NOTICE_VERSION, AuditLog, Report
 from .services import REPORT_VIEWS, cell, name_needs_joins, shown
+from .services.common import snapshot_name
 from .utils import metric
 from .widgets import SearchSelect
 
@@ -166,62 +166,13 @@ class SnapshotList(SnapshotMixin, ListView):
                 headers = [kpi.get("label", "") for kpi in kpis]
             rows.append({
                 "snapshot": snapshot,
+                "title": snapshot_name(snapshot),
                 "cells": [metric(kpi.get("value"), kpi.get("value_kind", "count"))
                           for kpi in kpis],
             })
         ctx["rows"] = rows
         ctx["kpi_headers"] = headers
         return ctx
-
-
-class SnapshotEdit(SnapshotMixin, UpdateView):
-    perm = "change"
-    page_title = "Edit saved report"
-    template_name = "reporting/snapshot_form.html"
-    context_object_name = "snapshot"
-
-    def get_form_class(self):
-        return ReportEditForm
-
-    def get_context_data(self, **kw):
-        ctx = super().get_context_data(**kw)
-        payload = services.prepare_editor_payload(
-            self.tab, self.object.payload or {}, self.object)
-        ctx["editor_sections"] = services.editor_sections(self.tab, payload)
-        return ctx
-
-    def form_valid(self, form):
-        old = self.model._default_manager.filter(pk=self.object.pk).first()
-        payload = services.prepare_editor_payload(
-            self.tab, self.object.payload or {}, self.object)
-        payload, errors = services.apply_editor(self.tab, payload, self.request.POST)
-        if errors:
-            for message in dict.fromkeys(errors):
-                form.add_error(None, message)
-            return self.form_invalid(form)
-
-        changes = {}
-        if old is not None:
-            for field in form.changed_data:
-                before = getattr(old, field)
-                after = form.cleaned_data.get(field)
-                changes[field] = [
-                    str(before) if before is not None else None,
-                    str(after) if after is not None else None,
-                ]
-            if payload != old.payload:
-                changes["payload"] = ["edited", "edited"]
-
-        form.instance.payload = payload
-        messages.success(self.request, f"Saved {form.instance}.")
-        response = super().form_valid(form)
-        if changes:
-            AuditLog.objects.create(
-                user=self.request.user, username=self.request.user.get_username(),
-                action="update", model=self.model.__name__,
-                object_pk=str(form.instance.pk), object_repr=str(form.instance)[:255],
-                changes=changes, ip_address=self.request.META.get("REMOTE_ADDR"))
-        return response
 
 
 class SnapshotDelete(SnapshotMixin, DeleteView):

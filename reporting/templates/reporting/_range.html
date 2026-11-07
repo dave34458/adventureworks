@@ -1,95 +1,93 @@
 <form class="d-filter" method="get">
- <span class="d-chip flat" title="{% if snapshot %}Saved snapshot generated {{ snapshot.generated_at|date:'M j, Y H:i' }}{% if snapshot.generated_by %} by {{ snapshot.generated_by }}{% endif %}.{% else %}Live data &mdash; not saved. A manager can generate a saved snapshot for this range.{% endif %}">{% if snapshot %}Saved{% else %}Live data{% endif %}</span>
+ <span class="d-chip flat" title="{% if snapshot %}Saved snapshot generated {{ snapshot.generated_at|date:'M j, Y H:i' }}{% if snapshot.generated_by %} by {{ snapshot.generated_by }}{% endif %}.{% else %}Live data &mdash; not saved.{% endif %}">{% if snapshot %}Saved report{% else %}Live data{% endif %}</span>
  <label>Report
   <select name="report" onchange="this.form.submit()">
    <option value="">Live / custom range</option>
    {% for s in snapshots %}
-   <option value="{{ s.pk }}"{% if snapshot and snapshot.pk == s.pk %} selected{% endif %}>{{ s.title|default:s.module }} &middot; {{ s.range_start|date:"M j, Y" }} &ndash; {{ s.range_end|date:"M j, Y" }} &middot; saved {{ s.generated_at|date:"M j, Y H:i" }}</option>
+   <option value="{{ s.pk }}"{% if snapshot and snapshot.pk == s.pk %} selected{% endif %}>{{ s.display_title }} &middot; {{ s.range_start|date:"M j, Y" }} &ndash; {{ s.range_end|date:"M j, Y" }} &middot; saved {{ s.generated_at|date:"M j, Y H:i" }}</option>
    {% endfor %}
   </select>
  </label>
  <noscript><button type="submit">View</button></noscript>
- {% if can_manage and snapshot %}
- <a class="d-btn" href="{{ edit_url }}">Edit stored report</a>
- {% endif %}
- {% if manage_url %}
- <a href="{{ manage_url }}">Manage saved reports</a>
- {% endif %}
+ {% if manage_url %}<a href="{{ manage_url }}">Manage saved reports</a>{% endif %}
  <a class="d-btn" href="{% url 'report_export' tab %}?{{ request.GET.urlencode }}">Export CSV</a>
 </form>
-<form class="d-filter" method="get" id="report-range">
- {% for category in category_ids %}<input type="hidden" name="category" value="{{ category }}">{% endfor %}
- {% for country in country_codes %}<input type="hidden" name="country" value="{{ country }}">{% endfor %}
- {% if chart_filter_name %}<input type="hidden" name="{{ chart_filter_name }}" value="{{ chart_filter_value }}">{% endif %}
- <label>From <input type="date" name="from" value="{{ w_from }}"></label>
- <label>To <input type="date" name="to" value="{{ w_to }}"></label>
- <button type="submit">Apply</button>
+
+<div class="d-filter">
  {% if can_manage %}
- <button type="button" id="open-report-save">{% if snapshot %}Regenerate report{% else %}Generate report{% endif %}</button>
+ <button type="button" id="save-report-button">{% if snapshot %}Edit report{% else %}Generate report{% endif %}</button>
  {% endif %}
- <a href="?report=">Live / reset</a>
-</form>
-{% if can_manage %}
+ {% if filter_preview and snapshot %}<a href="{% url tab %}?report={{ snapshot.pk }}">View saved report</a>{% else %}<a href="?report=">Live / reset</a>{% endif %}
+</div>
+
+{% if can_manage and snapshot %}
+<dialog class="report-edit-dialog" id="report-edit-dialog" aria-labelledby="report-edit-title">
+ <form method="post" action="{% url 'report_generate' tab %}" id="report-edit-form">
+  {% csrf_token %}
+  <input type="hidden" name="overwrite_report" value="{{ snapshot.pk }}">
+  <input type="hidden" name="from" value="{{ w_from }}">
+  <input type="hidden" name="to" value="{{ w_to }}">
+  {% for category in category_ids %}<input type="hidden" name="category" value="{{ category }}">{% endfor %}
+  {% for country in country_codes %}<input type="hidden" name="country" value="{{ country }}">{% endfor %}
+  {% for key, value in show_values.items %}<input type="hidden" name="show_{{ key }}" value="{{ value }}">{% endfor %}
+  {% if chart_filter_name %}<input type="hidden" name="{{ chart_filter_name }}" value="{{ chart_filter_value }}">{% endif %}
+  <header>
+   <h2 id="report-edit-title">Edit report</h2>
+   <p>Save this report with the filters last applied on the page.</p>
+  </header>
+  <label class="report-edit-field">Report name
+   <input type="text" name="report_name" maxlength="120" required value="{{ title }}">
+  </label>
+  <footer class="report-edit-actions">
+   <button type="button" class="secondary" id="cancel-report-edit">Cancel</button>
+   <button type="submit" class="primary">Save report</button>
+  </footer>
+ </form>
+</dialog>
+<script>
+(function () {
+ var button = document.getElementById("save-report-button");
+ var dialog = document.getElementById("report-edit-dialog");
+ button.addEventListener("click", function () { dialog.showModal(); });
+ document.getElementById("cancel-report-edit").addEventListener("click", function () {
+  dialog.close();
+ });
+})();
+</script>
+{% elif can_manage %}
 <form id="report-generate" method="post" action="{% url 'report_generate' tab %}" hidden>
  {% csrf_token %}
  <input type="hidden" name="from" value="{{ w_from }}">
  <input type="hidden" name="to" value="{{ w_to }}">
  <input type="hidden" name="overwrite_report" value="">
- {% for category in category_ids %}<input type="hidden" name="category" value="{{ category }}">{% endfor %}
- {% for country in country_codes %}<input type="hidden" name="country" value="{{ country }}">{% endfor %}
+ {% if chart_filter_name %}<input type="hidden" name="{{ chart_filter_name }}" value="{{ chart_filter_value }}">{% endif %}
 </form>
-<dialog id="report-save-dialog">
- <h3>Save report</h3>
- <p>Save the current data and filters as a new report, or overwrite an existing one.</p>
- <button type="button" id="save-as-new">Save as new report</button>
- {% if snapshots %}
- <p><label>Existing report
-  <select id="overwrite-target">
-   <option value="">Choose a report to overwrite</option>
-   {% for s in snapshots %}<option value="{{ s.pk }}"{% if snapshot and snapshot.pk == s.pk %} selected{% endif %}>{{ s.title|default:s.module }} &middot; {{ s.range_start|date:"M j, Y" }} &ndash; {{ s.range_end|date:"M j, Y" }} &middot; saved {{ s.generated_at|date:"M j, Y H:i" }}</option>{% endfor %}
-  </select>
- </label></p>
- <button type="button" id="save-overwrite" disabled>Overwrite selected report</button>
- {% endif %}
- <button type="button" id="close-report-save">Cancel</button>
-</dialog>
 <script>
 (function () {
  var generate = document.getElementById("report-generate");
- var range = document.getElementById("report-range");
- var dimensions = document.getElementById("report-dimensions");
- var dialog = document.getElementById("report-save-dialog");
- if (!generate || !range || !dialog) return;
- function save(overwriteId) {
-  generate.querySelector('[name="overwrite_report"]').value = overwriteId || "";
-  generate.querySelector('[name="from"]').value = range.querySelector('[name="from"]').value;
-  generate.querySelector('[name="to"]').value = range.querySelector('[name="to"]').value;
-  if (dimensions) {
-   ["category", "country"].forEach(function (name) {
-    generate.querySelectorAll('input[name="' + name + '"]').forEach(function (input) {
-     input.remove();
-    });
-    dimensions.querySelectorAll('input[name="' + name + '"]:checked').forEach(function (checked) {
-     var input = document.createElement("input");
-     input.type = "hidden";
-     input.name = name;
-     input.value = checked.value;
-     generate.appendChild(input);
-    });
+ var button = document.getElementById("save-report-button");
+ if (!generate || !button) return;
+ button.addEventListener("click", function () {
+  var range = document.getElementById("report-dimensions");
+  if (!range) return;
+  var values = new FormData(range);
+  ["from", "to"].forEach(function (key) {
+   generate.querySelector('[name="' + key + '"]').value = values.get(key);
+  });
+  ["category", "country"].forEach(function (key) {
+   values.getAll(key).forEach(function (value) {
+    var input = Object.assign(document.createElement("input"), {type: "hidden", name: key, value: value});
+    generate.appendChild(input);
    });
-  }
+  });
+  values.forEach(function (value, key) {
+   if (key.indexOf("show_") === 0) {
+    var input = Object.assign(document.createElement("input"), {type: "hidden", name: key, value: value});
+    generate.appendChild(input);
+   }
+  });
   generate.requestSubmit();
- }
- document.getElementById("open-report-save").addEventListener("click", function () { dialog.showModal(); });
- document.getElementById("save-as-new").addEventListener("click", function () { save(""); });
- document.getElementById("close-report-save").addEventListener("click", function () { dialog.close(); });
- var target = document.getElementById("overwrite-target");
- var overwrite = document.getElementById("save-overwrite");
- if (target && overwrite) {
-  target.addEventListener("change", function () { overwrite.disabled = !target.value; });
-  overwrite.addEventListener("click", function () { if (target.value) save(target.value); });
-  overwrite.disabled = !target.value;
- }
+ });
 })();
 </script>
 {% endif %}

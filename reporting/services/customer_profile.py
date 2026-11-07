@@ -21,7 +21,7 @@ def customer_profile(request):
     saved = _saved_report(request, "customer-profile", "reporting/customer-profile/report.html")
     if saved:
         return saved
-    filters = report_dimension_filters(request, include_country=True)
+    filters = report_dimension_filters(request, "customer-profile", include_country=True)
     line_filter, line_params = dimension_sql(filters)
     header_filter, header_params = dimension_sql(
         filters, product_ref=None, order_ref="h.SalesOrderID")
@@ -215,7 +215,7 @@ def customer_profile(request):
             WHERE h.OrderDate >= %s AND h.OrderDate <= %s{line_filter}
             GROUP BY co.Name
             ORDER BY rev DESC
-            {limit_clause(6)}
+            {limit_clause(100)}
             """,
             [cur_lo, cur_hi] + line_params,
         )
@@ -255,7 +255,7 @@ def customer_profile(request):
             WHERE h.OrderDate >= %s AND h.OrderDate <= %s{line_filter}
             GROUP BY a.City, sp.StateProvinceCode, sp.CountryRegionCode
             ORDER BY rev DESC
-            {limit_clause(8)}
+            {limit_clause(100)}
             """,
             [cur_lo, cur_hi] + line_params,
         )
@@ -343,10 +343,11 @@ def customer_profile(request):
     frequency = rank([{"name": k, "n": v} for k, v in buckets.items()], "name", "n")
 
     biggest = []
-    with connection.cursor() as c:  # chart 8: biggest buyers (stores, then individuals)
+    with connection.cursor() as c:  # chart 8: biggest buyers overall
         c.execute(
             f"""
             SELECT h.CustomerID, s.Name, p.FirstName, p.LastName, t.Name,
+                   CASE WHEN cu.StoreID IS NOT NULL THEN 1 ELSE 0 END AS is_store,
                    COUNT(DISTINCT h.SalesOrderID) AS orders,
                    SUM(d.LineTotal) AS rev
             FROM Sales_SalesOrderDetail d
@@ -355,42 +356,20 @@ def customer_profile(request):
             LEFT JOIN Sales_Store s ON s.BusinessEntityID = cu.StoreID
             LEFT JOIN Person_Person p ON p.BusinessEntityID = cu.PersonID
             LEFT JOIN Sales_SalesTerritory t ON t.TerritoryID = cu.TerritoryID
-            WHERE h.OrderDate >= %s AND h.OrderDate <= %s AND cu.StoreID IS NOT NULL{line_filter}
-            GROUP BY h.CustomerID, s.Name, p.FirstName, p.LastName, t.Name
+            WHERE h.OrderDate >= %s AND h.OrderDate <= %s{line_filter}
+            GROUP BY h.CustomerID, s.Name, p.FirstName, p.LastName, t.Name, cu.StoreID
             ORDER BY rev DESC
-            {limit_clause(6)}
+            {limit_clause(100)}
             """,
             [cur_lo, cur_hi] + line_params,
         )
-        store_buyers = c.fetchall()
-
-        c.execute(
-            f"""
-            SELECT h.CustomerID, s.Name, p.FirstName, p.LastName, t.Name,
-                   COUNT(DISTINCT h.SalesOrderID) AS orders,
-                   SUM(d.LineTotal) AS rev
-            FROM Sales_SalesOrderDetail d
-            JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
-            JOIN Sales_Customer cu ON cu.CustomerID = h.CustomerID
-            LEFT JOIN Sales_Store s ON s.BusinessEntityID = cu.StoreID
-            LEFT JOIN Person_Person p ON p.BusinessEntityID = cu.PersonID
-            LEFT JOIN Sales_SalesTerritory t ON t.TerritoryID = cu.TerritoryID
-            WHERE h.OrderDate >= %s AND h.OrderDate <= %s AND cu.StoreID IS NULL{line_filter}
-            GROUP BY h.CustomerID, s.Name, p.FirstName, p.LastName, t.Name
-            ORDER BY rev DESC
-            {limit_clause(3)}
-            """,
-            [cur_lo, cur_hi] + line_params,
-        )
-        individual_buyers = c.fetchall()
-
-    for is_store, rows in ((True, store_buyers), (False, individual_buyers)):
-        for customer_id, store_name, first, last, territory, orders, buyer_total in rows:
+        for (customer_id, store_name, first, last, territory, is_store,
+             orders, buyer_total) in c.fetchall():
             name = store_name or " ".join(x for x in (first, last) if x)
             biggest.append({
-                "id": customer_id, "name": name or f"Customer {customer_id}", "store": is_store,
-                "territory": territory or "\u2014", "orders": int(orders or 0),
-                "rev": float(buyer_total or 0),
+                "id": customer_id, "name": name or f"Customer {customer_id}",
+                "store": bool(is_store), "territory": territory or "\u2014",
+                "orders": int(orders or 0), "rev": float(buyer_total or 0),
             })
 
     avg_spend = (rev / actives) if actives else None

@@ -76,7 +76,7 @@ We built the panels first, then worked backward to the question each panel answe
 | Customer distribution by city (revenue by ship-to city) | Which ship-to cities generate the most merchandise revenue? |
 | Customer segmentation by business type | Which store business types account for merchandise revenue, how many stores in each type had sales, and what was their average square footage? |
 | Purchase frequency | How many distinct buyers placed 1, 2, 3-4, 5-9, or 10+ orders in the period? |
-| Top customers by segment | Which six stores and three individuals generated the most merchandise revenue, and what were their territories, order counts, and revenue? (Ranked separately.) |
+| Top customers | Which stores and individuals generated the most merchandise revenue, and what were their territories, order counts, and revenue? (Combined ranking.) |
 
 ### Revenue and Loss Report
 
@@ -412,6 +412,7 @@ erDiagram
         str prev_label
         str period
         bool custom
+        json filters
         json payload
         dt generated_at
         dt updated_at
@@ -447,7 +448,8 @@ erDiagram
     auth_user |o--o{ audit_log : "changed by"
 ```
 
-The app also owns `reports` (saved report snapshots), `audit_log` (edit/delete audit trail),
+The app also owns `reports` (saved report snapshots with generated `payload` and extensible JSON
+`filters`), `audit_log` (edit/delete audit trail),
 `auth_user` and the standard Django `auth_*`, `django_session`, `django_migrations`,
 `django_admin_log` and `django_content_type` tables. `TabAccess` is `managed = False`; it exists only
 to create the four tab permissions.
@@ -725,7 +727,10 @@ High-fidelity wireframes for the highlighted report and management pages.
 
 ![Saved reports list](screenshots/saved-reports.png)
 
-![Edit saved report](screenshots/saved-report-edit.png)
+Existing reports keep their date, product-category, country, row-count, and chart-metric choices
+visible on the report page. Apply filters to preview the report there, then choose **Edit report**
+to confirm saving the filters and updated data over the existing report. The report name remains
+editable.
 
 **Administration**
 
@@ -751,8 +756,8 @@ High-fidelity wireframes for the highlighted report and management pages.
 | Open a department tab (`access_<tab>`) | All four tabs | Own tab | Own tab | Own tab |
 | View department source tables (`view_<table>`) | All 19 | Own department | Own department | No |
 | View saved reports | All modules | Own module | Own module | Own module |
-| Generate/regenerate a saved report (`change_report`) | Yes | Yes | No | No |
-| Edit/delete a saved report (`change_report`, `delete_report`) | Yes | Yes | No | No |
+| Generate or update a saved report (`change_report`) | Yes | Yes | No | No |
+| Change a saved report's name or report-level filters; delete a saved report | Yes | Yes | No | No |
 | Edit/delete source-table rows (`change_<table>`, `delete_<table>`) | Yes | No | No | No |
 | Open `/manage/` (users, groups, privacy, audit) | Yes | No | No | No |
 

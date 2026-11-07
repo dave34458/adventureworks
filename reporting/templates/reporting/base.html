@@ -127,8 +127,18 @@
  .d-filter .d-check-options label{display:inline-flex;align-items:center;gap:.25rem}
  .d-filter .d-check-options input{margin:0;padding:0}
  .d-filter .d-check-filter small{color:#697789;font-size:.72rem}
- #report-save-dialog{width:min(30rem,calc(100vw - 2rem));border:0;border-radius:10px;padding:1.2rem;box-shadow:0 12px 40px #17263a55}
- #report-save-dialog::backdrop{background:#14203388}
+ .report-edit-dialog{box-sizing:border-box;width:min(32rem,calc(100vw - 2rem));max-height:calc(100vh - 2rem);overflow:auto;border:1px solid #ccd3dc;border-radius:12px;padding:1.2rem;box-shadow:0 18px 48px rgba(18,28,40,.3);color:#1d2733}
+ .report-edit-dialog::backdrop{background:rgba(20,32,51,.55)}
+ .report-edit-dialog form{display:grid;gap:.9rem}
+ .report-edit-dialog header h2{margin:0 0 .25rem;color:#1f3a5f;font-size:1.25rem}
+ .report-edit-dialog header p{margin:0;color:#526172;font-size:.88rem}
+ .report-edit-field{display:grid;gap:.3rem;font-weight:600;color:#344253}
+ .report-edit-field input{box-sizing:border-box;min-height:2.4rem;border:1px solid #aebbc9;border-radius:6px;padding:.4rem .55rem;font:inherit;font-weight:400;color:#1d2733;background:#fff}
+ .report-edit-field input:focus-visible{outline:3px solid #7fa3c8;outline-offset:2px}
+ .report-edit-actions{display:flex;justify-content:flex-end;gap:.55rem;margin-top:.2rem}
+ .report-edit-actions button{border:0;border-radius:6px;padding:.45rem .85rem;font:inherit;font-weight:600;cursor:pointer}
+ .report-edit-actions .primary{background:#1f3a5f;color:#fff}
+ .report-edit-actions .secondary{background:#e9eef5;color:#1f3a5f}
  .d-line .profitbar{fill:#e0a63c;fill-opacity:.85}
  .d-line .profitbar:hover{fill-opacity:1}
  .d-legend .sq{width:.65rem;height:.65rem;border-radius:2px;background:#e0a63c;align-self:center;flex:none}

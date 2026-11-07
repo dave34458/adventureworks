@@ -61,14 +61,15 @@ class AuditLog(models.Model):
 # ---------------------------------------------------------------------------
 # Hand-written (not generated): saved report snapshots.
 #
-# One table holds saved reports per module/range. All KPI and panel data lives in
-# `payload`. The report views read the saved row instead of running the aggregate SQL,
-# which keeps saved pages fast. A range with no snapshot falls back to the live query.
+# One table holds saved report snapshots; multiple snapshots can share a module and range.
+# KPI and panel data lives in `payload`;
+# selected report-level filters live in `filters`. Saved pages read the row instead of
+# running aggregate SQL, which keeps them fast. A range with no snapshot uses live data.
 
 
 class Report(models.Model):
     """One saved report row. `module` selects the panel; all KPI and panel data lives
-    in `payload`."""
+    in `payload`, with the applied report-level filters in `filters`."""
 
     MODULES = [
         ("sales", "Sales"),
@@ -88,6 +89,7 @@ class Report(models.Model):
     prev_label = models.CharField(max_length=120)
     period = models.CharField(max_length=120)
     custom = models.BooleanField(default=False)
+    filters = models.JSONField(default=dict, blank=True)
     payload = models.JSONField(default=dict, encoder=DjangoJSONEncoder)
 
     generated_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True,
@@ -101,3 +103,12 @@ class Report(models.Model):
 
     def __str__(self):
         return f"{self.get_module_display()} {self.range_start} \u2013 {self.range_end}"
+
+    @property
+    def display_title(self):
+        """Return the editable report name, removing filter text from legacy titles."""
+        title = self.title or self.module
+        if not self.filters:
+            for marker in (" | Categories: ", " | Countries: "):
+                title = title.split(marker, 1)[0]
+        return title.strip()

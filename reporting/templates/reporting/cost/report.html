@@ -74,6 +74,7 @@
  <section class="d-tops">
   <div class="d-panel">
    <h3>Significant cost contributors: vendors</h3>
+   {% include "reporting/_show_rows.html" with key="vendors" selected=show_values.vendors form_id="report-dimensions" %}
    <p class="sub">Merchandise purchase spend, excl. tax &amp; freight · {{ period }}</p>
    <ul class="d-rank">
     {% for r in vendors %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value|fmt_money }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
@@ -81,6 +82,7 @@
   </div>
   <div class="d-panel">
    <h3>Significant cost contributors: products</h3>
+   {% include "reporting/_show_rows.html" with key="products" selected=show_values.products form_id="report-dimensions" %}
    <p class="sub">Cost of goods sold by product · {{ period }}</p>
    <ul class="d-rank">
     {% for r in products %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value|fmt_money }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
@@ -88,6 +90,7 @@
   </div>
   <div class="d-panel">
    <h3>{% if scrap_metric == "cost" %}Significant cost contributors: scrap{% else %}Significant scrap contributors{% endif %}</h3>
+   {% include "reporting/_show_rows.html" with key="reasons" selected=show_values.reasons form_id="report-dimensions" %}
    <p class="sub">{% if scrap_metric == "cost" %}Estimated scrap cost at work-order standard cost{% else %}Units scrapped in manufacturing{% endif %} · {{ period }}</p>
    <ul class="d-rank">
     {% for r in reasons %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{% if scrap_metric == "cost" %}{{ r.value|fmt_money }}{% else %}{{ r.value|fmt_units }}{% endif %}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
@@ -95,6 +98,7 @@
   </div>
   <div class="d-panel">
    <h3>Significant cost contributors: repricing</h3>
+   {% include "reporting/_show_rows.html" with key="changes" selected=show_values.changes form_id="report-dimensions" %}
    <p class="sub">Earliest recorded standard cost vs today</p>
    <ul class="d-rank">
     {% for r in changes %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.old|fmt_money_exact }} &rarr; {{ r.now|fmt_money_exact }}</span><span class="d-chip up">{{ r.pct|fmt_signed_percent }}</span></div><div class="tbar"><i style="width:{{ r.pct|fmt_pct_width }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
@@ -104,6 +108,7 @@
 
  <section class="d-panel">
   <h3>Biggest purchase orders</h3>
+  {% include "reporting/_show_rows.html" with key="biggest" selected=show_values.biggest form_id="report-dimensions" %}
   <p class="sub">Largest non-rejected purchase orders by merchandise value · excl. tax &amp; freight · {{ period }}</p>
   <div class="scroll">
   <table class="d-table">

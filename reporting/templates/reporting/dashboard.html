@@ -6,7 +6,7 @@
 {% else %}
 <p class="muted d-sub">{{ empty_message }}</p>
 {% endif %}
-<form class="d-filter" method="get">
+<form class="d-filter" method="get" id="dashboard-filters">
  <label>From <input type="date" name="from" value="{{ w_from }}"></label>
  <label>To <input type="date" name="to" value="{{ w_to }}"></label>
  <label>Category <select name="category"><option value="">All categories</option>{% for c in categories %}<option value="{{ c.id }}"{% if c.id == category_id %} selected{% endif %}>{{ c.name }}</option>{% endfor %}</select></label>
@@ -46,7 +46,7 @@
   <div class="d-panel">
    {% if selected_category %}
    <h3>Top products in {{ selected_category.name }}</h3>
-   <p class="sub">Ranked by {{ metric_lower }} · {{ period }} · <a href="{% if custom %}?from={{ w_from }}&amp;to={{ w_to }}{% else %}?{% endif %}">All categories</a></p>
+   <p class="sub">Ranked by {{ metric_lower }} · {{ period }} · <a href="{% if custom %}?from={{ w_from }}&amp;to={{ w_to }}&amp;{% else %}?{% endif %}show_products={{ show_values.products }}">All categories</a></p>
    {% if products_top %}
    <ul class="d-rank">
     {% for r in products_top %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div></li>{% endfor %}
@@ -70,7 +70,7 @@
       {% for c in category_rows %}
       <div class="d-legend">
       <span class="dot {{ c.cls }}"></span>
-      <span class="nm"><a href="?{% if custom %}from={{ w_from }}&amp;to={{ w_to }}&amp;{% endif %}category={{ c.id }}">{{ c.name }}</a></span>
+      <span class="nm"><a href="?{% if custom %}from={{ w_from }}&amp;to={{ w_to }}&amp;{% endif %}category={{ c.id }}&amp;show_products={{ show_values.products }}">{{ c.name }}</a></span>
       <span class="vl">{{ c.pct }}%</span>
       <span class="mt">{{ c.value }}{% if show_profit %} · {{ c.margin }}% margin{% endif %}</span>
      </div>
@@ -132,7 +132,8 @@
  {% if products %}
  <section class="d-panel">
   <h3>Top products by {{ metric_lower }}</h3>
-  <p class="sub">Top 10 aggregated from sales-order lines · {{ period }}{% if selected_category %} · {{ selected_category.name }}{% endif %}</p>
+  <p class="sub">Top {{ show_values.products }} aggregated from sales-order lines · {{ period }}{% if selected_category %} · {{ selected_category.name }}{% endif %}</p>
+  {% include "reporting/_show_rows.html" with key="products" selected=show_values.products form_id="dashboard-filters" %}
   <div class="scroll">
   <table class="d-table">
    <tr><th>Product</th><th class="d-hide-m">Category</th><th class="num d-hide-m">Units</th><th class="num">{{ metric_name }}</th>{% if show_profit %}<th class="num">Gross profit</th><th class="num">Margin</th>{% endif %}</tr>
