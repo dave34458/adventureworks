@@ -19,6 +19,7 @@ class TabAccess(models.Model):
             ("access_customer_profile", "Can open the Customer profile tab"),
             ("access_revenue_and_loss", "Can open the Revenue and loss tab"),
             ("access_cost", "Can open the Cost tab"),
+            ("manage_department_users", "Can manage users in the department"),
         ]
 
 
@@ -29,12 +30,9 @@ PRIVACY_NOTICE_VERSION = "1.0"
 
 
 class AuditLog(models.Model):
-    """One row per edit or deletion made through the table pages: who changed which
-    record, when, and the old and new values. Written by the shared edit and delete
-    views; visible read-only at /manage/ and retained for twelve months per the
-    privacy notice."""
+    """One row per report, table, or account change."""
 
-    ACTIONS = [("update", "update"), ("delete", "delete")]
+    ACTIONS = [("create", "create"), ("update", "update"), ("delete", "delete")]
 
     user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True,
                              on_delete=models.SET_NULL, related_name="audit_log")

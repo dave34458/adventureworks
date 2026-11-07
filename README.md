@@ -19,8 +19,8 @@ As of this report, the project has finished the following:
 - The code is split into three Django apps: `accounts` (login, account, roles), `core` (19
   AdventureWorks warehouse models), and `reporting` (dashboard, reports, snapshots, audit and
   table browser).
-- We implemented 12 department roles plus the global Administrator, and seeded 13 demo accounts
-  (one Administrator and one login per role).
+- We implemented 16 department roles plus the global Administrator, and seed one demo login per
+  department role.
 - The test suite passes 73/73 on SQL Server. `manage.py check`, `makemigrations --check` and
   `migrate --check` are clean.
 - The app is deployed on Cloud Run: https://adventureworks-4cfcg3oqqq-uc.a.run.app. Cloud SQL is
@@ -744,22 +744,23 @@ editable.
 
 - **Administrator** = a superuser (`admin@example.com`). It can open every tab and every table, and
   manage users, groups, the privacy notice and audit records. There is no Administrator group.
-- **Department roles** are 12 Django groups: Manager, Supervisor and Employee for each of four
+- **Department roles** are 16 Django groups: Manager, Supervisor, Employee and Admin for each of four
   departments. Each department gets exactly one tab:
   - Sales -> Sales
   - Marketing -> Customer Profile
   - Finance -> Revenue and Loss
   - Production -> Cost
 
-| Capability | Administrator | Manager | Supervisor | Employee |
-|---|---|---|---|---|
-| Open a department tab (`access_<tab>`) | All four tabs | Own tab | Own tab | Own tab |
-| View department source tables (`view_<table>`) | All 19 | Own department | Own department | No |
-| View saved reports | All modules | Own module | Own module | Own module |
-| Generate or update a saved report (`change_report`) | Yes | Yes | No | No |
-| Change a saved report's name or report-level filters; delete a saved report | Yes | Yes | No | No |
-| Edit/delete source-table rows (`change_<table>`, `delete_<table>`) | Yes | No | No | No |
-| Open `/manage/` (users, groups, privacy, audit) | Yes | No | No | No |
+| Capability | Administrator | Manager | Supervisor | Employee | Department Admin |
+|---|---|---|---|---|---|
+| Open a department tab (`access_<tab>`) | All four tabs | Own tab | Own tab | Own tab | Own tab |
+| View department source tables (`view_<table>`) | All 19 | Own department | Own department | No | Own department |
+| View saved reports | All modules | Own module | Own module | Own module | Own module |
+| Generate or update a saved report (`change_report`) | Yes | Yes | No | No | No |
+| Change a saved report's name or report-level filters; delete a saved report | Yes | Yes | No | No | No |
+| Edit/delete source-table rows (`change_<table>`, `delete_<table>`) | Yes | No | No | No | No |
+| Manage users and view department audit | All users | No | No | No | Own department |
+| Open `/manage/` (global users, groups, audit) | Yes | No | No | No | No |
 
 | Department | Tab | Source tables for Manager/Supervisor |
 |---|---|---|

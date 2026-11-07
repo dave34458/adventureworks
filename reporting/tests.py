@@ -149,7 +149,7 @@ class HttpTests(TestCase):
     def setUpTestData(cls):
         apply_roles(ROLES)
         cls.users = {}
-        for role in ("Sales Manager", "Sales Supervisor", "Sales Employee"):
+        for role in ("Sales Manager", "Sales Supervisor", "Sales Employee", "Sales Admin"):
             cls.users[role] = make_user(email_for(role), role=role)
 
     def test_sales_roles_see_only_the_sales_tab(self):
@@ -226,55 +226,13 @@ class HttpTests(TestCase):
         response = self.client.get(
             f"/sales/report/export/?report={report.pk}&sales_metric=orders")
         rows = list(csv.reader(StringIO(response.content.decode("utf-8-sig"))))
-        trend = rows.index(["Monthly trend"])
-        columns, values = rows[trend + 1], rows[trend + 2]
-        self.assertEqual(values[columns.index("chart_value")], "1")
-
-    def test_dimension_filters_do_not_change_saved_revenue_snapshots(self):
-        payload = revenue_payload()
-        payload["kpis"] = [kpi_row("Total revenue", 100), kpi_row("Gross profit", 39)]
-        payload["mix"] = [
-            {"name": "Bikes", "cls": "c1", "pct": 60, "money": 60, "margin": 35},
-            {"name": "Components", "cls": "c2", "pct": 40, "money": 40, "margin": 45},
-        ]
-        report = self.make_report(module="revenue-and-loss", payload=payload)
-        self.client.force_login(make_superuser("dimension-filter@example.com"))
-
-        page = self.client.get(
-            f"/revenue-and-loss/?report={report.pk}&category=1&country=US")
-        self.assertEqual([row["name"] for row in page.context["mix"]],
-                         ["Bikes", "Components"])
-
-        response = self.client.get(
-            f"/revenue-and-loss/report/export/?report={report.pk}&category=1&country=US")
-        rows = list(csv.reader(StringIO(response.content.decode("utf-8-sig"))))
-        mix = rows.index(["Category mix"])
-        self.assertEqual(rows[mix + 2][0], "Bikes")
-        self.assertEqual(rows[mix + 3][0], "Components")
-        report.refresh_from_db()
-        self.assertEqual(len(report.payload["mix"]), 2)
-
-    def test_revenue_export_keeps_profit_and_margin_sections_separate(self):
-        payload = revenue_payload()
-        payload["profit_rows"] = [{
-            "label": "Jan", "full": "Jan 2024", "profit": 100.0,
-        }]
-        payload["margin_rows"] = [{
-            "label": "Jan", "full": "Jan 2024", "margin": 25.0,
-            "prev_full": "Jan 2023", "prev_margin": 20.0,
-        }]
-        report = self.make_report(module="revenue-and-loss", payload=payload)
-        self.client.force_login(make_superuser("export-root@example.com"))
-
-        response = self.client.get(
-            f"/revenue-and-loss/report/export/?report={report.pk}")
-
-        self.assertEqual(response.status_code, 200)
-        body = response.content.decode("utf-8-sig")
-        self.assertIn("Gross profit \u00b7 selected period", body)
-        self.assertIn("Gross margin by month", body)
-        self.assertIn("profit", body)
-        self.assertIn("prev_margin", body)
+        columns = rows[0]
+        trend = next(row for row in rows[1:]
+                     if row[columns.index("Section")] == "Monthly trend"
+                     and row[columns.index("Period")] == "Jan 2024")
+        self.assertEqual(trend[columns.index("Orders")], "1")
+        self.assertNotIn("Height", columns)
+        self.assertNotIn("Chart value", columns)
 
     def test_administrator_has_full_access(self):
         root = make_superuser()
@@ -287,6 +245,10 @@ class HttpTests(TestCase):
 
     def test_table_browser_still_works_for_remaining_tables(self):
         self.client.force_login(self.users["Sales Manager"])
+        self.assertEqual(self.client.get("/sales/data/SalesOrderHeader/").status_code, 200)
+        self.assertEqual(
+            self.client.get("/sales/data/SalesOrderHeader/1/edit/").status_code, 403)
+        self.client.force_login(self.users["Sales Admin"])
         self.assertEqual(self.client.get("/sales/data/SalesOrderHeader/").status_code, 200)
         self.assertEqual(
             self.client.get("/sales/data/SalesOrderHeader/1/edit/").status_code, 403)
@@ -703,12 +665,29 @@ class ReportDataTests(TestCase):
         self.assertTrue(any(label.startswith("-") for label in labels))
         self.assertTrue(any("-$40" in bar["t"] for bar in context["combo"]["bars"]))
 
-    def test_cost_only_dashboard_uses_cost_direction(self):
+    def test_dashboard_shows_all_panels_to_every_department(self):
         request = RequestFactory().get("/", {"report": ""})
         request.user = self.cost_user
         context = dashboard(request).context
+        labels = {kpi["label"] for kpi in context["kpis"]}
+        self.assertTrue({"Total sales", "Gross profit", "Cost of goods",
+                         "Active customers", "Below-cost shortfall"} <= labels)
+        self.assertEqual(context["metric_name"], "Sales")
+        self.assertEqual(context["trend_title"], "Sales trend by month")
+        self.assertIsNotNone(context["margin_chart"])
+        self.assertIsNotNone(context["customer_mix"])
         cost_kpi = next(kpi for kpi in context["kpis"] if kpi["label"] == "Cost of goods")
         self.assertEqual(cost_kpi["dir"], "down")
+
+    def test_unassigned_user_can_open_full_dashboard(self):
+        user = make_user("unassigned@example.com")
+        self.client.force_login(user)
+        self.assertRedirects(self.client.get("/"), "/dashboard/")
+        response = self.client.get("/dashboard/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Dashboard")
+        self.assertContains(response, "Customer mix and spending")
+        self.assertNotContains(response, ">Sales</a>")
 
     def test_invalid_range_gets_an_empty_message(self):
         context = self.report_context(

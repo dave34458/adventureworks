@@ -8,16 +8,14 @@
    {% endfor %}
   </select>
  </label>
+ {% if can_manage %}<button type="button" id="save-report-button">{% if snapshot %}Edit report{% else %}Generate report{% endif %}</button>{% endif %}
  <noscript><button type="submit">View</button></noscript>
- {% if manage_url %}<a href="{{ manage_url }}">Manage saved reports</a>{% endif %}
+ {% if manage_url %}<a class="d-btn" href="{{ manage_url }}">Manage saved reports</a>{% endif %}
  <a class="d-btn" href="{% url 'report_export' tab %}?{{ request.GET.urlencode }}">Export CSV</a>
 </form>
 
 <div class="d-filter">
- {% if can_manage %}
- <button type="button" id="save-report-button">{% if snapshot %}Edit report{% else %}Generate report{% endif %}</button>
- {% endif %}
- {% if filter_preview and snapshot %}<a href="{% url tab %}?report={{ snapshot.pk }}">View saved report</a>{% else %}<a href="?report=">Live / reset</a>{% endif %}
+ {% if filter_preview and snapshot %}<a href="{% url tab %}?report={{ snapshot.pk }}">View saved report</a>{% endif %}
 </div>
 
 {% if can_manage and snapshot %}

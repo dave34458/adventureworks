@@ -72,7 +72,7 @@
       <span class="dot {{ c.cls }}"></span>
       <span class="nm"><a href="?{% if custom %}from={{ w_from }}&amp;to={{ w_to }}&amp;{% endif %}category={{ c.id }}&amp;show_products={{ show_values.products }}">{{ c.name }}</a></span>
       <span class="vl">{{ c.pct }}%</span>
-      <span class="mt">{{ c.value }}{% if show_profit %} · {{ c.margin }}% margin{% endif %}</span>
+      <span class="mt">{{ c.value }} · {{ c.margin }}% margin</span>
      </div>
      {% endfor %}
     </div>
@@ -136,14 +136,14 @@
   {% include "reporting/_show_rows.html" with key="products" selected=show_values.products form_id="dashboard-filters" %}
   <div class="scroll">
   <table class="d-table">
-   <tr><th>Product</th><th class="d-hide-m">Category</th><th class="num d-hide-m">Units</th><th class="num">{{ metric_name }}</th>{% if show_profit %}<th class="num">Gross profit</th><th class="num">Margin</th>{% endif %}</tr>
+   <tr><th>Product</th><th class="d-hide-m">Category</th><th class="num d-hide-m">Units</th><th class="num">{{ metric_name }}</th><th class="num">Gross profit</th><th class="num">Margin</th></tr>
    {% for p in products %}
    <tr>
     <td>{{ p.name }}</td>
     <td class="d-hide-m">{{ p.category }}</td>
     <td class="num d-hide-m">{{ p.units }}</td>
     <td class="num">{{ p.value }}</td>
-    {% if show_profit %}<td class="num">{{ p.profit }}</td><td class="num">{{ p.margin }}</td>{% endif %}
+    <td class="num">{{ p.profit }}</td><td class="num">{{ p.margin }}</td>
    </tr>
    {% endfor %}
   </table>

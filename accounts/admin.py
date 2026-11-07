@@ -14,6 +14,7 @@ from django.utils.html import format_html
 
 from .models import User
 from .roles import ADMIN_ROLE, ROLE_CHOICES
+from reporting.models import AuditLog
 
 
 class EmailAdminAuthenticationForm(AdminAuthenticationForm):
@@ -123,6 +124,71 @@ class UserAdmin(BaseUserAdmin):
         fields = [field for field in fields if field != "role"]
         return super().get_form(
             request, obj, change=change, fields=fields, **kwargs)
+
+    def save_model(self, request, obj, form, change):
+        old = User.objects.get(pk=obj.pk) if change else None
+        request._audit_user_before = {
+            "email": old.email, "first_name": old.first_name, "last_name": old.last_name,
+            "is_active": old.is_active,
+            "role": ADMIN_ROLE if old.is_superuser else old.groups.values_list(
+                "name", flat=True).first(),
+        } if old else None
+        super().save_model(request, obj, form, change)
+
+    def save_related(self, request, form, formsets, change):
+        super().save_related(request, form, formsets, change)
+        user = form.instance
+        after = {
+            "email": user.email, "first_name": user.first_name, "last_name": user.last_name,
+            "is_active": user.is_active,
+            "role": ADMIN_ROLE if user.is_superuser else user.groups.values_list(
+                "name", flat=True).first(),
+        }
+        before = request._audit_user_before
+        changes = ({key: [before.get(key), value] for key, value in after.items()}
+                   if before is None else {
+                       key: [before[key], value] for key, value in after.items()
+                       if before[key] != value
+                   })
+        if changes:
+            AuditLog.objects.create(
+                user=request.user, username=request.user.get_username(),
+                action="create" if before is None else "update", model="User",
+                object_pk=str(user.pk), object_repr=user.email, changes=changes,
+                ip_address=request.META.get("REMOTE_ADDR"))
+
+    def delete_model(self, request, obj):
+        changes = {
+            "email": [obj.email, None], "first_name": [obj.first_name, None],
+            "last_name": [obj.last_name, None], "is_active": [obj.is_active, None],
+            "role": [ADMIN_ROLE if obj.is_superuser else obj.groups.values_list(
+                "name", flat=True).first(), None],
+        }
+        pk, email = str(obj.pk), obj.email
+        super().delete_model(request, obj)
+        AuditLog.objects.create(
+            user=request.user, username=request.user.get_username(), action="delete",
+            model="User", object_pk=pk, object_repr=email, changes=changes,
+            ip_address=request.META.get("REMOTE_ADDR"))
+
+    def delete_queryset(self, request, queryset):
+        snapshots = [{
+            "pk": str(user.pk), "email": user.email,
+            "changes": {
+                "email": [user.email, None], "first_name": [user.first_name, None],
+                "last_name": [user.last_name, None], "is_active": [user.is_active, None],
+                "role": [ADMIN_ROLE if user.is_superuser else user.groups.values_list(
+                    "name", flat=True).first(), None],
+            },
+        } for user in queryset]
+        super().delete_queryset(request, queryset)
+        AuditLog.objects.bulk_create([
+            AuditLog(user=request.user, username=request.user.get_username(),
+                     action="delete", model="User", object_pk=row["pk"],
+                     object_repr=row["email"], changes=row["changes"],
+                     ip_address=request.META.get("REMOTE_ADDR"))
+            for row in snapshots
+        ])
 
     @admin.display(description="Role")
     def role(self, obj):

@@ -4,6 +4,7 @@ from typing import ClassVar
 from django import forms
 from django.contrib.auth import password_validation
 from django.contrib.auth.forms import AuthenticationForm
+from django.contrib.auth.models import Group
 from django.core.exceptions import ValidationError
 
 from .models import User
@@ -75,4 +76,70 @@ class AccountForm(forms.ModelForm):
             user.set_password(password)
         if commit:
             user.save()
+        return user
+
+
+class DepartmentUserForm(forms.ModelForm):
+    """Create or update one non-admin user in the department admin's department."""
+
+    role = forms.ChoiceField(label="Role")
+    password = forms.CharField(
+        label="Password", required=False, strip=False,
+        widget=forms.PasswordInput(attrs={"autocomplete": "new-password"}),
+        help_text="Required for a new user; leave blank when editing to keep the password.",
+    )
+    password_confirm = forms.CharField(
+        label="Confirm password", required=False, strip=False,
+        widget=forms.PasswordInput(attrs={"autocomplete": "new-password"}),
+    )
+
+    class Meta:
+        model = User
+        fields = ("email", "first_name", "last_name", "is_active")
+
+    def __init__(self, *args, department, **kwargs):
+        self.department = department
+        super().__init__(*args, **kwargs)
+        self.fields["password_confirm"].required = not bool(self.instance.pk)
+        self.fields["role"].choices = [
+            (f"{department} {kind}", kind)
+            for kind in ("Manager", "Supervisor", "Employee")
+        ]
+        if self.instance and self.instance.pk:
+            self.initial["role"] = next(iter(
+                self.instance.groups.filter(name__startswith=f"{department} ")
+                .values_list("name", flat=True)), "")
+
+    def clean_email(self):
+        email = self.cleaned_data["email"].strip().lower()
+        duplicates = User.objects.filter(email__iexact=email)
+        if self.instance.pk:
+            duplicates = duplicates.exclude(pk=self.instance.pk)
+        if duplicates.exists():
+            raise forms.ValidationError("A user with this email already exists.")
+        return email
+
+    def clean_password(self):
+        password = self.cleaned_data.get("password")
+        if not self.instance.pk and not password:
+            raise forms.ValidationError("A password is required for a new user.")
+        if password:
+            password_validation.validate_password(password, self.instance)
+        return password
+
+    def clean(self):
+        cleaned = super().clean()
+        if cleaned.get("password") != cleaned.get("password_confirm"):
+            self.add_error("password_confirm", "The passwords do not match.")
+        return cleaned
+
+    def save(self, commit=True):
+        user = super().save(commit=False)
+        password = self.cleaned_data["password"]
+        if password:
+            user.set_password(password)
+        if commit:
+            user.save()
+            user.groups.set([Group.objects.get(name=self.cleaned_data["role"])])
+            user.user_permissions.clear()
         return user

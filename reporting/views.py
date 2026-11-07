@@ -1,5 +1,6 @@
 """HTTP views for the dashboard, reports, saved-report filters, and table browser."""
 import csv
+from datetime import datetime, time, timedelta
 
 from django import forms
 from django.apps import apps
@@ -17,6 +18,7 @@ from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.dateparse import parse_date
 from django.views import View
 from django.views.decorators.http import require_POST
 from django.views.generic import DeleteView, DetailView, ListView, UpdateView
@@ -37,11 +39,8 @@ def _respond(request, result):
 
 
 def home(request):
-    """Open the central dashboard, or explain that the user has no report access."""
-    if any(request.user.has_perm(f"reporting.access_{slug.replace('-', '_')}")
-           for slug in REPORT_VIEWS):
-        return redirect("dashboard")
-    return render(request, "reporting/no_access.html")
+    """Open the central dashboard for any signed-in user."""
+    return redirect("dashboard")
 
 
 @login_not_required
@@ -98,25 +97,50 @@ def report_export(request, tab):
     response["Content-Disposition"] = f'attachment; filename="{tab}.csv"'
     response.write("\ufeff")
     writer = csv.writer(response)
-    writer.writerow([_csv_safe(context.get("title") or tab)])
-    writer.writerow(["From", context.get("w_from", ""), "To", context.get("w_to", "")])
-    writer.writerow([])
+    skip_sections = {"bubbles", "combo", "donut", "donut_mid"}
+    skip_fields = {"height", "prev_h", "new_h", "ret_h", "chart_h", "prev_chart_h",
+                   "chart_value", "prev_chart_value", "cls", "dir", "value_kind"}
+    time_series = {"trend", "growth", "rev_trend", "profit_rows", "margin_rows"}
+    amount = {"sales": "Sales", "cost": "Cost of goods", "revenue-and-loss": "Revenue",
+              "customer-profile": "Revenue"}[tab]
+    headers = {"label": "Metric", "full": "Period", "prev_full": "Previous period",
+               "value": "Value", "money": "Amount", "prev_money": "Previous amount",
+               "delta": "Change (%)", "cap": "Details", "pct": "Share (%)",
+               "cust_pct": "Customer share (%)", "act": "Active customers",
+               "nw": "New customers", "ret": "Returning customers", "rev": "Revenue",
+               "cogs": "Cost of goods", "profit": "Gross profit", "margin": "Margin (%)",
+               "orders": "Orders", "prev_orders": "Previous orders", "aov": "Average order value",
+               "old": "Previous cost", "now": "Current cost", "total": "Total",
+               "n": "Count", "store": "Store account", "territory": "Territory",
+               "date": "Date", "lines": "Lines", "status": "Status", "note": "Details"}
+    records = []
     for key, value in context.items():
-        if key in META_KEYS or not value:
+        if key in META_KEYS or key in skip_sections or not value:
             continue
         label = SECTION_LABELS.get(key, key.replace("_", " ").title())
-        if isinstance(value, list) and isinstance(value[0], dict):
-            fields = list(value[0])
-            writer.writerow([label])
-            writer.writerow(fields)
-            writer.writerows(
-                [_csv_safe(row.get(field, "")) for field in fields] for row in value)
-            writer.writerow([])
-        elif isinstance(value, dict):
-            writer.writerow([label])
-            writer.writerow(value.keys())
-            writer.writerow([_csv_safe(item) for item in value.values()])
-            writer.writerow([])
+        rows = (value if isinstance(value, list) and value and isinstance(value[0], dict)
+                else [value] if isinstance(value, dict) else [])
+        for row in rows:
+            fields = {}
+            for name, item in row.items():
+                if (name in skip_fields or isinstance(item, (dict, list, tuple))
+                        or (name == "label" and key in time_series)):
+                    continue
+                column = headers.get(name, name.replace("_", " ").title())
+                if name == "money":
+                    column = amount
+                elif name == "prev_money":
+                    column = f"Previous {amount.lower()}"
+                fields[column] = _csv_safe(item)
+            if fields:
+                records.append({"Section": label, "Report": _csv_safe(context.get("title") or tab),
+                                "From": context.get("w_from", ""), "To": context.get("w_to", ""),
+                                **fields})
+    columns = ["Section", "Report", "From", "To"]
+    for row in records:
+        columns.extend(name for name in row if name not in columns)
+    writer.writerow(columns)
+    writer.writerows([row.get(column, "") for column in columns] for row in records)
     return response
 
 
@@ -255,6 +279,13 @@ class TableList(TableMixin, ListView):
                     key = f"txt_{f.name}"
                     ann[key] = Cast(f.name, output_field=TextField())
                     conds.append(Q(**{f"{key}__icontains": q}))
+                    if t in ("DateField", "DateTimeField") and (date_value := parse_date(q)):
+                        if t == "DateField":
+                            conds.append(Q(**{f.name: date_value}))
+                        else:
+                            start = datetime.combine(date_value, time.min)
+                            conds.append(Q(**{f"{f.name}__gte": start,
+                                             f"{f.name}__lt": start + timedelta(days=1)}))
                     if t not in ("DateField", "DateTimeField", "TimeField", "UUIDField"):
                         # exact value too, so "201.0400" matches a stored 201.04
                         try:

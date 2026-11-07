@@ -4,8 +4,8 @@ Roles (RBAC).
 There is exactly one global Administrator: a superuser account (the shipped `admin`
 account). No "Administrator" group is created.
 
-The other roles are 12 scoped Django groups: Manager, Supervisor and Employee for each
-of the four in-scope departments. Each department gets exactly one report tab:
+The other roles are 16 scoped Django groups: Manager, Supervisor, Employee and Admin
+for each of the four in-scope departments. Each department gets exactly one report tab:
 
     Sales      -> Sales
     Marketing  -> Customer Profile
@@ -15,7 +15,8 @@ of the four in-scope departments. Each department gets exactly one report tab:
 Apply the groups with:
     python manage.py shell -c "from accounts.roles import ROLES, apply_roles; apply_roles(ROLES, prune=True)"
 `prune=True` removes groups that are not in ROLES. Assign users to groups on the
-"Users and roles" page (/manage/), which only the Administrator can open.
+"Users and roles" page (/manage/), which only the Administrator can open. Department
+Admins manage non-admin accounts assigned to their own department roles.
 
 Every role gets its tab's `access_<tab>` permission, read-only access to the tab's
 remaining source tables, and view access to the single `Report` table. Managers also get
@@ -47,7 +48,7 @@ TABLES = {
     ],
 }
 
-ROLE_KINDS = ("Manager", "Supervisor", "Employee")
+ROLE_KINDS = ("Manager", "Supervisor", "Employee", "Admin")
 
 
 def _scope(tab, kind):
@@ -59,6 +60,9 @@ def _scope(tab, kind):
                 "change": [], "delete": []}
     if kind == "Employee":
         return {"tabs": [tab], "view": ["Report"], "change": [], "delete": []}
+    if kind == "Admin":
+        return {"tabs": [tab], "view": TABLES[tab] + ["Report"],
+                "change": [], "delete": [], "manage_users": True}
     raise ValueError(f"unknown role kind: {kind}")
 
 
@@ -83,6 +87,8 @@ def apply_roles(roles, prune=False):
         codenames = [f"access_{tab.replace('-', '_')}" for tab in spec.get("tabs", [])]
         for action in ("view", "change", "delete"):
             codenames += [f"{action}_{name.lower()}" for name in spec.get(action, [])]
+        if spec.get("manage_users"):
+            codenames.append("manage_department_users")
         found = Permission.objects.filter(
             content_type__app_label__in=("core", "reporting"), codename__in=codenames)
         missing = set(codenames) - set(found.values_list("codename", flat=True))

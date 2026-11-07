@@ -1,0 +1,24 @@
+{% extends "reporting/base.html" %}{% block content %}
+<h2>{{ department }} users</h2>
+<p><a href="{% url 'department_user_add' %}">Add user</a> · <a href="{% url 'department_audit' %}">Audit log</a></p>
+<form method="get"><input name="q" value="{{ request.GET.q }}" placeholder="search">
+<select name="col"><option value="">all columns</option>
+{% for label, field in columns %}<option value="{{ field }}"{% if field == col %} selected{% endif %}>{{ label }}</option>{% endfor %}
+</select><button>Search</button></form>
+<p class="muted">{{ page_obj.paginator.count }} user{{ page_obj.paginator.count|pluralize }}</p>
+<div class="scroll"><table><thead><tr>
+{% for label, field in columns %}<th><a href="?q={{ request.GET.q|urlencode }}&amp;col={{ col|urlencode }}&amp;sort={% if sort == field and not sort_desc %}-{% endif %}{{ field }}">{{ label }}{% if sort == field %} {% if sort_desc %}&#9660;{% else %}&#9650;{% endif %}{% endif %}</a></th>{% endfor %}<th></th>
+</tr></thead><tbody>
+{% for account in page_obj %}<tr>
+ <td><a href="{% url 'department_user_edit' account.pk %}">{{ account.email }}</a></td>
+ <td>{{ account.first_name }}</td>
+ <td>{{ account.last_name }}</td>
+ <td>{{ account.groups.first.name }}</td>
+ <td>{% if account.is_active %}Active{% else %}Inactive{% endif %}</td>
+ <td>{% if account.is_active %}<form method="post" action="{% url 'department_user_deactivate' account.pk %}" style="display:inline">{% csrf_token %}<button>Deactivate</button></form>{% endif %}</td>
+</tr>{% empty %}<tr><td colspan="6">No users in this department yet.</td></tr>{% endfor %}
+</tbody></table></div>
+<p>{% if page_obj.has_previous %}<a href="?page={{ page_obj.previous_page_number }}&amp;q={{ request.GET.q|urlencode }}&amp;col={{ col|urlencode }}&amp;sort={% if sort_desc %}-{% endif %}{{ sort }}">prev</a>{% endif %}
+page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
+{% if page_obj.has_next %}<a href="?page={{ page_obj.next_page_number }}&amp;q={{ request.GET.q|urlencode }}&amp;col={{ col|urlencode }}&amp;sort={% if sort_desc %}-{% endif %}{{ sort }}">next</a>{% endif %}</p>
+{% endblock %}

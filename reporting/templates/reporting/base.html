@@ -176,13 +176,14 @@
  @media(max-width:520px){.d-bars{gap:2px}.d-bar b{visibility:hidden}.d-bar:nth-child(odd) b{visibility:visible}}
 </style>{% block extra_head %}{% endblock %}</head><body>
 <nav class="top">
- {% if perms.reporting.access_sales or perms.reporting.access_customer_profile or perms.reporting.access_revenue_and_loss or perms.reporting.access_cost %}<a href="{% url 'dashboard' %}" {% if tab == 'dashboard' %}class="on"{% endif %}>Dashboard</a>{% endif %}
+ {% if user.is_authenticated %}<a href="{% url 'dashboard' %}" {% if tab == 'dashboard' %}class="on"{% endif %}>Dashboard</a>{% endif %}
  {% if perms.reporting.access_sales %}<a href="{% url 'sales' %}" {% if tab == 'sales' %}class="on"{% endif %}>Sales</a>{% endif %}
  {% if perms.reporting.access_customer_profile %}<a href="{% url 'customer-profile' %}" {% if tab == 'customer-profile' %}class="on"{% endif %}>Customer profile</a>{% endif %}
  {% if perms.reporting.access_revenue_and_loss %}<a href="{% url 'revenue-and-loss' %}" {% if tab == 'revenue-and-loss' %}class="on"{% endif %}>Revenue and loss</a>{% endif %}
  {% if perms.reporting.access_cost %}<a href="{% url 'cost' %}" {% if tab == 'cost' %}class="on"{% endif %}>Cost</a>{% endif %}
  <span class="sp"></span>
  {% if user.is_authenticated %}
+ {% if perms.reporting.manage_department_users and not user.is_superuser %}<a href="{% url 'department_users' %}">Manage users</a>{% endif %}
  {% if user.is_superuser %}<a href="/manage/">Users and roles</a>{% endif %}
  <a href="{% url 'account' %}" title="Edit your account">{{ user.email }}{% if user.is_superuser %} (Administrator){% endif %}</a>
   <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button>Log out</button></form>
