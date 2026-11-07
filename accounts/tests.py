@@ -104,6 +104,17 @@ class SeedUsersTests(TestCase):
             self.assertEqual(
                 list(user.groups.values_list("name", flat=True)), [role])
 
+    def test_seed_if_empty_seeds_a_blank_database(self):
+        call_command("seed_users", if_empty=True, stdout=StringIO())
+        self.assertEqual(User.objects.count(), 16)
+
+    def test_seed_if_empty_skips_when_a_user_exists(self):
+        User.objects.create_user("existing@example.com", "password123")
+        output = StringIO()
+        call_command("seed_users", if_empty=True, stdout=output)
+        self.assertEqual(User.objects.count(), 1)
+        self.assertIn("skipping", output.getvalue())
+
 
 class DepartmentUserTests(TestCase):
     @classmethod

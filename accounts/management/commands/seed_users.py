@@ -43,12 +43,17 @@ class Command(BaseCommand):
     help = "Create one demo user per role in accounts.roles.ROLES (email local part = password)."
 
     def add_arguments(self, parser):
+        parser.add_argument("--if-empty", action="store_true",
+                            help="skip seeding if the database already has a user")
         parser.add_argument("--reset", action="store_true",
                             help="reset password and role of existing demo users")
         parser.add_argument("--prune", action="store_true",
                             help="remove demo users from the old 17-role matrix")
 
     def handle(self, *args, **options):
+        if options["if_empty"] and User.objects.exists():
+            self.stdout.write("Users already exist; skipping demo-user seed.")
+            return
         apply_roles(ROLES, prune=True)
         created = reset = 0
         emails = []

@@ -29,4 +29,4 @@ RUN python manage.py collectstatic --noinput
 
 ENV PORT=8080
 
-CMD ["sh", "-c", "for attempt in 1 2 3 4 5 6; do python manage.py migrate --noinput && break; if [ $attempt = 6 ]; then exit 1; fi; sleep 5; done; exec gunicorn aw_project.wsgi --bind 0.0.0.0:${PORT} --workers 1 --threads 8 --timeout 120 --access-logfile -"]
+CMD ["sh", "-c", "for attempt in 1 2 3 4 5 6; do python manage.py migrate --noinput && python manage.py seed_users --if-empty && break; if [ $attempt = 6 ]; then exit 1; fi; sleep 5; done; exec gunicorn aw_project.wsgi --bind 0.0.0.0:${PORT} --workers 1 --threads 8 --timeout 120 --access-logfile -"]
