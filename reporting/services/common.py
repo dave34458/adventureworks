@@ -158,18 +158,18 @@ def dimension_sql(filters, product_ref="d.ProductID", header_ref="h", order_ref=
         placeholders = ", ".join(["%s"] * len(category_ids))
         if product_ref:
             clauses.append(
-                "EXISTS (SELECT 1 FROM Production_Product filter_product "
-                "JOIN Production_ProductSubcategory filter_subcategory "
+                "EXISTS (SELECT 1 FROM [Production].[Product] filter_product "
+                "JOIN [Production].[ProductSubcategory] filter_subcategory "
                 "ON filter_subcategory.ProductSubcategoryID = filter_product.ProductSubcategoryID "
                 f"WHERE filter_product.ProductID = {product_ref} "
                 f"AND filter_subcategory.ProductCategoryID IN ({placeholders}))"
             )
         elif order_ref:
             clauses.append(
-                "EXISTS (SELECT 1 FROM Sales_SalesOrderDetail filter_detail "
-                "JOIN Production_Product filter_product "
+                "EXISTS (SELECT 1 FROM [Sales].[SalesOrderDetail] filter_detail "
+                "JOIN [Production].[Product] filter_product "
                 "ON filter_product.ProductID = filter_detail.ProductID "
-                "JOIN Production_ProductSubcategory filter_subcategory "
+                "JOIN [Production].[ProductSubcategory] filter_subcategory "
                 "ON filter_subcategory.ProductSubcategoryID = filter_product.ProductSubcategoryID "
                 f"WHERE filter_detail.SalesOrderID = {order_ref} "
                 f"AND filter_subcategory.ProductCategoryID IN ({placeholders}))"
@@ -180,8 +180,8 @@ def dimension_sql(filters, product_ref="d.ProductID", header_ref="h", order_ref=
     if country_codes and header_ref:
         placeholders = ", ".join(["%s"] * len(country_codes))
         clauses.append(
-            "EXISTS (SELECT 1 FROM Person_Address filter_address "
-            "JOIN Person_StateProvince filter_state "
+            "EXISTS (SELECT 1 FROM [Person].[Address] filter_address "
+            "JOIN [Person].[StateProvince] filter_state "
             "ON filter_state.StateProvinceID = filter_address.StateProvinceID "
             f"WHERE filter_address.AddressID = {header_ref}.ShipToAddressID "
             f"AND filter_state.CountryRegionCode IN ({placeholders}))"
@@ -196,8 +196,8 @@ def purchase_category_sql(filters, product_ref="pod.ProductID"):
         return "", []
     placeholders = ", ".join(["%s"] * len(category_ids))
     return (
-        " AND EXISTS (SELECT 1 FROM Production_Product filter_product "
-        "JOIN Production_ProductSubcategory filter_subcategory "
+        " AND EXISTS (SELECT 1 FROM [Production].[Product] filter_product "
+        "JOIN [Production].[ProductSubcategory] filter_subcategory "
         "ON filter_subcategory.ProductSubcategoryID = filter_product.ProductSubcategoryID "
         f"WHERE filter_product.ProductID = {product_ref} "
         f"AND filter_subcategory.ProductCategoryID IN ({placeholders}))",

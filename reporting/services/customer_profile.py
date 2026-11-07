@@ -54,13 +54,13 @@ def customer_profile(request):
             FROM (
                 SELECT h.CustomerID, h.OrderDate,
                        d.LineTotal AS rev
-                FROM Sales_SalesOrderDetail d
-                JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
+                FROM [Sales].[SalesOrderDetail] d
+                JOIN [Sales].[SalesOrderHeader] h ON h.SalesOrderID = d.SalesOrderID
                 WHERE 1 = 1{line_filter}
             ) l
             JOIN (
                 SELECT CustomerID, MIN(OrderDate) AS first_date
-                FROM Sales_SalesOrderHeader h
+                FROM [Sales].[SalesOrderHeader] h
                 WHERE 1 = 1{header_filter}
                 GROUP BY CustomerID
             ) f ON f.CustomerID = l.CustomerID
@@ -83,7 +83,7 @@ def customer_profile(request):
               COALESCE(SUM(CASE WHEN first_date >= %s AND first_date < %s THEN 1 ELSE 0 END), 0)
             FROM (
                 SELECT CustomerID, MIN(h.OrderDate) AS first_date
-                FROM Sales_SalesOrderHeader h
+                FROM [Sales].[SalesOrderHeader] h
                 WHERE 1 = 1{header_filter}
                 GROUP BY CustomerID
             ) first_seen
@@ -95,10 +95,10 @@ def customer_profile(request):
         c.execute(  # customers active now who also bought in the compare window
             f"""
             SELECT COUNT(DISTINCT h.CustomerID)
-            FROM Sales_SalesOrderHeader h
+            FROM [Sales].[SalesOrderHeader] h
             WHERE h.OrderDate >= %s AND h.OrderDate <= %s
               AND h.CustomerID IN (
-                  SELECT h2.CustomerID FROM Sales_SalesOrderHeader h2
+                  SELECT h2.CustomerID FROM [Sales].[SalesOrderHeader] h2
                   WHERE h2.OrderDate >= %s AND h2.OrderDate < %s
                     {inner_filter}
               )
@@ -120,7 +120,7 @@ def customer_profile(request):
             f"""
             SELECT {month_expr("h.OrderDate")} AS month,
                    COUNT(DISTINCT CustomerID) AS act
-            FROM Sales_SalesOrderHeader h
+            FROM [Sales].[SalesOrderHeader] h
             WHERE h.OrderDate >= %s AND h.OrderDate <= %s{header_filter}
             GROUP BY {month_expr("h.OrderDate")}
             ORDER BY month
@@ -135,7 +135,7 @@ def customer_profile(request):
             SELECT {month_expr("first_date")} AS month, COUNT(*)
             FROM (
                 SELECT CustomerID, MIN(h.OrderDate) AS first_date
-                FROM Sales_SalesOrderHeader h
+                FROM [Sales].[SalesOrderHeader] h
                 WHERE 1 = 1{header_filter}
                 GROUP BY CustomerID
             ) first_seen
@@ -179,9 +179,9 @@ def customer_profile(request):
               COUNT(DISTINCT CASE WHEN cu.StoreID IS NOT NULL THEN h.SalesOrderID END) AS st_orders,
               COUNT(DISTINCT CASE WHEN cu.StoreID IS NULL THEN h.CustomerID END) AS ind_customers,
               COUNT(DISTINCT CASE WHEN cu.StoreID IS NOT NULL THEN h.CustomerID END) AS st_customers
-            FROM Sales_SalesOrderDetail d
-            JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
-            JOIN Sales_Customer cu ON cu.CustomerID = h.CustomerID
+            FROM [Sales].[SalesOrderDetail] d
+            JOIN [Sales].[SalesOrderHeader] h ON h.SalesOrderID = d.SalesOrderID
+            JOIN [Sales].[Customer] cu ON cu.CustomerID = h.CustomerID
             WHERE h.OrderDate >= %s AND h.OrderDate <= %s{line_filter}
             """,
             [cur_lo, cur_hi] + line_params,
@@ -207,11 +207,11 @@ def customer_profile(request):
             f"""
             SELECT co.Name, SUM(d.LineTotal) AS rev,
                    COUNT(DISTINCT h.SalesOrderID) AS orders
-            FROM Sales_SalesOrderDetail d
-            JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
-            JOIN Person_Address a ON a.AddressID = h.ShipToAddressID
-            JOIN Person_StateProvince sp ON sp.StateProvinceID = a.StateProvinceID
-            JOIN Person_CountryRegion co ON co.CountryRegionCode = sp.CountryRegionCode
+            FROM [Sales].[SalesOrderDetail] d
+            JOIN [Sales].[SalesOrderHeader] h ON h.SalesOrderID = d.SalesOrderID
+            JOIN [Person].[Address] a ON a.AddressID = h.ShipToAddressID
+            JOIN [Person].[StateProvince] sp ON sp.StateProvinceID = a.StateProvinceID
+            JOIN [Person].[CountryRegion] co ON co.CountryRegionCode = sp.CountryRegionCode
             WHERE h.OrderDate >= %s AND h.OrderDate <= %s{line_filter}
             GROUP BY co.Name
             ORDER BY rev DESC
@@ -248,10 +248,10 @@ def customer_profile(request):
             f"""
             SELECT a.City, sp.StateProvinceCode, sp.CountryRegionCode,
                    SUM(d.LineTotal) AS rev
-            FROM Sales_SalesOrderDetail d
-            JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
-            JOIN Person_Address a ON a.AddressID = h.ShipToAddressID
-            JOIN Person_StateProvince sp ON sp.StateProvinceID = a.StateProvinceID
+            FROM [Sales].[SalesOrderDetail] d
+            JOIN [Sales].[SalesOrderHeader] h ON h.SalesOrderID = d.SalesOrderID
+            JOIN [Person].[Address] a ON a.AddressID = h.ShipToAddressID
+            JOIN [Person].[StateProvince] sp ON sp.StateProvinceID = a.StateProvinceID
             WHERE h.OrderDate >= %s AND h.OrderDate <= %s{line_filter}
             GROUP BY a.City, sp.StateProvinceCode, sp.CountryRegionCode
             ORDER BY rev DESC
@@ -266,7 +266,7 @@ def customer_profile(request):
 
     total_stores, type_stats, store_rev = {}, {}, {}
     with connection.cursor() as c:  # chart 6: stores with sales in the window
-        c.execute("SELECT Demographics FROM Sales_Store WHERE Demographics IS NOT NULL")
+        c.execute("SELECT Demographics FROM [Sales].[Store] WHERE Demographics IS NOT NULL")
         for (demo,) in c.fetchall():
             m = re.search(r"<BusinessType>([^<]*)</BusinessType>", demo)
             if m:
@@ -274,13 +274,13 @@ def customer_profile(request):
 
         c.execute(
             f"""
-            SELECT s.BusinessEntityID, s.Demographics, SUM(d.LineTotal) AS rev
-            FROM Sales_SalesOrderDetail d
-            JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
-            JOIN Sales_Customer cu ON cu.CustomerID = h.CustomerID
-            JOIN Sales_Store s ON s.BusinessEntityID = cu.StoreID
+            SELECT s.BusinessEntityID, MAX(CONVERT(nvarchar(max), s.Demographics)), SUM(d.LineTotal) AS rev
+            FROM [Sales].[SalesOrderDetail] d
+            JOIN [Sales].[SalesOrderHeader] h ON h.SalesOrderID = d.SalesOrderID
+            JOIN [Sales].[Customer] cu ON cu.CustomerID = h.CustomerID
+            JOIN [Sales].[Store] s ON s.BusinessEntityID = cu.StoreID
             WHERE h.OrderDate >= %s AND h.OrderDate <= %s{line_filter}
-            GROUP BY s.BusinessEntityID, s.Demographics
+            GROUP BY s.BusinessEntityID
             """,
             [cur_lo, cur_hi] + line_params,
         )
@@ -325,7 +325,7 @@ def customer_profile(request):
                    COUNT(*)
             FROM (
                 SELECT CustomerID, COUNT(*) AS n
-                FROM Sales_SalesOrderHeader h
+                FROM [Sales].[SalesOrderHeader] h
                 WHERE h.OrderDate >= %s AND h.OrderDate <= %s{header_filter}
                 GROUP BY CustomerID
             ) q
@@ -350,12 +350,12 @@ def customer_profile(request):
                    CASE WHEN cu.StoreID IS NOT NULL THEN 1 ELSE 0 END AS is_store,
                    COUNT(DISTINCT h.SalesOrderID) AS orders,
                    SUM(d.LineTotal) AS rev
-            FROM Sales_SalesOrderDetail d
-            JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
-            JOIN Sales_Customer cu ON cu.CustomerID = h.CustomerID
-            LEFT JOIN Sales_Store s ON s.BusinessEntityID = cu.StoreID
-            LEFT JOIN Person_Person p ON p.BusinessEntityID = cu.PersonID
-            LEFT JOIN Sales_SalesTerritory t ON t.TerritoryID = cu.TerritoryID
+            FROM [Sales].[SalesOrderDetail] d
+            JOIN [Sales].[SalesOrderHeader] h ON h.SalesOrderID = d.SalesOrderID
+            JOIN [Sales].[Customer] cu ON cu.CustomerID = h.CustomerID
+            LEFT JOIN [Sales].[Store] s ON s.BusinessEntityID = cu.StoreID
+            LEFT JOIN [Person].[Person] p ON p.BusinessEntityID = cu.PersonID
+            LEFT JOIN [Sales].[SalesTerritory] t ON t.TerritoryID = cu.TerritoryID
             WHERE h.OrderDate >= %s AND h.OrderDate <= %s{line_filter}
             GROUP BY h.CustomerID, s.Name, p.FirstName, p.LastName, t.Name, cu.StoreID
             ORDER BY rev DESC

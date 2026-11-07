@@ -34,8 +34,8 @@ def sales(request):
             WITH lines AS (
                 SELECT h.OrderDate, h.SalesOrderID, h.CustomerID,
                        d.LineTotal AS rev
-                FROM Sales_SalesOrderDetail d
-                JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
+                FROM [Sales].[SalesOrderDetail] d
+                JOIN [Sales].[SalesOrderHeader] h ON h.SalesOrderID = d.SalesOrderID
                 WHERE 1 = 1{line_filter}
             )
             SELECT
@@ -83,8 +83,8 @@ def sales(request):
                        CASE WHEN h.OrderDate < %s THEN 'prev' ELSE 'cur' END AS side,
                        d.LineTotal AS rev,
                        h.SalesOrderID AS order_id
-                FROM Sales_SalesOrderDetail d
-                JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
+                FROM [Sales].[SalesOrderDetail] d
+                JOIN [Sales].[SalesOrderHeader] h ON h.SalesOrderID = d.SalesOrderID
                 WHERE h.OrderDate >= %s AND h.OrderDate <= %s{line_filter}
             ) base
             GROUP BY month, side
@@ -132,9 +132,9 @@ def sales(request):
         c.execute(
             f"""
             SELECT pr.Name, SUM(d.LineTotal) AS rev
-            FROM Sales_SalesOrderDetail d
-            JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
-            JOIN Production_Product pr ON pr.ProductID = d.ProductID
+            FROM [Sales].[SalesOrderDetail] d
+            JOIN [Sales].[SalesOrderHeader] h ON h.SalesOrderID = d.SalesOrderID
+            JOIN [Production].[Product] pr ON pr.ProductID = d.ProductID
             WHERE h.OrderDate >= %s AND h.OrderDate <= %s{line_filter}
             GROUP BY pr.Name
             ORDER BY rev DESC
@@ -149,9 +149,9 @@ def sales(request):
         c.execute(
             f"""
             SELECT pr.Name, SUM(d.LineTotal) AS rev
-            FROM Sales_SalesOrderDetail d
-            JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
-            JOIN Production_Product pr ON pr.ProductID = d.ProductID
+            FROM [Sales].[SalesOrderDetail] d
+            JOIN [Sales].[SalesOrderHeader] h ON h.SalesOrderID = d.SalesOrderID
+            JOIN [Production].[Product] pr ON pr.ProductID = d.ProductID
             WHERE h.OrderDate >= %s AND h.OrderDate <= %s{line_filter}
             GROUP BY pr.Name
             ORDER BY rev ASC

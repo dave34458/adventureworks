@@ -44,10 +44,10 @@ def profit_margin_rows_for_dates(start, end, compare_start, filters=None):
                        CASE WHEN h.OrderDate < %s THEN 'prev' ELSE 'cur' END AS side,
                        d.LineTotal AS rev,
                        d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost) AS cogs
-                FROM Sales_SalesOrderDetail d
-                JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
-                JOIN Production_Product p ON p.ProductID = d.ProductID
-                LEFT JOIN Production_ProductCostHistory ch
+                FROM [Sales].[SalesOrderDetail] d
+                JOIN [Sales].[SalesOrderHeader] h ON h.SalesOrderID = d.SalesOrderID
+                JOIN [Production].[Product] p ON p.ProductID = d.ProductID
+                LEFT JOIN [Production].[ProductCostHistory] ch
                   ON ch.ProductID = d.ProductID
                  AND h.OrderDate >= ch.StartDate
                  AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
@@ -125,10 +125,10 @@ def revenue_and_loss(request):
                 SELECT d.LineTotal AS rev,
                        d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost) AS cost,
                        CASE WHEN h.OrderDate < %s THEN 'prev' ELSE 'cur' END AS side
-                FROM Sales_SalesOrderDetail d
-                JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
-                JOIN Production_Product p ON p.ProductID = d.ProductID
-                LEFT JOIN Production_ProductCostHistory ch
+                FROM [Sales].[SalesOrderDetail] d
+                JOIN [Sales].[SalesOrderHeader] h ON h.SalesOrderID = d.SalesOrderID
+                JOIN [Production].[Product] p ON p.ProductID = d.ProductID
+                LEFT JOIN [Production].[ProductCostHistory] ch
                   ON ch.ProductID = d.ProductID
                  AND h.OrderDate >= ch.StartDate
                  AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
@@ -161,7 +161,7 @@ def revenue_and_loss(request):
                                 THEN h.TotalDue END), 0) AS due,
               COALESCE(SUM(CASE WHEN h.OrderDate >= %s AND h.OrderDate < %s
                                 THEN h.TotalDue END), 0) AS due_prev
-            FROM Sales_SalesOrderHeader h
+            FROM [Sales].[SalesOrderHeader] h
             WHERE h.OrderDate >= %s{order_filter}
             """,
             [cur_lo, cur_hi, cur_lo, cur_hi, cur_lo, cur_hi, prev_lo, prev_hi,
@@ -174,10 +174,10 @@ def revenue_and_loss(request):
             SELECT COUNT(*),
                    COALESCE(SUM(d.LineTotal), 0),
                    COALESCE(SUM(d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost)), 0)
-            FROM Sales_SalesOrderDetail d
-            JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
-            JOIN Production_Product p ON p.ProductID = d.ProductID
-            LEFT JOIN Production_ProductCostHistory ch
+            FROM [Sales].[SalesOrderDetail] d
+            JOIN [Sales].[SalesOrderHeader] h ON h.SalesOrderID = d.SalesOrderID
+            JOIN [Production].[Product] p ON p.ProductID = d.ProductID
+            LEFT JOIN [Production].[ProductCostHistory] ch
               ON ch.ProductID = d.ProductID
              AND h.OrderDate >= ch.StartDate
              AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
@@ -228,8 +228,8 @@ def revenue_and_loss(request):
                 SELECT {month_expr("h.OrderDate")} AS month,
                        CASE WHEN h.OrderDate < %s THEN 'prev' ELSE 'cur' END AS side,
                        d.LineTotal AS rev
-                FROM Sales_SalesOrderDetail d
-                JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
+                FROM [Sales].[SalesOrderDetail] d
+                JOIN [Sales].[SalesOrderHeader] h ON h.SalesOrderID = d.SalesOrderID
                 WHERE h.OrderDate >= %s AND h.OrderDate <= %s{line_filter}
             ) base
             GROUP BY month, side
@@ -278,15 +278,15 @@ def revenue_and_loss(request):
             f"""
             SELECT cat.Name, SUM(d.LineTotal) AS rev,
                    SUM(d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost)) AS cogs
-            FROM Sales_SalesOrderDetail d
-            JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
-            JOIN Production_Product p ON p.ProductID = d.ProductID
-            LEFT JOIN Production_ProductCostHistory ch
+            FROM [Sales].[SalesOrderDetail] d
+            JOIN [Sales].[SalesOrderHeader] h ON h.SalesOrderID = d.SalesOrderID
+            JOIN [Production].[Product] p ON p.ProductID = d.ProductID
+            LEFT JOIN [Production].[ProductCostHistory] ch
               ON ch.ProductID = d.ProductID
              AND h.OrderDate >= ch.StartDate
              AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
-            JOIN Production_ProductSubcategory sc ON sc.ProductSubcategoryID = p.ProductSubcategoryID
-            JOIN Production_ProductCategory cat ON cat.ProductCategoryID = sc.ProductCategoryID
+            JOIN [Production].[ProductSubcategory] sc ON sc.ProductSubcategoryID = p.ProductSubcategoryID
+            JOIN [Production].[ProductCategory] cat ON cat.ProductCategoryID = sc.ProductCategoryID
             WHERE h.OrderDate >= %s AND h.OrderDate <= %s{line_filter}
             GROUP BY cat.Name
             ORDER BY rev DESC
@@ -318,9 +318,9 @@ def revenue_and_loss(request):
                                 THEN d.LineTotal ELSE 0 END) AS cur_rev,
                        SUM(CASE WHEN h.OrderDate < %s
                                 THEN d.LineTotal ELSE 0 END) AS prev_rev
-                FROM Sales_SalesOrderDetail d
-                JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
-                JOIN Production_Product p ON p.ProductID = d.ProductID
+                FROM [Sales].[SalesOrderDetail] d
+                JOIN [Sales].[SalesOrderHeader] h ON h.SalesOrderID = d.SalesOrderID
+                JOIN [Production].[Product] p ON p.ProductID = d.ProductID
                 WHERE h.OrderDate >= %s AND h.OrderDate <= %s{line_filter}
                 GROUP BY p.ProductID, p.Name
             ) product_rev
@@ -345,10 +345,10 @@ def revenue_and_loss(request):
                    SUM(d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost))
                    - SUM(d.LineTotal) AS gap,
                    COUNT(*) AS n
-            FROM Sales_SalesOrderDetail d
-            JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
-            JOIN Production_Product p ON p.ProductID = d.ProductID
-            LEFT JOIN Production_ProductCostHistory ch
+            FROM [Sales].[SalesOrderDetail] d
+            JOIN [Sales].[SalesOrderHeader] h ON h.SalesOrderID = d.SalesOrderID
+            JOIN [Production].[Product] p ON p.ProductID = d.ProductID
+            LEFT JOIN [Production].[ProductCostHistory] ch
               ON ch.ProductID = d.ProductID
              AND h.OrderDate >= ch.StartDate
              AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
@@ -372,10 +372,10 @@ def revenue_and_loss(request):
             SELECT p.ProductID, p.Name,
                    SUM(d.LineTotal) AS rev,
                    SUM(d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost)) AS cogs
-            FROM Sales_SalesOrderDetail d
-            JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
-            JOIN Production_Product p ON p.ProductID = d.ProductID
-            LEFT JOIN Production_ProductCostHistory ch
+            FROM [Sales].[SalesOrderDetail] d
+            JOIN [Sales].[SalesOrderHeader] h ON h.SalesOrderID = d.SalesOrderID
+            JOIN [Production].[Product] p ON p.ProductID = d.ProductID
+            LEFT JOIN [Production].[ProductCostHistory] ch
               ON ch.ProductID = d.ProductID
              AND h.OrderDate >= ch.StartDate
              AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)

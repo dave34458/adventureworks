@@ -9,7 +9,12 @@ from django.urls import reverse
 def shown(model):
     """Fields worth showing in tables: skip blobs (all other columns are kept)."""
     return [f for f in model._meta.fields
-            if f.get_internal_type() != "BinaryField"]
+            if f.get_internal_type() not in ("BinaryField", "CompositePrimaryKey")]
+
+
+def url_pk(obj):
+    return "|".join(v.isoformat(sep=" ") if isinstance(v, datetime) else str(v)
+                    for v in obj.pk) if isinstance(obj.pk, tuple) else obj.pk
 
 
 @cache
@@ -36,5 +41,5 @@ def cell(obj, f, tab):
         value = value.isoformat().replace("T", " ")
     if f.is_relation and value is not None:
         name = type(value).__name__
-        return {"text": str(value), "url": reverse("table_detail", args=[tab, name, value.pk])}
+        return {"text": str(value), "url": reverse("table_detail", args=[tab, name, url_pk(value)])}
     return {"text": "" if value is None else value, "url": None}

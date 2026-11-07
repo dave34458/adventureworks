@@ -35,7 +35,7 @@ def cost(request):
     purchase_filter, purchase_params = purchase_category_sql(filters)
     category_selected = bool(filters["category_ids"])
     purchase_detail_join = (
-        "JOIN Purchasing_PurchaseOrderDetail pod ON pod.PurchaseOrderID = po.PurchaseOrderID"
+        "JOIN [Purchasing].[PurchaseOrderDetail] pod ON pod.PurchaseOrderID = po.PurchaseOrderID"
         if category_selected else "")
     purchase_total = "pod.LineTotal" if category_selected else "po.SubTotal"
     purchase_orders = (
@@ -46,7 +46,7 @@ def cost(request):
                               else "COUNT(*)")
     biggest_po_total = "SUM(pod.LineTotal)" if category_selected else "po.SubTotal"
     biggest_po_lines = ("COUNT(*)" if category_selected else
-                        "(SELECT COUNT(*) FROM Purchasing_PurchaseOrderDetail d "
+                        "(SELECT COUNT(*) FROM [Purchasing].[PurchaseOrderDetail] d "
                         "WHERE d.PurchaseOrderID = po.PurchaseOrderID)")
     biggest_po_group = ("GROUP BY po.PurchaseOrderID, v.Name, po.OrderDate, po.Status"
                         if category_selected else "")
@@ -70,10 +70,10 @@ def cost(request):
                                 THEN d.LineTotal END), 0) AS rev,
               COALESCE(SUM(CASE WHEN h.OrderDate >= %s AND h.OrderDate < %s
                                 THEN d.LineTotal END), 0) AS rev_prev
-            FROM Sales_SalesOrderDetail d
-            JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
-            JOIN Production_Product p ON p.ProductID = d.ProductID
-            LEFT JOIN Production_ProductCostHistory ch
+            FROM [Sales].[SalesOrderDetail] d
+            JOIN [Sales].[SalesOrderHeader] h ON h.SalesOrderID = d.SalesOrderID
+            JOIN [Production].[Product] p ON p.ProductID = d.ProductID
+            LEFT JOIN [Production].[ProductCostHistory] ch
               ON ch.ProductID = d.ProductID
              AND h.OrderDate >= ch.StartDate
              AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
@@ -92,7 +92,7 @@ def cost(request):
               COALESCE(SUM(CASE WHEN po.OrderDate >= %s AND po.OrderDate < %s
                                 THEN {purchase_total} END), 0) AS spend_prev,
               {purchase_orders} AS orders
-            FROM Purchasing_PurchaseOrderHeader po
+            FROM [Purchasing].[PurchaseOrderHeader] po
             {purchase_detail_join}
             WHERE po.OrderDate >= %s AND po.Status <> 3{purchase_filter}
             """,
@@ -104,8 +104,8 @@ def cost(request):
         c.execute(  # receipts against those orders
             f"""
             SELECT COALESCE(SUM(d.ReceivedQty), 0), COALESCE(SUM(d.RejectedQty), 0)
-            FROM Purchasing_PurchaseOrderDetail d
-            JOIN Purchasing_PurchaseOrderHeader h ON h.PurchaseOrderID = d.PurchaseOrderID
+            FROM [Purchasing].[PurchaseOrderDetail] d
+            JOIN [Purchasing].[PurchaseOrderHeader] h ON h.PurchaseOrderID = d.PurchaseOrderID
             WHERE h.OrderDate >= %s AND h.OrderDate <= %s{line_filter}
             """,
             [cur_lo, cur_hi] + line_params,
@@ -120,7 +120,7 @@ def cost(request):
               COALESCE(SUM(CASE WHEN StartDate < %s THEN OrderQty ELSE 0 END), 0) AS qty_prev,
               COALESCE(SUM(CASE WHEN StartDate < %s THEN ScrappedQty ELSE 0 END), 0) AS scr_prev,
               COUNT(*) AS orders
-            FROM Production_WorkOrder w
+            FROM [Production].[WorkOrder] w
             WHERE w.StartDate >= %s AND w.StartDate <= %s{work_filter}
             """,
             [cur_lo, cur_lo, cur_lo, cur_lo, w.window_start, w.last] + work_params,
@@ -172,10 +172,10 @@ def cost(request):
                        CASE WHEN h.OrderDate < %s THEN 'prev' ELSE 'cur' END AS side,
                        d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost) AS cogs,
                        d.LineTotal AS rev
-                FROM Sales_SalesOrderDetail d
-                JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
-                JOIN Production_Product p ON p.ProductID = d.ProductID
-                LEFT JOIN Production_ProductCostHistory ch
+                FROM [Sales].[SalesOrderDetail] d
+                JOIN [Sales].[SalesOrderHeader] h ON h.SalesOrderID = d.SalesOrderID
+                JOIN [Production].[Product] p ON p.ProductID = d.ProductID
+                LEFT JOIN [Production].[ProductCostHistory] ch
                   ON ch.ProductID = d.ProductID
                  AND h.OrderDate >= ch.StartDate
                  AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
@@ -224,15 +224,15 @@ def cost(request):
             f"""
             SELECT cat.Name, SUM(d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost)) AS cogs,
                    SUM(d.LineTotal) AS rev
-            FROM Sales_SalesOrderDetail d
-            JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
-            JOIN Production_Product p ON p.ProductID = d.ProductID
-            LEFT JOIN Production_ProductCostHistory ch
+            FROM [Sales].[SalesOrderDetail] d
+            JOIN [Sales].[SalesOrderHeader] h ON h.SalesOrderID = d.SalesOrderID
+            JOIN [Production].[Product] p ON p.ProductID = d.ProductID
+            LEFT JOIN [Production].[ProductCostHistory] ch
               ON ch.ProductID = d.ProductID
              AND h.OrderDate >= ch.StartDate
              AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
-            JOIN Production_ProductSubcategory sc ON sc.ProductSubcategoryID = p.ProductSubcategoryID
-            JOIN Production_ProductCategory cat ON cat.ProductCategoryID = sc.ProductCategoryID
+            JOIN [Production].[ProductSubcategory] sc ON sc.ProductSubcategoryID = p.ProductSubcategoryID
+            JOIN [Production].[ProductCategory] cat ON cat.ProductCategoryID = sc.ProductCategoryID
             WHERE h.OrderDate >= %s AND h.OrderDate <= %s{line_filter}
             GROUP BY cat.Name
             ORDER BY cogs DESC
@@ -259,9 +259,9 @@ def cost(request):
             f"""
             SELECT v.Name, SUM({purchase_total}) AS spend,
                    {purchase_vendor_orders} AS orders, v.ActiveFlag
-            FROM Purchasing_PurchaseOrderHeader po
+            FROM [Purchasing].[PurchaseOrderHeader] po
             {purchase_detail_join}
-            JOIN Purchasing_Vendor v ON v.BusinessEntityID = po.VendorID
+            JOIN [Purchasing].[Vendor] v ON v.BusinessEntityID = po.VendorID
             WHERE po.OrderDate >= %s AND po.OrderDate <= %s AND po.Status <> 3{purchase_filter}
             GROUP BY v.Name, v.ActiveFlag
             ORDER BY spend DESC
@@ -283,10 +283,10 @@ def cost(request):
             f"""
             SELECT p.Name, SUM(d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost)) AS cogs,
                    SUM(d.OrderQty) AS units
-            FROM Sales_SalesOrderDetail d
-            JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
-            JOIN Production_Product p ON p.ProductID = d.ProductID
-            LEFT JOIN Production_ProductCostHistory ch
+            FROM [Sales].[SalesOrderDetail] d
+            JOIN [Sales].[SalesOrderHeader] h ON h.SalesOrderID = d.SalesOrderID
+            JOIN [Production].[Product] p ON p.ProductID = d.ProductID
+            LEFT JOIN [Production].[ProductCostHistory] ch
               ON ch.ProductID = d.ProductID
              AND h.OrderDate >= ch.StartDate
              AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
@@ -310,10 +310,10 @@ def cost(request):
                    SUM(w.ScrappedQty * COALESCE(ch.StandardCost, p.StandardCost)) AS cost,
                    SUM(w.ScrappedQty) AS scr,
                    COUNT(*) AS orders
-            FROM Production_WorkOrder w
-            JOIN Production_ScrapReason sr ON sr.ScrapReasonID = w.ScrapReasonID
-            JOIN Production_Product p ON p.ProductID = w.ProductID
-            LEFT JOIN Production_ProductCostHistory ch
+            FROM [Production].[WorkOrder] w
+            JOIN [Production].[ScrapReason] sr ON sr.ScrapReasonID = w.ScrapReasonID
+            JOIN [Production].[Product] p ON p.ProductID = w.ProductID
+            LEFT JOIN [Production].[ProductCostHistory] ch
               ON ch.ProductID = w.ProductID
              AND w.StartDate >= ch.StartDate
              AND (ch.EndDate IS NULL OR w.StartDate <= ch.EndDate)
@@ -336,8 +336,8 @@ def cost(request):
             WITH product_costs AS (
                 SELECT h.ProductID, p.Name, h.StartDate, h.StandardCost,
                        ROW_NUMBER() OVER (PARTITION BY h.ProductID ORDER BY h.StartDate) AS product_rank
-                FROM Production_ProductCostHistory h
-                JOIN Production_Product p ON p.ProductID = h.ProductID
+                FROM [Production].[ProductCostHistory] h
+                JOIN [Production].[Product] p ON p.ProductID = h.ProductID
                 WHERE h.EndDate IS NOT NULL{history_filter}
             ), increases AS (
                 SELECT first_cost.Name, first_cost.StartDate, first_cost.StandardCost AS old_cost,
@@ -348,7 +348,7 @@ def cost(request):
                            ORDER BY first_cost.StartDate
                        ) AS name_rank
                 FROM product_costs first_cost
-                JOIN Production_ProductCostHistory current_cost
+                JOIN [Production].[ProductCostHistory] current_cost
                   ON current_cost.ProductID = first_cost.ProductID
                  AND current_cost.EndDate IS NULL
                 WHERE first_cost.product_rank = 1
@@ -382,9 +382,9 @@ def cost(request):
             f"""
             SELECT po.PurchaseOrderID, v.Name, po.OrderDate, {biggest_po_total}, po.Status,
                    {biggest_po_lines} AS lines
-            FROM Purchasing_PurchaseOrderHeader po
+            FROM [Purchasing].[PurchaseOrderHeader] po
             {purchase_detail_join}
-            JOIN Purchasing_Vendor v ON v.BusinessEntityID = po.VendorID
+            JOIN [Purchasing].[Vendor] v ON v.BusinessEntityID = po.VendorID
             WHERE po.OrderDate >= %s AND po.OrderDate <= %s AND po.Status <> 3{purchase_filter}
             {biggest_po_group}
             ORDER BY {biggest_po_order} DESC

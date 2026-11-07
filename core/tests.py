@@ -7,6 +7,7 @@ from django.test import TestCase
 from django.urls import reverse
 
 from accounts.roles import TABLES
+from reporting.services.tables import url_pk
 from core.models import (
     Person,
     PersonAddress,
@@ -159,7 +160,7 @@ class TableColumnTests(TestCase):
                 yield tab, apps.get_model("core", name)
 
     def edit_url(self, tab, model):
-        return reverse("table_edit", args=[tab, model.__name__, self.rows[model.__name__].pk])
+        return reverse("table_edit", args=[tab, model.__name__, url_pk(self.rows[model.__name__])])
 
     def form_data(self, obj, form):
         data = {}
@@ -182,7 +183,7 @@ class TableColumnTests(TestCase):
         for tab, model in self.all_models():
             obj = self.rows[model.__name__]
             response = self.client.get(
-                reverse("table_detail", args=[tab, model.__name__, obj.pk]))
+                reverse("table_detail", args=[tab, model.__name__, url_pk(obj)]))
             self.assertEqual(response.status_code, 200, model.__name__)
             fields = shown(model)
             self.assertEqual(len(response.context["fields"]), len(fields), model.__name__)
@@ -197,7 +198,7 @@ class TableColumnTests(TestCase):
             form = response.context["form"]
             expected = {
                 f.name for f in model._meta.fields
-                if f.editable and not f.primary_key and f.name != "modified_date"
+                if f.editable and f not in model._meta.pk_fields and f.name != "modified_date"
             }
             self.assertEqual(set(form.fields), expected, model.__name__)
 
@@ -216,7 +217,7 @@ class TableColumnTests(TestCase):
             obj = self.rows[model.__name__]
             url = reverse("table_list", args=[tab, model.__name__])
             for field in model._meta.fields:
-                if field.get_internal_type() == "BinaryField":
+                if field.get_internal_type() in ("BinaryField", "CompositePrimaryKey"):
                     continue
                 value = getattr(obj, field.attname)
                 if value is None:
@@ -229,7 +230,10 @@ class TableColumnTests(TestCase):
                     query = value.isoformat()
                 else:
                     query = str(value)
-                response = self.client.get(url, {"col": field.name, "q": query})
+                try:
+                    response = self.client.get(url, {"col": field.name, "q": query})
+                except Exception as exc:
+                    self.fail(f"{model.__name__}.{field.name} search failed: {exc}")
                 self.assertEqual(
                     response.status_code, 200, f"{model.__name__}.{field.name} search")
                 response = self.client.get(url, {"sort": field.name})

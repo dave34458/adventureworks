@@ -1,4 +1,4 @@
 {% extends "reporting/base.html" %}{% block content %}
 <h2>Delete {{ title|lower }}: {{ object }}?</h2>
-<form method="post">{% csrf_token %}<button>Yes, delete</button> <a href="{% url 'table_detail' tab name object.pk %}">cancel</a></form>
+<form method="post">{% csrf_token %}<button>Yes, delete</button> <a href="{% url 'table_detail' tab name pk_url %}">cancel</a></form>
 {% endblock %}

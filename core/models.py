@@ -27,12 +27,11 @@ class PersonAddress(models.Model):
     city = models.CharField(db_column='City', max_length=30)
     state_province = models.ForeignKey('PersonStateProvince', models.PROTECT, db_column='StateProvinceID')
     postal_code = models.CharField(db_column='PostalCode', max_length=15)
-    spatial_location = models.TextField(db_column='SpatialLocation', null=True, blank=True, editable=False)
     rowguid = models.UUIDField(db_column='rowguid', unique=True, default=uuid.uuid4, editable=False)
     modified_date = models.DateTimeField(db_column='ModifiedDate', default=timezone.now)
 
     class Meta:
-        db_table = 'Person_Address'
+        db_table = '[Person].[Address]'
         constraints = [
             models.UniqueConstraint(fields=['address_line1', 'address_line2', 'city', 'state_province', 'postal_code'], name='uq_person_address_address_line1_address_line2_city_state_province_id_postal_code'[:100]),
         ]
@@ -53,7 +52,7 @@ class PersonBusinessEntity(models.Model):
     modified_date = models.DateTimeField(db_column='ModifiedDate', default=timezone.now)
 
     class Meta:
-        db_table = 'Person_BusinessEntity'
+        db_table = '[Person].[BusinessEntity]'
 
     def __str__(self):
         return f"PersonBusinessEntity {self.pk}"
@@ -73,7 +72,7 @@ class PersonCountryRegion(models.Model):
     modified_date = models.DateTimeField(db_column='ModifiedDate', default=timezone.now)
 
     class Meta:
-        db_table = 'Person_CountryRegion'
+        db_table = '[Person].[CountryRegion]'
 
     def __str__(self):
         return str(self.name)
@@ -97,7 +96,7 @@ class SalesCustomer(models.Model):
     modified_date = models.DateTimeField(db_column='ModifiedDate', default=timezone.now)
 
     class Meta:
-        db_table = 'Sales_Customer'
+        db_table = '[Sales].[Customer]'
 
     def __str__(self):
         if self.person_id:
@@ -143,7 +142,7 @@ class Person(models.Model):
     modified_date = models.DateTimeField(db_column='ModifiedDate', default=timezone.now)
 
     class Meta:
-        db_table = 'Person_Person'
+        db_table = '[Person].[Person]'
         constraints = [
             models.CheckConstraint(condition=(models.Q(email_promotion__gte=0) & models.Q(email_promotion__lte=2)), name='CK_Person_EmailPromotion'),
             models.CheckConstraint(condition=(models.Q(person_type__isnull=True) | models.Q(person_type__in=['SC', 'VC', 'IN', 'EM', 'SP', 'GC', 'sc', 'vc', 'in', 'em', 'sp', 'gc'])), name='CK_Person_PersonType'),
@@ -184,7 +183,7 @@ class ProductionProduct(models.Model):
     modified_date = models.DateTimeField(db_column='ModifiedDate', default=timezone.now)
 
     class Meta:
-        db_table = 'Production_Product'
+        db_table = '[Production].[Product]'
         constraints = [
             models.CheckConstraint(condition=models.Q(safety_stock_level__gt=0), name='CK_Product_SafetyStockLevel'),
             models.CheckConstraint(condition=models.Q(reorder_point__gt=0), name='CK_Product_ReorderPoint'),
@@ -211,14 +210,14 @@ class ProductionProductCategory(models.Model):
     modified_date = models.DateTimeField(db_column='ModifiedDate', default=timezone.now)
 
     class Meta:
-        db_table = 'Production_ProductCategory'
+        db_table = '[Production].[ProductCategory]'
 
     def __str__(self):
         return str(self.name)
 
 
 class ProductionProductCostHistory(models.Model):
-    id = models.AutoField(primary_key=True)
+    pk = models.CompositePrimaryKey('product_id', 'start_date')
     product = models.ForeignKey('ProductionProduct', models.PROTECT, db_column='ProductID')
     start_date = models.DateTimeField(db_column='StartDate')
     end_date = models.DateTimeField(db_column='EndDate', null=True, blank=True)
@@ -226,9 +225,8 @@ class ProductionProductCostHistory(models.Model):
     modified_date = models.DateTimeField(db_column='ModifiedDate', default=timezone.now)
 
     class Meta:
-        db_table = 'Production_ProductCostHistory'
+        db_table = '[Production].[ProductCostHistory]'
         constraints = [
-            models.UniqueConstraint(fields=['product', 'start_date'], name='uq_production_productcosthistory_key'),
             models.CheckConstraint(condition=(models.Q(end_date__gte=F('start_date')) | models.Q(end_date__isnull=True)), name='CK_ProductCostHistory_EndDate'),
             models.CheckConstraint(condition=models.Q(standard_cost__gte=0.00), name='CK_ProductCostHistory_StandardCost'),
         ]
@@ -265,7 +263,7 @@ class ProductionProductSubcategory(models.Model):
     modified_date = models.DateTimeField(db_column='ModifiedDate', default=timezone.now)
 
     class Meta:
-        db_table = 'Production_ProductSubcategory'
+        db_table = '[Production].[ProductSubcategory]'
 
     def __str__(self):
         return str(self.name)
@@ -287,7 +285,7 @@ class PurchasingPurchaseOrderDetail(models.Model):
     modified_date = models.DateTimeField(db_column='ModifiedDate', default=timezone.now)
 
     class Meta:
-        db_table = 'Purchasing_PurchaseOrderDetail'
+        db_table = '[Purchasing].[PurchaseOrderDetail]'
         constraints = [
             models.CheckConstraint(condition=models.Q(order_qty__gt=0), name='CK_PurchaseOrderDetail_OrderQty'),
             models.CheckConstraint(condition=models.Q(unit_price__gte=0.00), name='CK_PurchaseOrderDetail_UnitPrice'),
@@ -313,7 +311,7 @@ class PurchasingPurchaseOrderHeader(models.Model):
     modified_date = models.DateTimeField(db_column='ModifiedDate', default=timezone.now)
 
     class Meta:
-        db_table = 'Purchasing_PurchaseOrderHeader'
+        db_table = '[Purchasing].[PurchaseOrderHeader]'
         constraints = [
             models.CheckConstraint(condition=(models.Q(status__gte=1) & models.Q(status__lte=4)), name='CK_PurchaseOrderHeader_Status'),
             models.CheckConstraint(condition=(models.Q(ship_date__gte=F('order_date')) | models.Q(ship_date__isnull=True)), name='CK_PurchaseOrderHeader_ShipDate'),
@@ -339,7 +337,7 @@ class SalesOrderDetail(models.Model):
     modified_date = models.DateTimeField(db_column='ModifiedDate', default=timezone.now)
 
     class Meta:
-        db_table = 'Sales_SalesOrderDetail'
+        db_table = '[Sales].[SalesOrderDetail]'
         constraints = [
             models.CheckConstraint(condition=models.Q(order_qty__gt=0), name='CK_SalesOrderDetail_OrderQty'),
             models.CheckConstraint(condition=models.Q(unit_price__gte=0.00), name='CK_SalesOrderDetail_UnitPrice'),
@@ -376,7 +374,7 @@ class SalesOrderHeader(models.Model):
     modified_date = models.DateTimeField(db_column='ModifiedDate', default=timezone.now)
 
     class Meta:
-        db_table = 'Sales_SalesOrderHeader'
+        db_table = '[Sales].[SalesOrderHeader]'
         constraints = [
             models.CheckConstraint(condition=(models.Q(status__gte=0) & models.Q(status__lte=8)), name='CK_SalesOrderHeader_Status'),
             models.CheckConstraint(condition=models.Q(due_date__gte=F('order_date')), name='CK_SalesOrderHeader_DueDate'),
@@ -403,7 +401,7 @@ class SalesOrderHeader(models.Model):
 class SalesTerritory(models.Model):
     territory_id = models.AutoField(db_column='TerritoryID', primary_key=True)
     name = models.CharField(db_column='Name', unique=True, max_length=50)
-    country_region = models.ForeignKey('PersonCountryRegion', models.PROTECT, db_column='CountryRegionCode')
+    country_region = models.ForeignKey('PersonCountryRegion', models.PROTECT, db_column='CountryRegionCode', to_field='country_region_code')
     group = models.CharField(db_column='Group', max_length=50)
     sales_ytd = models.DecimalField(db_column='SalesYTD', max_digits=19, decimal_places=4, default=Decimal('0.00'))
     sales_last_year = models.DecimalField(db_column='SalesLastYear', max_digits=19, decimal_places=4, default=Decimal('0.00'))
@@ -413,7 +411,7 @@ class SalesTerritory(models.Model):
     modified_date = models.DateTimeField(db_column='ModifiedDate', default=timezone.now)
 
     class Meta:
-        db_table = 'Sales_SalesTerritory'
+        db_table = '[Sales].[SalesTerritory]'
         constraints = [
             models.CheckConstraint(condition=models.Q(sales_ytd__gte=0.00), name='CK_SalesTerritory_SalesYTD'),
             models.CheckConstraint(condition=models.Q(sales_last_year__gte=0.00), name='CK_SalesTerritory_SalesLastYear'),
@@ -428,12 +426,12 @@ class SalesTerritory(models.Model):
 
 
 class ProductionScrapReason(models.Model):
-    scrap_reason_id = models.AutoField(db_column='ScrapReasonID', primary_key=True)
+    scrap_reason_id = models.SmallAutoField(db_column='ScrapReasonID', primary_key=True)
     name = models.CharField(db_column='Name', unique=True, max_length=50)
     modified_date = models.DateTimeField(db_column='ModifiedDate', default=timezone.now)
 
     class Meta:
-        db_table = 'Production_ScrapReason'
+        db_table = '[Production].[ScrapReason]'
 
     def __str__(self):
         return str(self.name)
@@ -452,7 +450,7 @@ class ProductionScrapReason(models.Model):
 class PersonStateProvince(models.Model):
     state_province_id = models.AutoField(db_column='StateProvinceID', primary_key=True)
     state_province_code = models.CharField(db_column='StateProvinceCode', max_length=3)
-    country_region = models.ForeignKey('PersonCountryRegion', models.PROTECT, db_column='CountryRegionCode')
+    country_region = models.ForeignKey('PersonCountryRegion', models.PROTECT, db_column='CountryRegionCode', to_field='country_region_code')
     is_only_state_province_flag = models.BooleanField(db_column='IsOnlyStateProvinceFlag', default=True)
     name = models.CharField(db_column='Name', unique=True, max_length=50)
     territory = models.ForeignKey('SalesTerritory', models.PROTECT, db_column='TerritoryID')
@@ -460,7 +458,7 @@ class PersonStateProvince(models.Model):
     modified_date = models.DateTimeField(db_column='ModifiedDate', default=timezone.now)
 
     class Meta:
-        db_table = 'Person_StateProvince'
+        db_table = '[Person].[StateProvince]'
         constraints = [
             models.UniqueConstraint(fields=['state_province_code', 'country_region'], name='uq_person_stateprovince_state_province_code_country_region_code'[:100]),
         ]
@@ -477,7 +475,7 @@ class SalesStore(models.Model):
     modified_date = models.DateTimeField(db_column='ModifiedDate', default=timezone.now)
 
     class Meta:
-        db_table = 'Sales_Store'
+        db_table = '[Sales].[Store]'
 
     def __str__(self):
         return self.name
@@ -500,7 +498,7 @@ class PurchasingVendor(models.Model):
     modified_date = models.DateTimeField(db_column='ModifiedDate', default=timezone.now)
 
     class Meta:
-        db_table = 'Purchasing_Vendor'
+        db_table = '[Purchasing].[Vendor]'
         constraints = [
             models.CheckConstraint(condition=(models.Q(credit_rating__gte=1) & models.Q(credit_rating__lte=5)), name='CK_Vendor_CreditRating'),
         ]
@@ -522,7 +520,7 @@ class ProductionWorkOrder(models.Model):
     modified_date = models.DateTimeField(db_column='ModifiedDate', default=timezone.now)
 
     class Meta:
-        db_table = 'Production_WorkOrder'
+        db_table = '[Production].[WorkOrder]'
         constraints = [
             models.CheckConstraint(condition=models.Q(order_qty__gt=0), name='CK_WorkOrder_OrderQty'),
             models.CheckConstraint(condition=models.Q(scrapped_qty__gte=0), name='CK_WorkOrder_ScrappedQty'),

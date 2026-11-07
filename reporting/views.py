@@ -15,7 +15,7 @@ from django.core.exceptions import FieldDoesNotExist, PermissionDenied
 from django.db.models import ProtectedError, Q, TextField
 from django.db.models.functions import Cast
 from django.http import Http404, HttpResponse, JsonResponse
-from django.shortcuts import redirect, render
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateparse import parse_date
@@ -28,6 +28,7 @@ from .constants import LABEL_COLUMNS, META_KEYS, SECTION_LABELS
 from .models import PRIVACY_NOTICE_VERSION, AuditLog, Report
 from .services import REPORT_VIEWS, cell, name_needs_joins, shown
 from .services.common import snapshot_name
+from .services.tables import url_pk
 from .utils import metric
 from .widgets import SearchSelect
 
@@ -237,10 +238,26 @@ class TableMixin(PermissionRequiredMixin):
     def get_success_url(self):
         return reverse("table_list", args=[self.tab, self.model.__name__])
 
+    def get_object(self, queryset=None):
+        if self.model._meta.pk.get_internal_type() == "CompositePrimaryKey":
+            values = self.kwargs["pk"].split("|")
+            fields = self.model._meta.pk_fields
+            if len(values) != len(fields):
+                raise Http404
+            try:
+                key = {f.name: f.target_field.to_python(v) if f.is_relation else f.to_python(v)
+                       for f, v in zip(fields, values)}
+            except (TypeError, ValueError):
+                raise Http404
+            return get_object_or_404(queryset or self.model._default_manager.all(), **key)
+        return super().get_object(queryset)
+
     def get_context_data(self, **kw):
         user, label = self.request.user, self.model._meta.model_name
+        obj = getattr(self, "object", None)
         return super().get_context_data(
             tab=self.tab, name=self.model.__name__, title=self.model._meta.verbose_name.capitalize(),
+            pk_url=url_pk(obj) if obj else "",
             can_change=user.has_perm(f"core.change_{label}"), can_delete=user.has_perm(f"core.delete_{label}"), **kw)
 
 
@@ -255,14 +272,19 @@ class TableList(TableMixin, ListView):
             castable = ("AutoField", "BigAutoField", "IntegerField", "BigIntegerField",
                         "SmallIntegerField", "PositiveIntegerField", "FloatField",
                         "DecimalField", "DateField", "DateTimeField", "TimeField", "UUIDField")
-            fields = {f.name: f for f in self.model._meta.fields}
+            fields = {f.name: f for f in self.model._meta.fields
+                      if f.get_internal_type() != "CompositePrimaryKey"}
             targets = [fields[col]] if col in fields else list(fields.values())
             conds, ann = [], {}
             for f in targets:
                 t = f.get_internal_type()
                 if t in ("BinaryField", "BooleanField"):
                     continue
-                if f.is_relation:
+                if f.name in ("additional_contact_info", "demographics"):
+                    key = f"txt_{f.name}"
+                    ann[key] = Cast(f.name, output_field=TextField())
+                    conds.append(Q(**{f"{key}__icontains": q}))
+                elif f.is_relation:
                     # also search the related record's label (first 2 CharFields)
                     rel = f.related_model
                     subs = [s for s in rel._meta.fields
@@ -301,7 +323,7 @@ class TableList(TableMixin, ListView):
             sf = self.model._meta.get_field(name) if name else None
         except FieldDoesNotExist:
             sf = None
-        if sf is not None:
+        if sf is not None and sf.name not in ("additional_contact_info", "demographics"):
             prefix = "-" if sort.startswith("-") else ""
             if sf.is_relation:
                 # fk columns sort by the label you see (the related person, or first CharFields)
@@ -324,7 +346,8 @@ class TableList(TableMixin, ListView):
         fields = shown(self.model)
         sort = self.request.GET.get("sort", "")
         ctx["headers"] = [(f.verbose_name, f.name) for f in fields]
-        ctx["rows"] = [{"obj": o, "cells": [cell(o, f, self.tab) for f in fields]} for o in ctx["object_list"]]
+        ctx["rows"] = [{"obj": o, "pk_url": url_pk(o), "cells": [cell(o, f, self.tab) for f in fields]}
+                       for o in ctx["object_list"]]
         ctx["columns"] = [(f.verbose_name, f.name) for f in fields
                           if f.get_internal_type() != "BooleanField"]
         ctx["col"] = self.request.GET.get("col", "")
@@ -346,7 +369,7 @@ class TableEdit(TableMixin, UpdateView):
 
     def get_form_class(self):
         names = [f.name for f in self.model._meta.fields
-                 if f.editable and not f.primary_key and f.name != "modified_date"]
+                 if f.editable and f not in self.model._meta.pk_fields and f.name != "modified_date"]
         return forms.modelform_factory(self.model, fields=names)
 
     def get_form(self, *a, **kw):
@@ -361,6 +384,7 @@ class TableEdit(TableMixin, UpdateView):
                     qs = qs.only(*LABEL_COLUMNS[rel.__name__])
                 widget = SearchSelect(attrs=field.widget.attrs)
                 widget.queryset = qs
+                widget.to_field_name = field.to_field_name or "pk"
                 widget.url = reverse("table_autocomplete", args=[self.tab, self.model.__name__, name])
                 field.widget = widget
                 field.queryset = qs
@@ -370,7 +394,8 @@ class TableEdit(TableMixin, UpdateView):
         old = self.model._default_manager.filter(pk=form.instance.pk).first()  # the row as stored
         changes = {}
         for f in (self.model._meta.fields if old is not None else []):
-            if not f.editable or f.primary_key or f.name == "modified_date":
+            if (not f.editable or f.primary_key or f.name == "modified_date"
+                    or f.name not in form.cleaned_data):
                 continue
             before, after = getattr(old, f.name), form.cleaned_data[f.name]
             if getattr(before, "pk", before) != getattr(after, "pk", after):
@@ -419,7 +444,8 @@ class TableAutocomplete(TableMixin, View):
             qs = qs.select_related(*[fk.name for fk in rel._meta.fields if fk.is_relation])
         if rel.__name__ in LABEL_COLUMNS:
             qs = qs.only(*LABEL_COLUMNS[rel.__name__])
-        return JsonResponse({"results": [{"id": o.pk, "text": str(o)} for o in qs.order_by("pk")[:20]]})
+        return JsonResponse({"results": [{"id": getattr(o, f.target_field.attname), "text": str(o)}
+                             for o in qs.order_by("pk")[:20]]})
 
 
 class TableDelete(TableMixin, DeleteView):

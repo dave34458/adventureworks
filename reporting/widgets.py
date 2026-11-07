@@ -13,10 +13,11 @@ class SearchSelect(forms.Select):
 
     queryset = None
     url = ""
+    to_field_name = "pk"
 
     def render(self, name, value, attrs=None, renderer=None):
         value = "" if value in (None, "") else str(value)
-        obj = self.queryset.filter(pk=value).first() if value and self.queryset is not None else None
+        obj = self.queryset.filter(**{self.to_field_name: value}).first() if value and self.queryset is not None else None
         attrs = self.build_attrs(self.attrs, attrs)
         attrs.pop("required", None)  # the visible box holds text, the hidden one the value
         return format_html(

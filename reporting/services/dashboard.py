@@ -17,7 +17,7 @@ def dashboard(request):
     """
     # panel 1: category filter
     with connection.cursor() as c:
-        c.execute("SELECT ProductCategoryID, Name FROM Production_ProductCategory ORDER BY Name")
+        c.execute("SELECT ProductCategoryID, Name FROM [Production].[ProductCategory] ORDER BY Name")
         categories = [{"id": row[0], "name": row[1]} for row in c.fetchall()]
 
     try:
@@ -62,15 +62,15 @@ def dashboard(request):
                        CASE WHEN d.LineTotal
                                  < d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost)
                             THEN 1 ELSE 0 END AS below
-                FROM Sales_SalesOrderDetail d
-                JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
-                JOIN Production_Product p ON p.ProductID = d.ProductID
-                LEFT JOIN Production_ProductCostHistory ch
+                FROM [Sales].[SalesOrderDetail] d
+                JOIN [Sales].[SalesOrderHeader] h ON h.SalesOrderID = d.SalesOrderID
+                JOIN [Production].[Product] p ON p.ProductID = d.ProductID
+                LEFT JOIN [Production].[ProductCostHistory] ch
                   ON ch.ProductID = d.ProductID
                  AND h.OrderDate >= ch.StartDate
                  AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
-                LEFT JOIN Production_ProductSubcategory sc ON sc.ProductSubcategoryID = p.ProductSubcategoryID
-                LEFT JOIN Production_ProductCategory pc ON pc.ProductCategoryID = sc.ProductCategoryID
+                LEFT JOIN [Production].[ProductSubcategory] sc ON sc.ProductSubcategoryID = p.ProductSubcategoryID
+                LEFT JOIN [Production].[ProductCategory] pc ON pc.ProductCategoryID = sc.ProductCategoryID
                 WHERE h.OrderDate >= %s AND h.OrderDate <= %s{cat_sql}
             )
             SELECT
@@ -150,15 +150,15 @@ def dashboard(request):
                        d.LineTotal AS rev,
                        d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost) AS cogs,
                        h.SalesOrderID AS order_id
-                FROM Sales_SalesOrderDetail d
-                JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
-                JOIN Production_Product p ON p.ProductID = d.ProductID
-                LEFT JOIN Production_ProductCostHistory ch
+                FROM [Sales].[SalesOrderDetail] d
+                JOIN [Sales].[SalesOrderHeader] h ON h.SalesOrderID = d.SalesOrderID
+                JOIN [Production].[Product] p ON p.ProductID = d.ProductID
+                LEFT JOIN [Production].[ProductCostHistory] ch
                   ON ch.ProductID = d.ProductID
                  AND h.OrderDate >= ch.StartDate
                  AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
-                LEFT JOIN Production_ProductSubcategory sc ON sc.ProductSubcategoryID = p.ProductSubcategoryID
-                LEFT JOIN Production_ProductCategory pc ON pc.ProductCategoryID = sc.ProductCategoryID
+                LEFT JOIN [Production].[ProductSubcategory] sc ON sc.ProductSubcategoryID = p.ProductSubcategoryID
+                LEFT JOIN [Production].[ProductCategory] pc ON pc.ProductCategoryID = sc.ProductCategoryID
                 WHERE h.OrderDate >= %s AND h.OrderDate <= %s{cat_sql}
             ) base
             GROUP BY month, side
@@ -270,15 +270,15 @@ def dashboard(request):
                    SUM(d.OrderQty) AS units,
                    SUM(d.LineTotal) AS rev,
                    SUM(d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost)) AS cost
-            FROM Sales_SalesOrderDetail d
-            JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
-            JOIN Production_Product p ON p.ProductID = d.ProductID
-            LEFT JOIN Production_ProductCostHistory ch
+            FROM [Sales].[SalesOrderDetail] d
+            JOIN [Sales].[SalesOrderHeader] h ON h.SalesOrderID = d.SalesOrderID
+            JOIN [Production].[Product] p ON p.ProductID = d.ProductID
+            LEFT JOIN [Production].[ProductCostHistory] ch
               ON ch.ProductID = d.ProductID
              AND h.OrderDate >= ch.StartDate
              AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
-            LEFT JOIN Production_ProductSubcategory sc ON sc.ProductSubcategoryID = p.ProductSubcategoryID
-            LEFT JOIN Production_ProductCategory pc ON pc.ProductCategoryID = sc.ProductCategoryID
+            LEFT JOIN [Production].[ProductSubcategory] sc ON sc.ProductSubcategoryID = p.ProductSubcategoryID
+            LEFT JOIN [Production].[ProductCategory] pc ON pc.ProductCategoryID = sc.ProductCategoryID
             WHERE h.OrderDate >= %s AND h.OrderDate <= %s{cat_sql}
             GROUP BY p.ProductID, p.Name, pc.Name
             ORDER BY SUM(d.LineTotal) DESC
@@ -316,15 +316,15 @@ def dashboard(request):
                 SELECT pc.ProductCategoryID, pc.Name,
                        SUM(d.LineTotal) AS rev,
                        SUM(d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost)) AS cost
-                FROM Sales_SalesOrderDetail d
-                JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
-                JOIN Production_Product p ON p.ProductID = d.ProductID
-                    LEFT JOIN Production_ProductCostHistory ch
+                FROM [Sales].[SalesOrderDetail] d
+                JOIN [Sales].[SalesOrderHeader] h ON h.SalesOrderID = d.SalesOrderID
+                JOIN [Production].[Product] p ON p.ProductID = d.ProductID
+                    LEFT JOIN [Production].[ProductCostHistory] ch
                   ON ch.ProductID = d.ProductID
                  AND h.OrderDate >= ch.StartDate
                  AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
-                LEFT JOIN Production_ProductSubcategory sc ON sc.ProductSubcategoryID = p.ProductSubcategoryID
-                LEFT JOIN Production_ProductCategory pc ON pc.ProductCategoryID = sc.ProductCategoryID
+                LEFT JOIN [Production].[ProductSubcategory] sc ON sc.ProductSubcategoryID = p.ProductSubcategoryID
+                LEFT JOIN [Production].[ProductCategory] pc ON pc.ProductCategoryID = sc.ProductCategoryID
                 WHERE h.OrderDate >= %s AND h.OrderDate <= %s
                 GROUP BY pc.ProductCategoryID, pc.Name
                 ORDER BY SUM(d.LineTotal) DESC
@@ -363,12 +363,12 @@ def dashboard(request):
                    SUM(d.LineTotal) AS rev,
                    COUNT(DISTINCT h.SalesOrderID) AS orders,
                    COUNT(DISTINCT h.CustomerID) AS customers
-            FROM Sales_SalesOrderDetail d
-            JOIN Sales_SalesOrderHeader h ON h.SalesOrderID = d.SalesOrderID
-            JOIN Sales_Customer cu ON cu.CustomerID = h.CustomerID
-            JOIN Production_Product p ON p.ProductID = d.ProductID
-            LEFT JOIN Production_ProductSubcategory sc ON sc.ProductSubcategoryID = p.ProductSubcategoryID
-            LEFT JOIN Production_ProductCategory pc ON pc.ProductCategoryID = sc.ProductCategoryID
+            FROM [Sales].[SalesOrderDetail] d
+            JOIN [Sales].[SalesOrderHeader] h ON h.SalesOrderID = d.SalesOrderID
+            JOIN [Sales].[Customer] cu ON cu.CustomerID = h.CustomerID
+            JOIN [Production].[Product] p ON p.ProductID = d.ProductID
+            LEFT JOIN [Production].[ProductSubcategory] sc ON sc.ProductSubcategoryID = p.ProductSubcategoryID
+            LEFT JOIN [Production].[ProductCategory] pc ON pc.ProductCategoryID = sc.ProductCategoryID
             WHERE h.OrderDate >= %s AND h.OrderDate <= %s{cat_sql}
             GROUP BY CASE WHEN cu.StoreID IS NULL THEN 0 ELSE 1 END
             """,
