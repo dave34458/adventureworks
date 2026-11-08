@@ -11,7 +11,7 @@
 {% include "reporting/_range.html" %}
 {% include "reporting/_dimensions.html" %}
 <div class="report">
- <section class="d-kpis">
+ {% if "kpis" in visible_panels %}<section class="d-kpis">
   {% for k in kpis %}
   <div class="d-kpi">
    <div class="lab">{{ k.label }}</div>
@@ -19,9 +19,10 @@
    <div class="cap">{{ k.cap }}</div>
   </div>
   {% endfor %}
- </section>
+ </section>{% endif %}
 
- <section class="d-cols">
+ {% if "growth" in visible_panels or "channels" in visible_panels %}<section class="d-cols">
+  {% if "growth" in visible_panels %}
   <div class="d-panel">
    <h3>Purchasing patterns and trends</h3>
    <p class="sub">New vs returning buyers per month · hover a bar for counts</p>
@@ -42,6 +43,8 @@
     <span class="vl">{{ new_legend.n|fmt_count }}</span><span class="mt">· {{ new_legend.rev|fmt_money }} revenue</span>
    </div>
   </div>
+  {% endif %}
+  {% if "channels" in visible_panels %}
   <div class="d-panel">
    <h3>Who buys: segmentation and spending</h3>
    <p class="sub">Individuals vs stores · revenue and buyer shares · {{ period }}</p>
@@ -62,9 +65,11 @@
    </div>
    {% endfor %}
   </div>
+  {% endif %}
  </section>
+ {% endif %}
 
- <section class="d-panel">
+ {% if "countries" in visible_panels %}<section class="d-panel">
   <h3>Customer distribution</h3>
   <p class="sub">Revenue by country · bubble size is revenue · hover a bubble for details</p>
   <div class="d-mapgrid">
@@ -78,9 +83,10 @@
     </ul>
    </div>
   </div>
- </section>
+ </section>{% endif %}
 
- <section class="d-tops">
+ {% if "cities" in visible_panels or "network" in visible_panels or "frequency" in visible_panels %}<section class="d-tops">
+  {% if "cities" in visible_panels %}
   <div class="d-panel">
    <h3>Customer distribution by city</h3>
    {% include "reporting/_show_rows.html" with key="cities" selected=show_values.cities form_id="report-dimensions" %}
@@ -89,6 +95,8 @@
     {% for r in cities %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value|fmt_money }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
    </ul>
   </div>
+  {% endif %}
+  {% if "network" in visible_panels %}
   <div class="d-panel">
    <h3>Customer segmentation by business type</h3>
    <p class="sub">The B2B side by business type · stores with sales and revenue · {{ period }}</p>
@@ -96,6 +104,8 @@
     {% for r in network %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value|fmt_money }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
    </ul>
   </div>
+  {% endif %}
+  {% if "frequency" in visible_panels %}
   <div class="d-panel">
    <h3>Purchase frequency</h3>
    <p class="sub">Buyers by how many orders they placed · {{ period }}</p>
@@ -103,9 +113,11 @@
     {% for r in frequency %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value|fmt_count }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
    </ul>
   </div>
+  {% endif %}
  </section>
+ {% endif %}
 
- <section class="d-panel">
+ {% if "biggest" in visible_panels %}<section class="d-panel">
   <h3>Top customers</h3>
   <p class="sub">Ranked by revenue · {{ period }}</p>
   {% include "reporting/_show_rows.html" with key="biggest" label="customers" selected=show_values.biggest form_id="report-dimensions" %}
@@ -123,7 +135,7 @@
    {% endfor %}
   </table>
   </div>
- </section>
+ </section>{% endif %}
 </div>
 {{ bubbles|json_script:"cust-bubbles" }}
 <script src="{% static 'reporting/leaflet/leaflet.js' %}"></script>

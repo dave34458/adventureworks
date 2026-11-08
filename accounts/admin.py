@@ -125,6 +125,20 @@ class UserAdmin(BaseUserAdmin):
         return super().get_form(
             request, obj, change=change, fields=fields, **kwargs)
 
+    def user_change_password(self, request, id, form_url=""):
+        user = self.get_object(request, id)
+        old_password = user.password if user else None
+        response = super().user_change_password(request, id, form_url)
+        if user:
+            user.refresh_from_db()
+        if (request.method == "POST" and user and user.password != old_password):
+            AuditLog.objects.create(
+                user=request.user, username=request.user.get_username(), action="update",
+                model="User", object_pk=str(user.pk), object_repr=user.email,
+                changes={"password": ["unchanged", "changed"]},
+                ip_address=request.META.get("REMOTE_ADDR"))
+        return response
+
     def save_model(self, request, obj, form, change):
         old = User.objects.get(pk=obj.pk) if change else None
         request._audit_user_before = {

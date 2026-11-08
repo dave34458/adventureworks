@@ -11,8 +11,28 @@
  {% if can_manage %}<button type="button" id="save-report-button">{% if snapshot %}Edit report{% else %}Generate report{% endif %}</button>{% endif %}
  <noscript><button type="submit">View</button></noscript>
  {% if manage_url %}<a class="d-btn" href="{{ manage_url }}">Manage saved reports</a>{% endif %}
- <a class="d-btn" href="{% url 'report_export' tab %}?{{ request.GET.urlencode }}">Export CSV</a>
+ <details class="export-menu">
+  <summary class="d-btn">Export</summary>
+  <div class="export-options">
+   <a href="{% url 'report_export' tab %}?{{ request.GET.urlencode }}">CSV</a>
+   <button type="button" onclick="window.print()">PDF</button>
+  </div>
+ </details>
 </form>
+<script>
+(function () {
+ document.addEventListener("click", function (event) {
+  document.querySelectorAll(".export-menu[open]").forEach(function (menu) {
+   if (!menu.contains(event.target)) menu.removeAttribute("open");
+  });
+ });
+ document.addEventListener("keydown", function (event) {
+  if (event.key === "Escape") document.querySelectorAll(".export-menu[open]").forEach(function (menu) {
+   menu.removeAttribute("open");
+  });
+ });
+})();
+</script>
 
 <div class="d-filter">
  {% if filter_preview and snapshot %}<a href="{% url tab %}?report={{ snapshot.pk }}">View saved report</a>{% endif %}
@@ -27,6 +47,10 @@
   <input type="hidden" name="to" value="{{ w_to }}">
   {% for category in category_ids %}<input type="hidden" name="category" value="{{ category }}">{% endfor %}
   {% for country in country_codes %}<input type="hidden" name="country" value="{{ country }}">{% endfor %}
+  <input type="hidden" name="category_filter" value="1">
+  {% if include_country %}<input type="hidden" name="country_filter" value="1">{% endif %}
+  {% for panel in visible_panels %}<input type="hidden" name="panel" value="{{ panel }}">{% endfor %}
+  <input type="hidden" name="panel_filter" value="1">
   {% for key, value in show_values.items %}<input type="hidden" name="show_{{ key }}" value="{{ value }}">{% endfor %}
   {% if chart_filter_name %}<input type="hidden" name="{{ chart_filter_name }}" value="{{ chart_filter_value }}">{% endif %}
   <header>
@@ -58,6 +82,9 @@
  <input type="hidden" name="from" value="{{ w_from }}">
  <input type="hidden" name="to" value="{{ w_to }}">
  <input type="hidden" name="overwrite_report" value="">
+ <input type="hidden" name="panel_filter" value="1">
+ <input type="hidden" name="category_filter" value="1">
+ {% if include_country %}<input type="hidden" name="country_filter" value="1">{% endif %}
  {% if chart_filter_name %}<input type="hidden" name="{{ chart_filter_name }}" value="{{ chart_filter_value }}">{% endif %}
 </form>
 <script>
@@ -72,7 +99,7 @@
   ["from", "to"].forEach(function (key) {
    generate.querySelector('[name="' + key + '"]').value = values.get(key);
   });
-  ["category", "country"].forEach(function (key) {
+  ["category", "country", "panel"].forEach(function (key) {
    values.getAll(key).forEach(function (value) {
     var input = Object.assign(document.createElement("input"), {type: "hidden", name: key, value: value});
     generate.appendChild(input);

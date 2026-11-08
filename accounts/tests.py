@@ -212,6 +212,19 @@ class DepartmentUserTests(TestCase):
         self.client.force_login(self.root)
         self.assertEqual(self.client.get("/manage/").status_code, 200)
 
+    def test_global_admin_password_reset_is_audited(self):
+        self.client.force_login(self.root)
+        url = reverse("admin:auth_user_password_change", args=[self.sales_user.pk])
+        response = self.client.post(url, {
+            "password1": "new-safe-password-1",
+            "password2": "new-safe-password-1",
+            "usable_password": "true",
+        })
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(AuditLog.objects.filter(
+            user=self.root, model="User", object_pk=str(self.sales_user.pk),
+            changes={"password": ["unchanged", "changed"]}).exists())
+
     def test_seed_keeps_administrator(self):
         admin = make_superuser("admin@example.com")
         call_command("seed_users", stdout=StringIO())

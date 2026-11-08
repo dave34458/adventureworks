@@ -10,7 +10,7 @@
 {% include "reporting/_range.html" %}
 {% include "reporting/_dimensions.html" %}
 <div class="report">
- <section class="d-kpis">
+ {% if "kpis" in visible_panels %}<section class="d-kpis">
   {% for k in kpis %}
   <div class="d-kpi">
    <div class="lab">{{ k.label }}</div>
@@ -18,9 +18,10 @@
    <div class="cap">{{ k.cap }}</div>
   </div>
   {% endfor %}
- </section>
+ </section>{% endif %}
 
- <section class="d-cols">
+ {% if "trend" in visible_panels or "mix" in visible_panels %}<section class="d-cols">
+  {% if "trend" in visible_panels %}
   <div class="d-panel">
    <h3>{% if cost_metric == "margin" %}Gross margin trend{% else %}Cost trends and comparisons{% endif %}</h3>
    <p class="sub">{% if cost_metric == "margin" %}Monthly gross margin · solid bars: {{ period }}{% if chart_has_previous %} · faded bars: {{ prev_label }}{% endif %}{% else %}Monthly cost of goods sold · solid bars: {{ period }} · faded bars: {{ prev_label }}{% endif %}</p>
@@ -36,6 +37,8 @@
    <div class="d-legend"><span class="sq blue"></span><span class="nm">Selected period</span></div>
    {% if cost_metric == "cost" or chart_has_previous %}<div class="d-legend"><span class="sq pale"></span><span class="nm">Previous period</span></div>{% endif %}
   </div>
+  {% endif %}
+  {% if "mix" in visible_panels %}
   <div class="d-panel">
    <h3>Cost distribution by category</h3>
    <p class="sub">Cost of goods sold by category · {{ period }}</p>
@@ -56,9 +59,11 @@
    </div>
    {% endfor %}
   </div>
+  {% endif %}
  </section>
+ {% endif %}
 
- <section class="d-panel">
+ {% if "performance" in visible_panels %}<section class="d-panel">
   <h3>Costs and business performance</h3>
   <p class="sub">How much of each revenue dollar is absorbed by cost of goods · {{ period }}</p>
   {% if performance %}
@@ -69,9 +74,10 @@
   {% else %}
   <p class="d-note">No revenue in this period, so no cost-to-revenue comparison is possible.</p>
   {% endif %}
- </section>
+ </section>{% endif %}
 
- <section class="d-tops">
+ {% if "vendors" in visible_panels or "products" in visible_panels or "reasons" in visible_panels or "changes" in visible_panels %}<section class="d-tops">
+  {% if "vendors" in visible_panels %}
   <div class="d-panel">
    <h3>Significant cost contributors: vendors</h3>
    {% include "reporting/_show_rows.html" with key="vendors" selected=show_values.vendors form_id="report-dimensions" %}
@@ -80,6 +86,8 @@
     {% for r in vendors %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value|fmt_money }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
    </ul>
   </div>
+  {% endif %}
+  {% if "products" in visible_panels %}
   <div class="d-panel">
    <h3>Significant cost contributors: products</h3>
    {% include "reporting/_show_rows.html" with key="products" selected=show_values.products form_id="report-dimensions" %}
@@ -88,6 +96,8 @@
     {% for r in products %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value|fmt_money }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
    </ul>
   </div>
+  {% endif %}
+  {% if "reasons" in visible_panels %}
   <div class="d-panel">
    <h3>{% if scrap_metric == "cost" %}Significant cost contributors: scrap{% else %}Significant scrap contributors{% endif %}</h3>
    {% include "reporting/_show_rows.html" with key="reasons" selected=show_values.reasons form_id="report-dimensions" %}
@@ -96,6 +106,8 @@
     {% for r in reasons %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{% if scrap_metric == "cost" %}{{ r.value|fmt_money }}{% else %}{{ r.value|fmt_units }}{% endif %}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
    </ul>
   </div>
+  {% endif %}
+  {% if "changes" in visible_panels %}
   <div class="d-panel">
    <h3>Significant cost contributors: repricing</h3>
    {% include "reporting/_show_rows.html" with key="changes" selected=show_values.changes form_id="report-dimensions" %}
@@ -104,9 +116,11 @@
     {% for r in changes %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.old|fmt_money_exact }} &rarr; {{ r.now|fmt_money_exact }}</span><span class="d-chip up">{{ r.pct|fmt_signed_percent }}</span></div><div class="tbar"><i style="width:{{ r.pct|fmt_pct_width }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% endfor %}
    </ul>
   </div>
+  {% endif %}
  </section>
+ {% endif %}
 
- <section class="d-panel">
+ {% if "biggest" in visible_panels %}<section class="d-panel">
   <h3>Biggest purchase orders</h3>
   {% include "reporting/_show_rows.html" with key="biggest" selected=show_values.biggest form_id="report-dimensions" %}
   <p class="sub">Largest non-rejected purchase orders by merchandise value · excl. tax &amp; freight · {{ period }}</p>
@@ -125,6 +139,6 @@
    {% endfor %}
   </table>
   </div>
-  </section>
+  </section>{% endif %}
  </div>
 {% endblock %}

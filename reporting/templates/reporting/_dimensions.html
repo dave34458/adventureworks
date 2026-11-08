@@ -5,24 +5,30 @@
  {% else %}
  <input type="hidden" name="report" value="">
  {% endif %}
+ <input type="hidden" name="category_filter" value="1">
+ {% if include_country %}<input type="hidden" name="country_filter" value="1">{% endif %}
  {% if chart_filter_name %}<input type="hidden" name="{{ chart_filter_name }}" value="{{ chart_filter_value }}">{% endif %}
- <label>From <input type="date" name="from" value="{{ w_from }}"></label>
- <label>To <input type="date" name="to" value="{{ w_to }}"></label>
+ <label>From <input type="date" name="from" value="{{ w_from }}" onchange="this.form.requestSubmit()"></label>
+ <label>To <input type="date" name="to" value="{{ w_to }}" onchange="this.form.requestSubmit()"></label>
  <fieldset class="d-check-filter">
   <legend>Product category</legend>
   <div class="d-check-options">
-   {% for option in category_options %}<label><input type="checkbox" name="category" value="{{ option.id }}"{% if option.id in category_ids %} checked{% endif %}> {{ option.name }}</label>{% endfor %}
+   {% for option in category_options %}<label><input type="checkbox" name="category" value="{{ option.id }}"{% if option.id in category_ids %} checked{% endif %} onchange="this.form.requestSubmit()"> {{ option.name }}</label>{% endfor %}
   </div>
-  <small>Leave unchecked to include all four product categories.</small>
  </fieldset>
  {% if include_country %}
  <fieldset class="d-check-filter">
   <legend>Ship-to country</legend>
   <div class="d-check-options">
-   {% for option in country_options %}<label><input type="checkbox" name="country" value="{{ option.code }}"{% if option.code in country_codes %} checked{% endif %}> {{ option.name }}</label>{% endfor %}
+   {% for option in country_options %}<label><input type="checkbox" name="country" value="{{ option.code }}"{% if option.code in country_codes %} checked{% endif %} onchange="this.form.requestSubmit()"> {{ option.name }}</label>{% endfor %}
   </div>
-  <small>Leave unchecked to include all countries.</small>
  </fieldset>
  {% endif %}
- <button type="submit">Apply filters</button>
+ <input type="hidden" name="panel_filter" value="1">
+ <fieldset class="d-check-filter">
+  <legend>Visible panels</legend>
+  <div class="d-check-options">
+   {% for key, label in panel_options %}<label><input type="checkbox" name="panel" value="{{ key }}"{% if key in visible_panels %} checked{% endif %} onchange="this.form.requestSubmit()"> {{ label }}</label>{% endfor %}
+  </div>
+ </fieldset>
 </form>

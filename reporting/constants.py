@@ -11,6 +11,8 @@ META_KEYS = {
     "filter_from", "filter_to", "filter_preview", "chart_filter_name", "chart_filter_label",
     "chart_filter_value", "chart_filter_options", "chart_has_previous",
     "show_values", "show_options",
+    "panel_options", "visible_panels",
+    "category_filter", "country_filter",
 }
 
 REPORT_COUNTRIES = (

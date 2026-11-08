@@ -27,6 +27,7 @@ from core.models import (
     SalesStore,
     SalesTerritory,
 )
+from reporting.constants import META_KEYS, REPORT_COUNTRIES
 from reporting.models import AuditLog, PRIVACY_NOTICE_VERSION, Report
 from reporting.services import capture_snapshot, report_generate
 from reporting.services.cost import cost
@@ -34,7 +35,7 @@ from reporting.services.customer_profile import customer_profile
 from reporting.services.dashboard import dashboard
 from reporting.services.revenue_and_loss import revenue_and_loss
 from reporting.services.sales import sales
-from reporting.views import report_export
+from reporting.views import CSV_PANEL_SECTIONS, report_export
 from reporting.utils import range_window, rank, rolling_window
 
 User = get_user_model()
@@ -151,6 +152,7 @@ class HttpTests(TestCase):
         cls.users = {}
         for role in ("Sales Manager", "Sales Supervisor", "Sales Employee", "Sales Admin"):
             cls.users[role] = make_user(email_for(role), role=role)
+        cls.root = make_superuser()
 
     def test_sales_roles_see_only_the_sales_tab(self):
         for role, user in self.users.items():
@@ -210,7 +212,10 @@ class HttpTests(TestCase):
         self.assertIn("KPI cards", body)
         self.assertNotIn("Show Values", body)
         self.assertIn("'=Product", body)
-        self.assertContains(self.client.get(f"/sales/?report={report.pk}"), "Export CSV")
+        page = self.client.get(f"/sales/?report={report.pk}")
+        self.assertContains(page, "Export")
+        self.assertContains(page, ">CSV<")
+        self.assertContains(page, ">PDF<")
         self.assertEqual(self.client.get("/cost/report/export/").status_code, 403)
 
     def test_chart_filter_override_is_used_by_csv_export(self):
@@ -234,9 +239,37 @@ class HttpTests(TestCase):
         self.assertNotIn("Height", columns)
         self.assertNotIn("Chart value", columns)
 
+    def test_csv_excludes_hidden_panels(self):
+        report = self.make_report(filters={"visible_panels": ["kpis"]})
+        self.client.force_login(self.users["Sales Manager"])
+        body = self.client.get(
+            f"/sales/report/export/?report={report.pk}").content.decode("utf-8-sig")
+        self.assertIn("KPI cards", body)
+        self.assertNotIn("Product rows", body)
+
+    def test_customer_csv_excludes_hidden_growth_legend(self):
+        report = self.make_report(module="customer-profile", payload=customer_payload(),
+                                  filters={"visible_panels": ["kpis"]})
+        self.client.force_login(self.users["Sales Manager"])
+        body = self.client.get(
+            f"/customer-profile/report/export/?report={report.pk}").content.decode("utf-8-sig")
+        self.assertNotIn("New-buyer legend", body)
+        self.assertNotIn("Returning-buyer legend", body)
+
+    def test_revenue_csv_excludes_hidden_profit_and_margin_panels(self):
+        payload = revenue_payload()
+        payload["profit_rows"] = [{"label": "Jul-24", "full": "Jul-24", "money": 10.0}]
+        payload["margin_rows"] = [{"label": "Jul-24", "full": "Jul-24", "margin": 2.0}]
+        report = self.make_report(module="revenue-and-loss", payload=payload,
+                                  filters={"visible_panels": ["kpis"]})
+        self.client.force_login(self.root)
+        body = self.client.get(
+            f"/revenue-and-loss/report/export/?report={report.pk}").content.decode("utf-8-sig")
+        self.assertNotIn("Gross profit", body)
+        self.assertNotIn("Gross margin", body)
+
     def test_administrator_has_full_access(self):
-        root = make_superuser()
-        self.client.force_login(root)
+        self.client.force_login(self.root)
         for tab in ALL_TABS:
             with self.subTest(tab=tab):
                 self.assertEqual(self.client.get(f"/{tab}/").status_code, 200)
@@ -369,6 +402,15 @@ class ReportDataTests(TestCase):
 
     def test_live_dimension_filters_run_across_all_reports(self):
         category_id = ProductionProductCategory.objects.get(name="Bikes").pk
+        all_context = self.report_context(sales)
+        self.assertEqual(all_context["category_ids"], [category_id])
+        self.assertEqual(all_context["country_codes"], sorted(code for code, _ in REPORT_COUNTRIES))
+
+        empty_context = self.report_context(
+            sales, category_filter="1", country_filter="1")
+        self.assertEqual(empty_context["category_ids"], [])
+        self.assertEqual(empty_context["country_codes"], [])
+
         sales_context = self.report_context(
             sales, category=category_id, country="US")
         sales_total = next(row["value"] for row in sales_context["kpis"]
@@ -396,7 +438,6 @@ class ReportDataTests(TestCase):
             customer_profile, category=category_id, country="US")
         self.assertEqual([row["name"] for row in customer_context["countries"]],
                          ["United States"])
-
         revenue_context = self.report_context(
             revenue_and_loss, category=category_id, country="US")
         revenue_total = next(row["value"] for row in revenue_context["kpis"]
@@ -407,12 +448,32 @@ class ReportDataTests(TestCase):
         self.assertFalse(cost_context["include_country"])
         self.assertEqual(cost_context["country_options"], [])
 
+    def test_live_context_has_visibility_mapping_for_every_csv_section(self):
+        services = {
+            "sales": sales,
+            "customer-profile": customer_profile,
+            "revenue-and-loss": revenue_and_loss,
+            "cost": cost,
+        }
+        skipped = {"bubbles", "combo", "donut", "donut_mid"}
+        for tab, service in services.items():
+            context = self.report_context(service)
+            sections = {
+                key for key, value in context.items()
+                if key not in META_KEYS and key not in skipped
+                and isinstance(value, (dict, list))
+            }
+            mapped = CSV_PANEL_SECTIONS[tab].keys()
+            self.assertTrue(sections <= mapped,
+                            f"unmapped {tab} sections: {sections - set(mapped)}")
+
     def test_generated_snapshot_captures_report_level_filters(self):
         category_id = ProductionProductCategory.objects.get(name="Bikes").pk
         request = RequestFactory().post("/sales/report/generate/", {
             "from": "2024-04-01", "to": "2025-03-31",
             "category": str(category_id), "country": "US",
             "show_products": "25", "show_low_products": "100",
+            "panel_filter": "1", "panel": ["kpis", "trend"],
         })
         request.user = self.root
 
@@ -421,7 +482,9 @@ class ReportDataTests(TestCase):
         self.assertEqual(snapshot.title, "Sales report")
         self.assertEqual(snapshot.filters, {
             "category_ids": [category_id], "country_codes": ["US"],
+            "category_filter": True, "country_filter": True,
             "show_products": 25, "show_low_products": 100,
+            "visible_panels": ["kpis", "trend"],
             "sales_metric": "revenue",
         })
         total = next(row["value"] for row in snapshot.payload["kpis"]
@@ -435,6 +498,7 @@ class ReportDataTests(TestCase):
         self.assertEqual(saved_context["category_ids"], [category_id])
         self.assertEqual(saved_context["country_codes"], ["US"])
         self.assertEqual(saved_context["show_values"], {"products": 25, "low_products": 100})
+        self.assertEqual(saved_context["visible_panels"], ["kpis", "trend"])
 
     def test_capture_snapshot_builds_a_report_for_the_seed_command(self):
         request = RequestFactory().get("/sales/")
@@ -508,6 +572,9 @@ class ReportDataTests(TestCase):
         report_generate(create_new, "sales")
         self.assertNotEqual(create_new._captured_snapshot.pk, existing.pk)
         self.assertEqual(Report.objects.filter(module="sales").count(), 2)
+        audit = AuditLog.objects.get(
+            model="Report", object_pk=str(create_new._captured_snapshot.pk), action="create")
+        self.assertEqual(audit.changes["module"], [None, "sales"])
 
     def test_custom_cost_range_after_sales_max_includes_purchase_orders(self):
         context = self.report_context(

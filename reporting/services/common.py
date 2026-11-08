@@ -20,6 +20,33 @@ SHOW_DEFAULTS = {
     "revenue-and-loss": {"declining": 8, "leaks": 6, "products": 8},
     "cost": {"vendors": 8, "products": 8, "reasons": 8, "changes": 6, "biggest": 8},
 }
+PANEL_OPTIONS = {
+    "sales": (("kpis", "Key figures"), ("trend", "Sales trend"),
+               ("products", "High-performing products"), ("low_products", "Low-performing products")),
+    "customer-profile": (("kpis", "Key figures"), ("growth", "Purchasing patterns"),
+                          ("channels", "Buyer segmentation"), ("countries", "Country distribution"),
+                          ("cities", "City distribution"), ("network", "Business type"),
+                          ("frequency", "Purchase frequency"), ("biggest", "Top customers")),
+    "revenue-and-loss": (("kpis", "Key figures"), ("rev_trend", "Revenue trend"),
+                         ("profit_rows", "Gross profit"), ("margin_rows", "Gross margin"),
+                         ("mix", "Category contribution"), ("declining", "Declining products"),
+                         ("leaks", "Below-cost shortfall"), ("products", "Product contribution"),
+                         ("notes", "Calculation notes")),
+    "cost": (("kpis", "Key figures"), ("trend", "Cost trend"), ("mix", "Category distribution"),
+             ("performance", "Business performance"), ("vendors", "Vendors"),
+             ("products", "Products"), ("reasons", "Scrap"), ("changes", "Repricing"),
+             ("biggest", "Purchase orders")),
+}
+
+
+def visible_panels(params, module):
+    allowed = [key for key, _ in PANEL_OPTIONS[module]]
+    if not hasattr(params, "getlist"):
+        selected = params.get("visible_panels")
+        return [key for key in (selected if selected is not None else allowed) if key in allowed]
+    if "panel_filter" not in params:
+        return allowed
+    return [key for key in params.getlist("panel") if key in allowed]
 
 
 def show_amount(params, key, default):
@@ -127,18 +154,28 @@ def report_dimension_filters(request, module, include_country=True):
             continue
         if category_id in valid_categories:
             category_ids.add(category_id)
+    category_requested = "category_filter" in params or bool(params.getlist("category"))
+    if not category_requested:
+        category_ids = valid_categories.copy()
     countries = REPORT_COUNTRIES if include_country else ()
     valid_countries = {code for code, _ in countries}
     country_codes = {
         value.strip().upper() for value in params.getlist("country")
         if value.strip().upper() in valid_countries
     }
+    country_requested = "country_filter" in params or bool(params.getlist("country"))
+    if not country_requested:
+        country_codes = valid_countries.copy()
 
     filters = {
         "category_ids": sorted(category_ids),
         "country_codes": sorted(country_codes),
+        "category_filter": category_requested,
+        "country_filter": country_requested,
         "include_country": include_country,
         "show_values": show_values(params, module),
+        "panel_options": PANEL_OPTIONS[module],
+        "visible_panels": visible_panels(params, module),
         "show_options": SHOW_OPTIONS,
         "category_options": [{"id": key, "name": name} for key, name in categories],
         "country_options": [{"code": key, "name": name} for key, name in countries],
@@ -154,7 +191,9 @@ def dimension_sql(filters, product_ref="d.ProductID", header_ref="h", order_ref=
     """Build product-category and ship-to-country predicates."""
     clauses, params = [], []
     category_ids = filters.get("category_ids", [])
-    if category_ids:
+    if filters.get("category_filter") and not category_ids:
+        clauses.append("1=0")
+    elif category_ids and filters.get("category_filter"):
         placeholders = ", ".join(["%s"] * len(category_ids))
         if product_ref:
             clauses.append(
@@ -177,7 +216,9 @@ def dimension_sql(filters, product_ref="d.ProductID", header_ref="h", order_ref=
         if clauses:
             params.extend(category_ids)
     country_codes = filters.get("country_codes", [])
-    if country_codes and header_ref:
+    if filters.get("country_filter") and not country_codes and header_ref:
+        clauses.append("1=0")
+    elif country_codes and header_ref and filters.get("country_filter"):
         placeholders = ", ".join(["%s"] * len(country_codes))
         clauses.append(
             "EXISTS (SELECT 1 FROM [Person].[Address] filter_address "
@@ -192,8 +233,10 @@ def dimension_sql(filters, product_ref="d.ProductID", header_ref="h", order_ref=
 
 def purchase_category_sql(filters, product_ref="pod.ProductID"):
     category_ids = filters.get("category_ids", [])
-    if not category_ids:
+    if not filters.get("category_filter"):
         return "", []
+    if not category_ids:
+        return " AND 1=0", []
     placeholders = ", ".join(["%s"] * len(category_ids))
     return (
         " AND EXISTS (SELECT 1 FROM [Production].[Product] filter_product "
@@ -221,18 +264,16 @@ def _render_snapshot(request, module, template, snapshot):
     context = copy.deepcopy(snapshot.payload or {})
     context.pop("pipeline", None)
     title = snapshot_name(snapshot)
-    filters = snapshot.filters if isinstance(snapshot.filters, dict) else {}
-    if not filters:
-        title_text = snapshot.title or ""
-        names = (title_text.split(" | Categories: ", 1)[1].split(" | ", 1)[0].split(", ")
-                 if " | Categories: " in title_text else [])
-        ids = dict(ProductionProductCategory.objects.values_list("name", "product_category_id"))
-        countries = (title_text.split(" | Countries: ", 1)[1].split(" | ", 1)[0].split(", ")
-                     if " | Countries: " in title_text else [])
-        filters = {"category_ids": [ids[name] for name in names if name in ids],
-                   "country_codes": countries}
+    filters = dict(snapshot.filters or {})
     filters.setdefault("category_ids", [])
     filters.setdefault("country_codes", [])
+    filters.setdefault("category_filter", False)
+    filters.setdefault("country_filter", False)
+    category_ids = set(ProductionProductCategory.objects.values_list("product_category_id", flat=True))
+    if not filters["category_filter"]:
+        filters["category_ids"] = sorted(category_ids)
+    if not filters["country_filter"]:
+        filters["country_codes"] = sorted(code for code, _ in REPORT_COUNTRIES)
     if module == "cost":
         for row in context.get("biggest", []):
             value = row.get("date")
@@ -243,6 +284,7 @@ def _render_snapshot(request, module, template, snapshot):
                     pass
     dimensions = report_dimension_filters(request, module, include_country=module != "cost")
     values = show_values(filters, module)
+    panels = visible_panels(filters, module)
     _display_rows(context, module, values)
     context.update({
         "tab": module,
@@ -257,11 +299,15 @@ def _render_snapshot(request, module, template, snapshot):
         "snapshot": snapshot,
         "category_ids": filters["category_ids"],
         "country_codes": filters["country_codes"],
+        "category_filter": filters["category_filter"],
+        "country_filter": filters["country_filter"],
         "include_country": module != "cost",
         "category_options": dimensions["category_options"],
         "country_options": dimensions["country_options"],
         "show_values": values,
         "show_options": SHOW_OPTIONS,
+        "panel_options": PANEL_OPTIONS[module],
+        "visible_panels": panels,
         "filter_preview": False,
     })
     context["snapshots"] = list(Report.objects.filter(module=module))
@@ -316,6 +362,9 @@ def _report_response(request, module, template, context, window):
         generated_filters = {
             "category_ids": dimensions.get("category_ids", []),
             "country_codes": dimensions.get("country_codes", []),
+            "category_filter": dimensions.get("category_filter", False),
+            "country_filter": dimensions.get("country_filter", False),
+            "visible_panels": dimensions.get("visible_panels", []),
         }
         generated_filters.update({f"show_{key}": value
                                   for key, value in dimensions["show_values"].items()})
@@ -328,6 +377,7 @@ def _report_response(request, module, template, context, window):
             snapshot = Report.objects.filter(pk=overwrite_id, module=module).first()
             if snapshot is None:
                 raise Http404
+        created = snapshot is None
         saved_filters = dict(snapshot.filters or {}) if snapshot else {}
         saved_filters.pop("subcategory_ids", None)
         saved_filters.update(generated_filters)
@@ -368,15 +418,19 @@ def _report_response(request, module, template, context, window):
         for key, value in defaults.items():
             setattr(snapshot, key, value)
         snapshot.save()
-        if audit_changes and getattr(request, "method", "") == "POST":
+        if getattr(request, "method", "") == "POST" and (created or audit_changes):
             user = getattr(request, "user", None)
             username = (user.get_username()
                         if getattr(user, "pk", None) else "system")
             AuditLog.objects.create(
                 user=user if getattr(user, "pk", None) else None,
-                username=username, action="update", model="Report",
+                username=username, action="create" if created else "update", model="Report",
                 object_pk=str(snapshot.pk), object_repr=str(snapshot)[:255],
-                changes=audit_changes,
+                changes=(
+                    {"module": [None, module], "title": [None, title],
+                     "range_start": [None, str(snapshot.range_start)],
+                     "range_end": [None, str(snapshot.range_end)]}
+                    if created else audit_changes),
                 ip_address=getattr(request, "META", {}).get("REMOTE_ADDR"))
         request._captured_snapshot = snapshot
         return ReportResult("", redirect_to=f"{reverse(module)}?report={snapshot.pk}")

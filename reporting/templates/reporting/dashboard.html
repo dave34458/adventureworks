@@ -7,10 +7,9 @@
 <p class="muted d-sub">{{ empty_message }}</p>
 {% endif %}
 <form class="d-filter" method="get" id="dashboard-filters">
- <label>From <input type="date" name="from" value="{{ w_from }}"></label>
- <label>To <input type="date" name="to" value="{{ w_to }}"></label>
- <label>Category <select name="category"><option value="">All categories</option>{% for c in categories %}<option value="{{ c.id }}"{% if c.id == category_id %} selected{% endif %}>{{ c.name }}</option>{% endfor %}</select></label>
- <button type="submit">Apply</button>
+ <label>From <input type="date" name="from" value="{{ w_from }}" onchange="this.form.requestSubmit()"></label>
+ <label>To <input type="date" name="to" value="{{ w_to }}" onchange="this.form.requestSubmit()"></label>
+ <label>Category <select name="category" onchange="this.form.requestSubmit()"><option value="">All categories</option>{% for c in categories %}<option value="{{ c.id }}"{% if c.id == category_id %} selected{% endif %}>{{ c.name }}</option>{% endfor %}</select></label>
  <a href="?">Reset</a>
 </form>
 <div class="report">

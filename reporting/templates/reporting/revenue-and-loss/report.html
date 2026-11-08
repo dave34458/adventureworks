@@ -10,7 +10,7 @@
 {% include "reporting/_range.html" %}
 {% include "reporting/_dimensions.html" %}
 <div class="report">
- <section class="d-kpis">
+ {% if "kpis" in visible_panels %}<section class="d-kpis">
   {% for k in kpis %}
   <div class="d-kpi">
    <div class="lab">{{ k.label }}</div>
@@ -18,9 +18,9 @@
    <div class="cap">{{ k.cap }}</div>
   </div>
   {% endfor %}
- </section>
+ </section>{% endif %}
 
- <section class="d-panel">
+ {% if "rev_trend" in visible_panels %}<section class="d-panel">
   <h3>Revenue trend by month</h3>
   <p class="sub">Revenue in dollars · solid bars: {{ period }} · faded bars: {{ prev_label }}</p>
   <div class="d-bars">
@@ -33,9 +33,9 @@
   </div>
   <div class="d-legend"><span class="sq blue"></span><span class="nm">Selected period</span></div>
   <div class="d-legend"><span class="sq pale"></span><span class="nm">Previous period</span></div>
- </section>
+ </section>{% endif %}
 
- <section class="d-panel d-line">
+ {% if "profit_rows" in visible_panels %}<section class="d-panel d-line">
   <h3>Gross profit · selected period</h3>
   <p class="sub">Gross profit in dollars · {{ period }}</p>
   <svg viewBox="0 0 960 260" role="img" aria-label="Monthly gross profit for the selected period">
@@ -44,9 +44,9 @@
    {% for t in combo.xticks %}<text class="tick" x="{{ t.x }}" y="252" text-anchor="middle">{{ t.lab }}</text>{% endfor %}
   </svg>
   <div class="d-legend"><span class="sq"></span><span class="nm">Gross profit</span><span class="mt">· dollars, left axis</span></div>
- </section>
+ </section>{% endif %}
 
- {% if combo.cur_pts or combo.prev_pts %}
+ {% if "margin_rows" in visible_panels and combo.cur_pts or "margin_rows" in visible_panels and combo.prev_pts %}
  <section class="d-panel d-line">
   <h3>Gross margin by month</h3>
   <p class="sub">Gross margin percent · solid = {{ period }} · dashed = {{ prev_label }}</p>
@@ -62,7 +62,7 @@
  </section>
  {% endif %}
 
- <section class="d-panel">
+ {% if "mix" in visible_panels %}<section class="d-panel">
   <h3>Revenue contribution by category</h3>
   <p class="sub">Share of revenue and gross margin by product category &middot; {{ period }}</p>
   <div class="d-donutrow">
@@ -87,9 +87,10 @@
     {% endfor %}
    </div>
   </div>
- </section>
+ </section>{% endif %}
 
- <section class="d-cols">
+ {% if "declining" in visible_panels or "leaks" in visible_panels %}<section class="d-cols">
+  {% if "declining" in visible_panels %}
   <div class="d-panel">
    <h3>Declining revenue by product</h3>
    {% include "reporting/_show_rows.html" with key="declining" selected=show_values.declining form_id="report-dimensions" %}
@@ -98,6 +99,8 @@
     {% for r in declining %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value|fmt_money }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% empty %}<li class="note">No product sold less than in the previous period.</li>{% endfor %}
    </ul>
   </div>
+  {% endif %}
+  {% if "leaks" in visible_panels %}
   <div class="d-panel">
    <h3>Below-cost shortfall</h3>
    {% include "reporting/_show_rows.html" with key="leaks" selected=show_values.leaks form_id="report-dimensions" %}
@@ -106,9 +109,11 @@
     {% for r in leaks %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value|fmt_money }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div>{% if r.note %}<div class="note">{{ r.note }}</div>{% endif %}</li>{% empty %}<li class="note">No line was sold below standard cost.</li>{% endfor %}
    </ul>
   </div>
+  {% endif %}
  </section>
+ {% endif %}
 
- <section class="d-panel">
+ {% if "products" in visible_panels %}<section class="d-panel">
   <h3>Revenue contribution by product</h3>
   {% include "reporting/_show_rows.html" with key="products" selected=show_values.products form_id="report-dimensions" %}
   <p class="sub">Revenue, cost, gross profit and margin by product · {{ period }}</p>
@@ -126,9 +131,9 @@
    {% endfor %}
   </table>
   </div>
- </section>
+ </section>{% endif %}
 
- <section class="d-panel d-notes">
+ {% if "notes" in visible_panels %}<section class="d-panel d-notes">
   <h3>Calculation method and limitations</h3>
   <ul class="d-note-list">
    <li><b>Revenue</b> is the sum of sales-order line totals in USD (merchandise only); tax and freight are excluded.</li>
@@ -138,6 +143,6 @@
    <li><b>Invoiced total</b> is the order header's total due in USD, including tax and freight.</li>
    <li><b>Net profit and accounting loss cannot be calculated</b>: the database has no operating expenses (payroll, rent, depreciation, interest). No figures are estimated.</li>
   </ul>
- </section>
+ </section>{% endif %}
 </div>
 {% endblock %}

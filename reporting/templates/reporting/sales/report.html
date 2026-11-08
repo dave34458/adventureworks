@@ -10,7 +10,7 @@
 {% include "reporting/_range.html" %}
 {% include "reporting/_dimensions.html" %}
 <div class="report">
- <section class="d-kpis">
+ {% if "kpis" in visible_panels %}<section class="d-kpis">
   {% for k in kpis %}
   <div class="d-kpi">
    <div class="lab">{{ k.label }}</div>
@@ -18,9 +18,9 @@
    <div class="cap">{{ k.cap }}</div>
   </div>
   {% endfor %}
- </section>
+ </section>{% endif %}
 
- <section class="d-panel">
+ {% if "trend" in visible_panels %}<section class="d-panel">
   <h3>Total sales and sales trend</h3>
   <p class="sub">{% if sales_metric == "orders" %}Monthly order count{% else %}Monthly merchandise sales{% endif %} · solid bars: {{ period }} · faded bars: {{ prev_label }}</p>
   {% include "reporting/_chart_filter.html" %}
@@ -34,9 +34,10 @@
   </div>
   <div class="d-legend"><span class="sq blue"></span><span class="nm">Selected period</span></div>
   <div class="d-legend"><span class="sq pale"></span><span class="nm">Previous period</span></div>
- </section>
+ </section>{% endif %}
 
- <section class="d-tops">
+ {% if "products" in visible_panels or "low_products" in visible_panels %}<section class="d-tops">
+  {% if "products" in visible_panels %}
   <div class="d-panel">
    <h3>High-performing products</h3>
    {% include "reporting/_show_rows.html" with key="products" selected=show_values.products form_id="report-dimensions" %}
@@ -45,6 +46,8 @@
     {% for r in products %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value|fmt_money }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div></li>{% endfor %}
    </ul>
   </div>
+  {% endif %}
+  {% if "low_products" in visible_panels %}
   <div class="d-panel">
    <h3>Low-performing products</h3>
    {% include "reporting/_show_rows.html" with key="low_products" selected=show_values.low_products form_id="report-dimensions" %}
@@ -53,6 +56,8 @@
     {% for r in low_products %}<li><div class="row"><span class="nm"><span class="rk">{{ forloop.counter }}</span>{{ r.name }}</span><span class="vl">{{ r.value|fmt_money }}</span></div><div class="tbar"><i style="width:{{ r.pct }}%"></i></div></li>{% endfor %}
    </ul>
   </div>
+  {% endif %}
  </section>
+ {% endif %}
 </div>
 {% endblock %}

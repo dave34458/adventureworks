@@ -27,10 +27,32 @@ from . import services
 from .constants import LABEL_COLUMNS, META_KEYS, SECTION_LABELS
 from .models import PRIVACY_NOTICE_VERSION, AuditLog, Report
 from .services import REPORT_VIEWS, cell, name_needs_joins, shown
-from .services.common import snapshot_name
+from .services.common import PANEL_OPTIONS, snapshot_name, visible_panels
 from .services.tables import url_pk
 from .utils import metric
 from .widgets import SearchSelect
+
+CSV_PANEL_SECTIONS = {
+    "sales": {"kpis": {"kpis"}, "trend": {"trend"}, "products": {"products"}, "low_products": {"low_products"}},
+    "customer-profile": {"kpis": {"kpis"}, "growth": {"growth"}, "new_legend": {"growth"},
+                         "ret_legend": {"growth"}, "channels": {"channels"}, "countries": {"countries"},
+                         "cities": {"cities"}, "network": {"network"}, "frequency": {"frequency"},
+                         "biggest": {"biggest"}},
+    "revenue-and-loss": {"kpis": {"kpis"}, "rev_trend": {"rev_trend"},
+                         "profit_rows": {"profit_rows"}, "margin_rows": {"margin_rows"},
+                         "combo": {"profit_rows", "margin_rows"},
+                         "mix": {"mix"}, "donut": {"mix"}, "donut_mid": {"mix"},
+                         "declining": {"declining"}, "leaks": {"leaks"}, "products": {"products"}},
+    "cost": {"kpis": {"kpis"}, "trend": {"trend"}, "mix": {"mix"}, "donut": {"mix"},
+             "donut_mid": {"mix"}, "performance": {"performance"}, "vendors": {"vendors"},
+             "products": {"products"}, "reasons": {"reasons"}, "changes": {"changes"},
+             "biggest": {"biggest"}},
+}
+
+
+def csv_section_visible(tab, section, selected_panels):
+    panels = CSV_PANEL_SECTIONS[tab].get(section)
+    return panels is None or bool(set(selected_panels) & panels)
 
 
 def _respond(request, result):
@@ -94,6 +116,7 @@ def report_export(request, tab):
     if not request.user.has_perm(f"reporting.access_{tab.replace('-', '_')}"):
         raise PermissionDenied
     context = REPORT_VIEWS[tab](request).context
+    selected_panels = set(context.get("visible_panels", [key for key, _ in PANEL_OPTIONS[tab]]))
     response = HttpResponse(content_type="text/csv; charset=utf-8")
     response["Content-Disposition"] = f'attachment; filename="{tab}.csv"'
     response.write("\ufeff")
@@ -116,7 +139,8 @@ def report_export(request, tab):
                "date": "Date", "lines": "Lines", "status": "Status", "note": "Details"}
     records = []
     for key, value in context.items():
-        if key in META_KEYS or key in skip_sections or not value:
+        if key in META_KEYS or key in skip_sections or not value or not csv_section_visible(
+                tab, key, selected_panels):
             continue
         label = SECTION_LABELS.get(key, key.replace("_", " ").title())
         rows = (value if isinstance(value, list) and value and isinstance(value[0], dict)

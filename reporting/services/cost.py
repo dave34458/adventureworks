@@ -33,7 +33,7 @@ def cost(request):
     history_filter, history_params = dimension_sql(
         filters, product_ref="h.ProductID", header_ref=None)
     purchase_filter, purchase_params = purchase_category_sql(filters)
-    category_selected = bool(filters["category_ids"])
+    category_selected = filters.get("category_filter", False)
     purchase_detail_join = (
         "JOIN [Purchasing].[PurchaseOrderDetail] pod ON pod.PurchaseOrderID = po.PurchaseOrderID"
         if category_selected else "")
