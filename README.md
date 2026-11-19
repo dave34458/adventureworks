@@ -6,26 +6,26 @@
 2. Restore `AdventureWorks2025.bak` as `AdventureWorks2025` in SQL Server.
 3. Install dependencies:
 
-   ```powershell
-   py -3.12 -m pip install -r requirements.txt
+   ```
+   pip install -r requirements.txt
    ```
 
 4. Create tables and permissions:
 
-   ```powershell
-   py -3.12 manage.py migrate
+   ```
+   py manage.py migrate
    ```
 
 5. Create roles and demo users:
 
-   ```powershell
-   py -3.12 manage.py seed_users --if-empty
+   ```
+   py manage.py seed_users --if-empty
    ```
 
 6. Start the app:
 
-   ```powershell
-   py -3.12 manage.py runserver
+   ```
+   py manage.py runserver
    ```
 
 7. Log in with `admin@example.com` / `admin`.
