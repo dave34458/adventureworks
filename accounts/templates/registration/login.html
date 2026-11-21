@@ -10,7 +10,7 @@
  .demo code{font-size:.72rem}
 </style>{% endblock %}{% block content %}
 <div class="lw"><div class="lcard">
- <img src="{% static 'reporting/favicon.svg' %}" alt="AdventureWorks" width="48" height="48">
+ <img src="{% static 'reporting/favicon.svg' %}" alt="Adventureworks Reporting System" width="48" height="48">
  <h2>Log in</h2>
  <form method="post">{% csrf_token %}
   {% if form.errors %}<p class="msg error">Wrong email or password.</p>{% endif %}

@@ -1,6 +1,6 @@
 {% load static %}<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{% block title %}{% if title %}{{ title }} · {% endif %}AdventureWorks{% endblock %}</title>
+<title>{% block title %}{% if title %}{{ title }} · {% endif %}Adventureworks Reporting System{% endblock %}</title>
 <link rel="icon" type="image/svg+xml" href="{% static 'reporting/favicon.svg' %}">
 <style>
  body{font-family:system-ui,sans-serif;margin:0;color:#1d2733;min-height:100vh;display:flex;flex-direction:column}
@@ -257,7 +257,7 @@
 </nav>{% endif %}
 {% for m in messages %}<p class="msg {{ m.tags }}">{{ m }}</p>{% endfor %}
 <main>{% block content %}{% endblock %}</main>
-<footer class="foot">Personal data in this system is processed under the Data Privacy Act of 2012 (Republic Act No. 10173) &middot; AdventureWorks &middot; <a href="{% url 'privacy' %}">Data privacy notice</a></footer>
+<footer class="foot">Personal data in this system is processed under the Data Privacy Act of 2012 (Republic Act No. 10173) &middot; Adventureworks Reporting System &middot; <a href="{% url 'privacy' %}">Data privacy notice</a></footer>
 <script>
 (function () {
  document.addEventListener("submit", function (event) {
