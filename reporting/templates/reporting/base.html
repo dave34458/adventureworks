@@ -75,6 +75,9 @@
  .d-legend .vl{color:#1f3a5f;font-weight:650;font-variant-numeric:tabular-nums}
  .d-legend .mt{color:#6b7785;font-size:.78rem}
  .d-rank{list-style:none;margin:0;padding:0}
+ .d-panel .d-rank{max-height:min(24rem,55vh);overflow:auto;overscroll-behavior:contain}
+ .d-panel .scroll{max-height:min(24rem,55vh);overflow:auto;overscroll-behavior:contain}
+ .d-panel .d-table th{position:sticky;top:0;background:#fff;z-index:1}
  .d-rank li{margin:.6rem 0}
  .d-rank .row{display:flex;justify-content:space-between;gap:.75rem;font-size:.85rem}
  .d-rank .nm{display:flex;gap:.45rem;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -193,6 +196,8 @@
   .d-sub{color:#333;margin:0 0 .8rem}
   .report{gap:.55rem;margin:0}
   .d-panel,.d-kpi{box-shadow:none;break-inside:avoid}
+  .d-panel .d-rank,.d-panel .scroll{max-height:none;overflow:visible}
+  .d-panel .d-table th{position:static}
   .d-cols,.d-tops{break-inside:avoid}
   .d-map .d-map-leaflet{height:300px}
   .d-bar i{background-color:#35659e!important}
