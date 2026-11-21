@@ -54,6 +54,11 @@
  .d-bar:hover .bw>i.prev{background:#cbd9e8}
  .d-bar .bw>i.cur.negative{background:#b42318}
  .d-bar .bw>i.prev.negative{background:#e6a29a}
+ .d-bar[data-tip]{cursor:default}
+ .d-tip{position:fixed;left:0;top:0;z-index:1000;max-width:min(22rem,calc(100vw - 12px));padding:.42rem .6rem;border-radius:6px;background:#1d2733;color:#fff;font-size:.76rem;line-height:1.35;box-shadow:0 6px 18px rgba(18,28,40,.3);opacity:0;pointer-events:none;transition:opacity .1s ease;white-space:normal}
+ .d-tip.on{opacity:1}
+ .d-tip:after{content:"";position:absolute;left:50%;top:100%;margin-left:-5px;border:5px solid transparent;border-top-color:#1d2733}
+ .d-tip.below:after{top:auto;bottom:100%;border-top-color:transparent;border-bottom-color:#1d2733}
  .d-splitbar{display:flex;height:16px;border-radius:8px;overflow:hidden;background:#e9eef5;margin:.2rem 0 .9rem}
  .d-splitbar i{display:block;height:100%}
  .d-splitbar i.online{background:#2f5b8f}
@@ -182,7 +187,7 @@
  @media(max-width:520px){.d-bars{gap:2px}.d-bar b{visibility:hidden}.d-bar:nth-child(odd) b{visibility:visible}}
  @media print{
   body{display:block;background:#fff;color:#111;font-family:Arial,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-  nav.top,nav.sub,.foot,.d-filter,.report-edit-dialog{display:none!important}
+  nav.top,nav.sub,.foot,.d-filter,.report-edit-dialog,.d-tip{display:none!important}
   main{padding:0;max-width:none}
   main>h2{font-size:1.4rem;margin:0 0 .35rem}
   .d-sub{color:#333;margin:0 0 .8rem}
@@ -269,5 +274,68 @@
   });
  });
 })();
+ (function () {
+  var tip = document.createElement("div");
+  tip.className = "d-tip";
+  tip.setAttribute("role", "tooltip");
+  document.body.appendChild(tip);
+  var active = null;
+
+  document.querySelectorAll(".d-bar[title]").forEach(function (el) {
+   el.setAttribute("data-tip", el.getAttribute("title"));
+   el.removeAttribute("title");
+   el.tabIndex = 0;
+  });
+  document.querySelectorAll("rect.profitbar > title").forEach(function (title) {
+   title.parentNode.setAttribute("data-tip", title.textContent);
+   title.remove();
+  });
+
+  function place() {
+   if (!active) return;
+   var rect = active.getBoundingClientRect();
+   var width = tip.offsetWidth;
+   var height = tip.offsetHeight;
+   var top = rect.top - height - 9;
+   tip.classList.toggle("below", top < 4);
+   if (top < 4) top = rect.bottom + 9;
+   var left = Math.max(6, Math.min(rect.left + rect.width / 2 - width / 2, window.innerWidth - width - 6));
+   tip.style.transform = "translate(" + Math.round(left) + "px," + Math.round(top) + "px)";
+  }
+
+  function show(el) {
+   if (active !== el) {
+    active = el;
+    tip.textContent = el.getAttribute("data-tip") || "";
+    tip.classList.add("on");
+   }
+   place();
+  }
+
+  function hide() {
+   active = null;
+   tip.classList.remove("on");
+  }
+
+  function target(event) {
+   return event.target.closest ? event.target.closest("[data-tip]") : null;
+  }
+
+  document.addEventListener("pointerover", function (event) {
+   var el = target(event);
+   if (el) show(el);
+  });
+  document.addEventListener("pointerout", function (event) {
+   var el = target(event);
+   if (el && !el.contains(event.relatedTarget)) hide();
+  });
+  document.addEventListener("focusin", function (event) {
+   var el = target(event);
+   if (el) show(el);
+  });
+  document.addEventListener("focusout", hide);
+  window.addEventListener("scroll", place, true);
+  window.addEventListener("resize", hide);
+ })();
 </script>
 </body></html>

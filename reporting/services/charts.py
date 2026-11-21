@@ -1,5 +1,5 @@
 """Chart geometry builders used by live report generation."""
-from ..utils import money, percent, ring
+from ..utils import money, money_exact, percent, ring
 
 def build_donut(tab, mix):
     label = "cost" if tab == "cost" else "revenue"
@@ -52,7 +52,7 @@ def build_combo(profit_rows, margin_rows):
         y = y_money(profit) if profit >= 0 else zero_y
         bars.append({
             "x": round(x_at(index) - barw / 2, 1), "y": y, "h": height, "w": barw,
-            "t": f"{full[index]} \u00b7 {money(profit)} gross profit",
+            "t": f"{full[index]} \u00b7 {money_exact(profit)} gross profit",
         })
 
     dots = []

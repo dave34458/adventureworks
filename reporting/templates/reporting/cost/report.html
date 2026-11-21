@@ -28,7 +28,7 @@
    {% include "reporting/_chart_filter.html" %}
    <div class="d-bars">
     {% for t in trend %}
-    <div class="d-bar" title="{{ t.full }} · {% if cost_metric == 'margin' %}{{ t.chart_value|fmt_percent }} margin{% else %}{{ t.chart_value|fmt_money }} cost{% endif %}{% if t.prev_full and t.prev_chart_value is not None %} · previous {{ t.prev_full }}: {% if cost_metric == 'margin' %}{{ t.prev_chart_value|fmt_percent }} margin{% else %}{{ t.prev_chart_value|fmt_money }} cost{% endif %}{% endif %}">
+    <div class="d-bar" title="{{ t.full }} · {% if cost_metric == 'margin' %}{{ t.chart_value|fmt_percent }} margin{% else %}{{ t.chart_value|fmt_money_exact }} cost{% endif %}{% if t.prev_full and t.prev_chart_value is not None %} · previous {{ t.prev_full }}: {% if cost_metric == 'margin' %}{{ t.prev_chart_value|fmt_percent }} margin{% else %}{{ t.prev_chart_value|fmt_money_exact }} cost{% endif %}{% endif %}">
      <span class="bw">{% if cost_metric == 'cost' or t.prev_chart_value is not None %}<i class="prev{% if cost_metric == 'margin' and t.prev_chart_value < 0 %} negative{% endif %}" style="height:{{ t.prev_chart_h }}%"></i>{% endif %}<i class="cur{% if cost_metric == 'margin' and t.chart_value < 0 %} negative{% endif %}" style="height:{{ t.chart_h }}%"></i></span>
      <b>{{ t.label }}</b>
     </div>

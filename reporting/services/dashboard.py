@@ -3,7 +3,7 @@
 from django.db import connection
 
 from core.models import SalesOrderHeader
-from ..utils import delta, money, ring, shift_months, window_for
+from ..utils import delta, money, money_exact, ring, shift_months, window_for
 from .common import SHOW_OPTIONS, ReportResult, show_amount
 from .dialect import limit_clause, month_expr
 
@@ -190,12 +190,12 @@ def dashboard(request):
     for row in cur_series:
         prev = prev_by_month.get(shift_months(row["month"], -month_offset))
         value = row["rev"]
-        title = f"{row['month']:%b %Y} \u00b7 {money(value)}"
+        title = f"{row['month']:%b %Y} \u00b7 {money_exact(value)}"
         title += f" \u00b7 {row['orders']:,} orders"
         if row["rev"]:
             title += f" \u00b7 {round((row['rev'] - row['cogs']) / row['rev'] * 100, 1)}% margin"
         if prev:
-            title += f" \u00b7 previous {prev['month']:%b %Y}: {money(prev['rev'])}"
+            title += f" \u00b7 previous {prev['month']:%b %Y}: {money_exact(prev['rev'])}"
         trend.append({
             "label": f"{row['month']:%b}",
             "full": f"{row['month']:%b %Y}",

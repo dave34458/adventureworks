@@ -26,7 +26,7 @@
   {% include "reporting/_chart_filter.html" %}
   <div class="d-bars">
    {% for t in trend %}
-   <div class="d-bar" title="{{ t.full }} · {% if sales_metric == 'orders' %}{{ t.chart_value|fmt_count }} orders{% else %}{{ t.chart_value|fmt_money }}{% endif %}{% if t.prev_full %} · previous {{ t.prev_full }}: {% if sales_metric == 'orders' %}{{ t.prev_chart_value|fmt_count }} orders{% else %}{{ t.prev_chart_value|fmt_money }}{% endif %}{% endif %}">
+   <div class="d-bar" title="{{ t.full }} · {% if sales_metric == 'orders' %}{{ t.chart_value|fmt_count }} orders{% else %}{{ t.chart_value|fmt_money_exact }}{% endif %}{% if t.prev_full %} · previous {{ t.prev_full }}: {% if sales_metric == 'orders' %}{{ t.prev_chart_value|fmt_count }} orders{% else %}{{ t.prev_chart_value|fmt_money_exact }}{% endif %}{% endif %}">
     <span class="bw"><i class="prev" style="height:{{ t.prev_chart_h }}%"></i><i class="cur" style="height:{{ t.chart_h }}%"></i></span>
     <b>{{ t.label }}</b>
    </div>
