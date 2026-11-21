@@ -36,7 +36,7 @@ from reporting.services.dashboard import dashboard
 from reporting.services.revenue_and_loss import revenue_and_loss
 from reporting.services.sales import sales
 from reporting.views import CSV_PANEL_SECTIONS, report_export
-from reporting.utils import range_window, rank, rolling_window
+from reporting.utils import RING, range_window, rank, ring, rolling_window
 
 User = get_user_model()
 
@@ -966,6 +966,14 @@ class UtilsTests(SimpleTestCase):
                      {"name": "ten", "value": 10}], "name", "value")
         self.assertEqual(rows[0]["pct"], 0)
         self.assertEqual(rows[1]["pct"], 100)
+
+    def test_ring_closes_when_percentages_round_short(self):
+        rows = ring([{"pct": 85}, {"pct": 10}, {"pct": 2}, {"pct": 2}])
+        self.assertAlmostEqual(sum(row["dash"] for row in rows), RING, places=1)
+
+    def test_ring_with_zero_percentages_draws_nothing(self):
+        rows = ring([{"pct": 0}, {"pct": 0}])
+        self.assertEqual([row["dash"] for row in rows], [0, 0])
 
 
 class PrivacyTests(TestCase):

@@ -120,12 +120,23 @@ RING = 2 * 3.141592653589793 * 60  # circumference of the donut chart's r=60 rin
 
 
 def ring(rows):
-    """Rows with a "pct" get the circle dash length and offset for the SVG donut (r=60)."""
+    """Rows with a "pct" get the circle dash length and offset for the SVG donut (r=60).
+
+    Percentages are often rounded for display and can add up to 99 or 101, which
+    leaves a visible gap in the ring. Scale them to a full 100 and let the last
+    slice close the circle exactly.
+    """
+    total = sum(float(row.get("pct") or 0) for row in rows)
+    scale = 100 / total if total else 0
     out, cum = [], 0.0
-    for row in rows:
-        out.append({**row, "dash": round(row["pct"] / 100 * RING, 2),
-                    "off": round(-cum / 100 * RING, 2)})
-        cum += row["pct"]
+    last = len(rows) - 1
+    for index, row in enumerate(rows):
+        share = float(row.get("pct") or 0) * scale
+        dash = round(share / 100 * RING, 2)
+        if total and index == last and share > 0:
+            dash = round(max(RING - cum, 0), 2)
+        out.append({**row, "dash": dash, "off": round(-cum, 2)})
+        cum += dash
     return out
 
 
