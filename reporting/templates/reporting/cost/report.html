@@ -2,11 +2,6 @@
 {% load report_format %}
 {% block content %}
 <h2>{{ title }}</h2>
-{% if window_label %}
-<p class="muted d-sub" title="USD &middot; data through {{ through|date:'M j, Y' }}">{% if custom %}Selected{% else %}Last 12 months{% endif %}: {{ window_label }} &middot; vs {{ prev_label }}</p>
-{% else %}
-<p class="muted d-sub">{{ empty_message }}</p>
-{% endif %}
 {% include "reporting/_range.html" %}
 {% include "reporting/_dimensions.html" %}
 <div class="report">
@@ -26,13 +21,16 @@
    <h3>{% if cost_metric == "margin" %}Gross margin trend{% else %}Cost trends and comparisons{% endif %}</h3>
    <p class="sub">{% if cost_metric == "margin" %}Monthly gross margin · solid bars: {{ period }}{% if chart_has_previous %} · faded bars: {{ prev_label }}{% endif %}{% else %}Monthly cost of goods sold · solid bars: {{ period }} · faded bars: {{ prev_label }}{% endif %}</p>
    {% include "reporting/_chart_filter.html" %}
-   <div class="d-bars">
+   <div class="d-chart{% if cost_metric == 'cost' %} has-money-axis{% endif %}">
+    {% if cost_metric == "cost" %}<div class="d-y-axis" aria-hidden="true">{% for tick in money_axis %}<span style="top:{{ tick.position }}%">{{ tick.label }}</span>{% endfor %}</div>{% endif %}
+    <div class="d-bars">
     {% for t in trend %}
     <div class="d-bar" title="{{ t.full }} · {% if cost_metric == 'margin' %}{{ t.chart_value|fmt_percent }} margin{% else %}{{ t.chart_value|fmt_money_exact }} cost{% endif %}{% if t.prev_full and t.prev_chart_value is not None %} · previous {{ t.prev_full }}: {% if cost_metric == 'margin' %}{{ t.prev_chart_value|fmt_percent }} margin{% else %}{{ t.prev_chart_value|fmt_money_exact }} cost{% endif %}{% endif %}">
      <span class="bw">{% if cost_metric == 'cost' or t.prev_chart_value is not None %}<i class="prev{% if cost_metric == 'margin' and t.prev_chart_value < 0 %} negative{% endif %}" style="height:{{ t.prev_chart_h }}%"></i>{% endif %}<i class="cur{% if cost_metric == 'margin' and t.chart_value < 0 %} negative{% endif %}" style="height:{{ t.chart_h }}%"></i></span>
-     <b>{{ t.label }}</b>
+     <b>{{ t.label }}<small>{{ t.year_label }}</small></b>
     </div>
     {% endfor %}
+    </div>
    </div>
    <div class="d-legend"><span class="sq blue"></span><span class="nm">Selected period</span></div>
    {% if cost_metric == "cost" or chart_has_previous %}<div class="d-legend"><span class="sq pale"></span><span class="nm">Previous period</span></div>{% endif %}
@@ -42,7 +40,7 @@
   <div class="d-panel">
    <h3>Cost distribution by category</h3>
    <p class="sub">Cost of goods sold by category · {{ period }}</p>
-   <div class="d-donut">
+   <div class="d-donut d-donut-cost">
     <svg viewBox="0 0 160 160" role="img" aria-label="Share of cost of goods by category">
      <g transform="rotate(-90 80 80)">
       {% for s in donut %}<circle class="{{ s.cls }}" cx="80" cy="80" r="60" fill="none" stroke-width="30" stroke-dasharray="{{ s.dash }} 1000" stroke-dashoffset="{{ s.off }}"><title>{{ s.t }}</title></circle>{% endfor %}

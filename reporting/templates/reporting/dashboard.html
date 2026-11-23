@@ -2,7 +2,6 @@
 {% block content %}
 <h2>{{ title }}</h2>
 {% if has_data %}
-<p class="muted d-sub" title="USD &middot; data through {{ through|date:'M j, Y' }}">{% if custom %}Selected{% else %}Last 12 months{% endif %}: {{ window_label }} &middot; vs {{ prev_label }}{% if selected_category %} &middot; {{ selected_category.name }}{% endif %}</p>
 {% else %}
 <p class="muted d-sub">{{ empty_message }}</p>
 {% endif %}
@@ -30,13 +29,16 @@
   <div class="d-panel">
    <h3>{{ trend_title }}</h3>
    <p class="sub">{{ metric_name }} in dollars · solid bars: {{ period }} · faded bars: {{ prev_label }}</p>
-   <div class="d-bars">
+   <div class="d-chart has-money-axis">
+    <div class="d-y-axis" aria-hidden="true">{% for tick in money_axis %}<span style="top:{{ tick.position }}%">{{ tick.label }}</span>{% endfor %}</div>
+    <div class="d-bars">
     {% for t in trend %}
     <div class="d-bar" title="{{ t.title }}">
      <span class="bw"><i class="prev" style="height:{{ t.prev_h }}%"></i><i class="cur" style="height:{{ t.height }}%"></i></span>
-     <b>{{ t.label }}</b>
+     <b>{{ t.label }}<small>{{ t.year_label }}</small></b>
     </div>
     {% endfor %}
+    </div>
    </div>
    <div class="d-legend"><span class="sq blue"></span><span class="nm">Selected period</span></div>
    <div class="d-legend"><span class="sq pale"></span><span class="nm">Previous period</span></div>
@@ -70,7 +72,7 @@
       <div class="d-legend">
       <span class="dot {{ c.cls }}"></span>
       <span class="nm"><a href="?{% if custom %}from={{ w_from }}&amp;to={{ w_to }}&amp;{% endif %}category={{ c.id }}&amp;show_products={{ show_values.products }}">{{ c.name }}</a></span>
-      <span class="vl">{{ c.pct }}%</span>
+      <span class="vl">{{ c.pct|floatformat:2 }}%</span>
       <span class="mt">{{ c.value }} · {{ c.margin }}% margin</span>
      </div>
      {% endfor %}
@@ -89,13 +91,13 @@
   <div class="d-panel d-line">
    <h3>Gross margin by month</h3>
    <p class="sub">Gross margin percent · solid = {{ period }} · dashed = {{ prev_label }}</p>
-   <svg viewBox="0 0 960 260" role="img" aria-label="Monthly gross margin, selected period versus the previous period">
+   <svg viewBox="0 0 960 280" role="img" aria-label="Monthly gross margin, selected period versus the previous period">
     {% for t in margin_chart.ticks %}<line class="axis" x1="52" y1="{{ t.y }}" x2="944" y2="{{ t.y }}"/><text class="tick" x="44" y="{{ t.y }}" text-anchor="end" dominant-baseline="central">{{ t.label }}</text>{% endfor %}
     <polyline class="prev" points="{{ margin_chart.prev_pts }}"/>
     <polyline class="cur" points="{{ margin_chart.cur_pts }}"/>
     {% for d in margin_chart.prev_dots %}<circle class="dotp" cx="{{ d.x }}" cy="{{ d.y }}" r="3"><title>{{ d.t }}</title></circle>{% endfor %}
     {% for d in margin_chart.dots %}<circle class="dotc" cx="{{ d.x }}" cy="{{ d.y }}" r="3"><title>{{ d.t }}</title></circle>{% endfor %}
-    {% for t in margin_chart.xticks %}<text class="tick" x="{{ t.x }}" y="252" text-anchor="middle">{{ t.label }}</text>{% endfor %}
+    {% for t in margin_chart.xticks %}<text class="tick" text-anchor="middle"><tspan x="{{ t.x }}" y="244">{{ t.label }}</tspan><tspan class="year-tick" x="{{ t.x }}" y="264">{{ t.year_label }}</tspan></text>{% endfor %}
    </svg>
    <div class="d-legend"><span class="sw solid"></span><span class="nm">Margin · selected period</span><span class="mt">· percent</span></div>
    <div class="d-legend"><span class="sw"></span><span class="nm">Margin · previous period</span></div>
@@ -118,8 +120,8 @@
    <div class="d-legend">
     <span class="dot {{ c.cls }}"></span>
     <span class="nm">{{ c.name }}</span>
-    <span class="vl">{{ c.pct }}%</span>
-    <span class="mt">· {{ c.money }} · {{ c.customers }} customers ({{ c.buyers_pct }}% of buyers) · {{ c.aov }} avg order</span>
+    <span class="vl">{{ c.pct|floatformat:2 }}%</span>
+    <span class="mt">· {{ c.money }} · {{ c.customers }} customers ({{ c.buyers_pct|floatformat:2 }}% of buyers) · {{ c.aov }} avg order</span>
    </div>
    {% endfor %}
    <p class="d-note">Revenue total {{ customer_mix.total }}; buyer counts are distinct customers in the period.</p>

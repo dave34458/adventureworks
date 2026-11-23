@@ -8,6 +8,7 @@ from django.contrib.auth.models import Group
 from django.core.exceptions import ValidationError
 
 from .models import User
+from .roles import ADMIN_ROLE
 
 
 class EmailAuthenticationForm(AuthenticationForm):
@@ -80,7 +81,7 @@ class AccountForm(forms.ModelForm):
 
 
 class DepartmentUserForm(forms.ModelForm):
-    """Create or update one non-admin user in the department admin's department."""
+    """Create or update a user through the in-app manage-users page."""
 
     role = forms.ChoiceField(label="Role")
     password = forms.CharField(
@@ -97,18 +98,19 @@ class DepartmentUserForm(forms.ModelForm):
         model = User
         fields = ("email", "first_name", "last_name", "is_active")
 
-    def __init__(self, *args, department, **kwargs):
+    def __init__(self, *args, department=None, roles=None, **kwargs):
         self.department = department
         super().__init__(*args, **kwargs)
         self.fields["password_confirm"].required = not bool(self.instance.pk)
-        self.fields["role"].choices = [
+        self.fields["role"].choices = roles or [
             (f"{department} {kind}", kind)
             for kind in ("Manager", "Supervisor", "Employee")
         ]
         if self.instance and self.instance.pk:
-            self.initial["role"] = next(iter(
-                self.instance.groups.filter(name__startswith=f"{department} ")
-                .values_list("name", flat=True)), "")
+            self.initial["role"] = (
+                ADMIN_ROLE if self.instance.is_superuser
+                else self.instance.groups.values_list("name", flat=True).first() or ""
+            )
 
     def clean_email(self):
         email = self.cleaned_data["email"].strip().lower()
@@ -139,7 +141,16 @@ class DepartmentUserForm(forms.ModelForm):
         if password:
             user.set_password(password)
         if commit:
+            role = self.cleaned_data["role"]
             user.save()
-            user.groups.set([Group.objects.get(name=self.cleaned_data["role"])])
             user.user_permissions.clear()
+            if role == ADMIN_ROLE:
+                user.groups.clear()
+                user.is_superuser = True
+                user.is_staff = True
+            else:
+                user.groups.set([Group.objects.get(name=role)])
+                user.is_superuser = False
+                user.is_staff = False
+            user.save(update_fields=["is_superuser", "is_staff"])
         return user

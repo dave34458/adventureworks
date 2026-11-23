@@ -1,0 +1,8 @@
+{% extends "reporting/base.html" %}{% block content %}
+<h2>Deactivate user</h2>
+<p>Deactivate {{ account.email }}?</p>
+<form method="post">{% csrf_token %}
+ <button type="submit">Confirm deactivation</button>
+ <a href="{% url 'department_users' %}">Cancel</a>
+</form>
+{% endblock %}

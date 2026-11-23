@@ -29,7 +29,7 @@ def fmt_signed_percent(value):
         number = float(value)
     except (TypeError, ValueError):
         return "\u2014"
-    return f"{number:+,.1f}%"
+    return f"{number:+,.2f}%"
 
 
 @register.filter

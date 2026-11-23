@@ -11,7 +11,7 @@
  <input type="hidden" name="to" value="{{ filter_to }}">
  {% endif %}
  {% if not snapshot %}<input type="hidden" name="report" value="">{% endif %}
- {% if snapshot and can_manage %}<input type="hidden" name="report_name" value="{{ title }}">{% endif %}
+ {% if snapshot and can_change %}<input type="hidden" name="report_name" value="{{ title }}">{% endif %}
  {% for category in category_ids %}<input type="hidden" name="category" value="{{ category }}">{% endfor %}
  {% for country in country_codes %}<input type="hidden" name="country" value="{{ country }}">{% endfor %}
  <input type="hidden" name="category_filter" value="1">

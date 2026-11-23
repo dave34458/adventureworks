@@ -3,7 +3,7 @@
 from django.db import connection
 
 from core.models import SalesOrderHeader
-from ..utils import delta, money, money_exact, ring, shift_months, window_for
+from ..utils import delta, money, money_axis_ticks, money_exact, ring, shift_months, window_for
 from .common import SHOW_OPTIONS, ReportResult, show_amount
 from .dialect import limit_clause, month_expr
 
@@ -99,8 +99,8 @@ def dashboard(request):
     short = float(below_short or 0)
     profit = rev - cogs
     profit_prev = rev_prev - cogs_prev
-    margin = round(profit / rev * 100, 1) if rev else 0.0
-    prev_margin = round(profit_prev / rev_prev * 100, 1) if rev_prev else 0.0
+    margin = round(profit / rev * 100, 2) if rev else 0.0
+    prev_margin = round(profit_prev / rev_prev * 100, 2) if rev_prev else 0.0
 
     if not orders and not customers:
         context.update({
@@ -112,9 +112,9 @@ def dashboard(request):
     if not rev:
         margin_cap = "no revenue in this period"
     elif not rev_prev:
-        margin_cap = f"{margin}% margin \u00b7 no revenue in {w.prev_label}"
+        margin_cap = f"{margin:.2f}% margin \u00b7 no revenue in {w.prev_label}"
     else:
-        margin_cap = f"{margin}% margin \u00b7 was {prev_margin}%"
+        margin_cap = f"{margin:.2f}% margin \u00b7 was {prev_margin:.2f}%"
 
     # panel 3: KPI cards (derived from panel 2)
     kpis = []
@@ -187,17 +187,20 @@ def dashboard(request):
                     - (w.window_start.year * 12 + w.window_start.month))
     prev_by_month = {row["month"]: row for row in prev_series}
     top = max((row["rev"] for row in cur_series + prev_series), default=0)
+    context["money_axis"] = money_axis_ticks(top)
     for row in cur_series:
         prev = prev_by_month.get(shift_months(row["month"], -month_offset))
         value = row["rev"]
         title = f"{row['month']:%b %Y} \u00b7 {money_exact(value)}"
         title += f" \u00b7 {row['orders']:,} orders"
         if row["rev"]:
-            title += f" \u00b7 {round((row['rev'] - row['cogs']) / row['rev'] * 100, 1)}% margin"
+            title += f" \u00b7 {(row['rev'] - row['cogs']) / row['rev'] * 100:.2f}% margin"
         if prev:
             title += f" \u00b7 previous {prev['month']:%b %Y}: {money_exact(prev['rev'])}"
         trend.append({
             "label": f"{row['month']:%b}",
+            "year_label": (f"{prev['month']:%Y} vs {row['month']:%Y}" if prev
+                           else f"{row['month']:%Y}"),
             "full": f"{row['month']:%b %Y}",
             "money": money(value),
             "height": max(round(value / top * 100), 2) if value and top else 0,
@@ -208,7 +211,7 @@ def dashboard(request):
 
     def margin_of(row):
         value = row["rev"]
-        return (round((value - row["cogs"]) / value * 100, 1)
+        return (round((value - row["cogs"]) / value * 100, 2)
                 if value else None)
 
     if cur_series:
@@ -231,11 +234,15 @@ def dashboard(request):
             return round(pad_t + (m_max - value) / m_span * plot_h, 1)
 
         margin_ticks = ((m_min, 0, m_max) if m_min < 0 else (0, m_max / 2, m_max))
-        ticks = [{"y": y_at(value), "label": f"{value:g}%"}
+        ticks = [{"y": y_at(value), "label": f"{value:.2f}%"}
                  for value in margin_ticks]
         step = max(1, (n + 11) // 12)
-        xticks = [{"x": xs[i], "label": f"{cur_series[i]['month']:%b}"}
-                  for i in range(0, n, step)]
+        xticks = [{
+            "x": xs[i], "label": f"{cur_series[i]['month']:%b}",
+            "year_label": (f"{prev_rows[i]['month']:%Y} vs "
+                           f"{cur_series[i]['month']:%Y}" if prev_rows[i]
+                           else f"{cur_series[i]['month']:%Y}"),
+        } for i in range(0, n, step)]
         cur_pts = " ".join(f"{xs[i]},{y_at(cur_margins[i])}" for i in range(n)
                            if cur_margins[i] is not None)
         prev_pts = " ".join(f"{xs[i]},{y_at(v)}"
@@ -246,10 +253,10 @@ def dashboard(request):
                 continue
             gross = row["rev"] - row["cogs"]
             dots.append({"x": xs[i], "y": y_at(cur_margins[i]),
-                         "t": f"{row['month']:%b %Y} \u00b7 margin {cur_margins[i]}%"
+                         "t": f"{row['month']:%b %Y} \u00b7 margin {cur_margins[i]:.2f}%"
                               f" \u00b7 gross profit {money(gross)}"})
         prev_dots = [{"x": xs[i], "y": y_at(v),
-                      "t": f"{prev_rows[i]['month']:%b %Y} \u00b7 margin {v}%"}
+                      "t": f"{prev_rows[i]['month']:%b %Y} \u00b7 margin {v:.2f}%"}
                      for i, v in enumerate(prev_margins) if v is not None]
         margin_chart = {"ticks": ticks, "xticks": xticks, "cur_pts": cur_pts,
                         "prev_pts": prev_pts, "dots": dots, "prev_dots": prev_dots}
@@ -292,7 +299,7 @@ def dashboard(request):
                       default=0)
     for product_id, name, category, units, revenue, cost in raw_products:
         value = float(revenue or 0)
-        margin_pct = (round((float(revenue) - float(cost)) / float(revenue) * 100, 1)
+        margin_pct = (round((float(revenue) - float(cost)) / float(revenue) * 100, 2)
                       if revenue else 0.0)
         products.append({
             "id": product_id,
@@ -301,9 +308,9 @@ def dashboard(request):
             "units": f"{int(units or 0):,}",
             "value": money(value),
             "profit": money(float(revenue or 0) - float(cost or 0)),
-            "margin": f"{margin_pct:.1f}%",
+            "margin": f"{margin_pct:.2f}%",
             "pct": max(round(value / top_product * 100), 2) if top_product else 0,
-            "share": round(value / rev * 100, 1) if rev else 0,
+            "share": round(value / rev * 100, 2) if rev else 0,
         })
     products_top = products[:6]
     products = products[:row_limit]
@@ -339,17 +346,17 @@ def dashboard(request):
         for i, (cat_id, name, revenue, cost) in enumerate(raw_categories):
             value = float(revenue or 0)
             pct = round(value / total_metric * 100) if total_metric else 0
-            margin_pct = (round((float(revenue) - float(cost)) / float(revenue) * 100, 1)
+            margin_pct = (round((float(revenue) - float(cost)) / float(revenue) * 100, 2)
                           if revenue else 0.0)
             note = f"{name} \u00b7 {money(value)} \u00b7 {pct}% of {metric_lower}"
-            note += f" \u00b7 {margin_pct:.1f}% margin"
+            note += f" \u00b7 {margin_pct:.2f}% margin"
             category_rows.append({
                 "id": cat_id,
                 "name": name or "Uncategorized",
                 "value": money(value),
                 "pct": pct,
                 "cls": palette[i % len(palette)],
-                "margin": f"{margin_pct:.1f}",
+                "margin": f"{margin_pct:.2f}",
                 "t": note,
             })
         category_rows = ring(category_rows)

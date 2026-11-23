@@ -116,6 +116,8 @@ def sales(request):
         prev = prev_by_month.get(shift_months(m["month"], -month_offset))
         trend.append({
             "label": m["month"].strftime("%b"),
+            "year_label": (f"{prev['month']:%Y} vs {m['month']:%Y}" if prev
+                           else m["month"].strftime("%Y")),
             "full": m["month"].strftime("%b %Y"),
             "money": float(m["rev"] or 0),
             "orders": int(m["orders"] or 0),

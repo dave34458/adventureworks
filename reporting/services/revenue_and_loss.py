@@ -62,7 +62,7 @@ def profit_margin_rows_for_dates(start, end, compare_start, filters=None):
                     for month, side, rev, cogs in c.fetchall()]
 
     def margin_of(row):
-        return (round((float(row["rev"]) - float(row["cogs"])) / float(row["rev"]) * 100, 1)
+        return (round((float(row["rev"]) - float(row["cogs"])) / float(row["rev"]) * 100, 2)
                 if row["rev"] else None)
 
     cur_by_month = {row["month"]: row for row in months24 if row["side"] == "cur"}
@@ -192,8 +192,8 @@ def revenue_and_loss(request):
     rev, cogs = rev or 0, cogs or 0
     profit = rev - cogs
     profit_prev = (rev_prev or 0) - (cogs_prev or 0)
-    margin = round(float(profit) / float(rev) * 100, 1) if rev else 0
-    prev_margin = round(float(profit_prev) / float(rev_prev) * 100, 1) if rev_prev else 0
+    margin = round(float(profit) / float(rev) * 100, 2) if rev else 0
+    prev_margin = round(float(profit_prev) / float(rev_prev) * 100, 2) if rev_prev else 0
     if not rev:
         margin_cap = f"no revenue in {w.label} \u00b7 margin not meaningful"
     elif not rev_prev:
@@ -259,6 +259,8 @@ def revenue_and_loss(request):
         prev = prev_by_month.get(shift_months(m["month"], -month_offset))
         rev_trend.append({
             "label": m["month"].strftime("%b"),
+            "year_label": (f"{prev['month']:%Y} vs {m['month']:%Y}" if prev
+                           else m["month"].strftime("%Y")),
             "full": m["month"].strftime("%b %Y"),
             "money": float(m["rev"] or 0),
             "height": max(round(float(m["rev"] or 0) / rev_top * 100), 2)
@@ -299,9 +301,9 @@ def revenue_and_loss(request):
         {
             "name": r["name"],
             "cls": f"c{i}",
-            "pct": round(float(r["rev"]) / total_rev * 100, 1),
+            "pct": round(float(r["rev"]) / total_rev * 100, 2),
             "money": float(r["rev"] or 0),
-            "margin": round((float(r["rev"]) - float(r["cogs"])) / float(r["rev"]) * 100, 1) if r["rev"] else 0,
+            "margin": round((float(r["rev"]) - float(r["cogs"])) / float(r["rev"]) * 100, 2) if r["rev"] else 0,
         }
         for i, r in enumerate(cats, 1)
     ]
@@ -335,7 +337,7 @@ def revenue_and_loss(request):
                         for name, cur_rev, prev_rev in c.fetchall()]
     declining = rank(decline_rows, "name", "drop")
     for r, s_row in zip(declining, decline_rows):
-        pct = round(s_row["drop"] / float(s_row["prev"]) * 100, 1)
+        pct = round(s_row["drop"] / float(s_row["prev"]) * 100, 2)
         r["note"] = f"{money(s_row['cur'])} vs {money(s_row['prev'])} \u00b7 -{percent(pct)}"
 
     with connection.cursor() as c:  # chart 6: below-cost products
@@ -393,7 +395,7 @@ def revenue_and_loss(request):
             "id": r["product_id"], "name": r["name"],
             "rev": float(r["rev"] or 0), "cost": float(r["cogs"] or 0),
             "profit": float(r["rev"] or 0) - float(r["cogs"] or 0),
-            "margin": round((float(r["rev"]) - float(r["cogs"])) / float(r["rev"]) * 100, 1)
+            "margin": round((float(r["rev"]) - float(r["cogs"])) / float(r["rev"]) * 100, 2)
                       if r["rev"] else 0,
         }
         for r in prods

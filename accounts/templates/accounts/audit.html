@@ -1,11 +1,27 @@
 {% extends "reporting/base.html" %}{% block content %}
-<h2>{{ department }} audit log</h2>
-<p><a href="{% url 'department_users' %}">Back to users</a></p>
-<table><thead><tr><th>When</th><th>User</th><th>Action</th><th>Record</th><th>Changes</th></tr></thead><tbody>
-{% for log in logs %}<tr>
- <td>{{ log.created_at }}</td><td>{{ log.username }}</td>
- <td>{{ log.action }}</td><td>{{ log.model }} {{ log.object_pk }} · {{ log.object_repr }}</td>
- <td>{{ log.changes }}</td>
-</tr>{% empty %}<tr><td colspan="5">No audit records for current department users.</td></tr>{% endfor %}
-</tbody></table>
+<h2>{{ title }}</h2>
+<form method="get" style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap"><input name="q" value="{{ query }}" placeholder="search audit">
+<select name="col">
+<option value="">all columns</option>
+{% for label, field in columns %}<option value="{{ field }}"{% if field == col %} selected{% endif %}>{{ label }}</option>{% endfor %}
+</select>
+<button>Search</button></form>
+<p class="muted">{{ page_obj.paginator.count }} record{{ page_obj.paginator.count|pluralize }}</p>
+<div class="scroll"><table><thead><tr>
+<th><a href="?q={{ query|urlencode }}&amp;col={{ col|urlencode }}&amp;sort={% if sort == 'created_at' %}-{% endif %}created_at">When{% if sort == 'created_at' %} &#9650;{% elif sort == '-created_at' %} &#9660;{% endif %}</a></th>
+<th><a href="?q={{ query|urlencode }}&amp;col={{ col|urlencode }}&amp;sort={% if sort == 'username' %}-{% endif %}username">User{% if sort == 'username' %} &#9650;{% elif sort == '-username' %} &#9660;{% endif %}</a></th>
+<th><a href="?q={{ query|urlencode }}&amp;col={{ col|urlencode }}&amp;sort={% if sort == 'action' %}-{% endif %}action">Action{% if sort == 'action' %} &#9650;{% elif sort == '-action' %} &#9660;{% endif %}</a></th>
+<th><a href="?q={{ query|urlencode }}&amp;col={{ col|urlencode }}&amp;sort={% if sort == 'object_repr' %}-{% endif %}object_repr">Record{% if sort == 'object_repr' %} &#9650;{% elif sort == '-object_repr' %} &#9660;{% endif %}</a></th>
+<th>Changes</th><th>Actions</th>
+</tr></thead><tbody>
+{% for log in page_obj %}<tr>
+ <td>{{ log.created_at|date:"Y-m-d H:i" }}</td><td>{{ log.username }}</td>
+ <td>{{ log.action }}</td><td>{{ log.model }} {{ log.object_pk }} &middot; {{ log.object_repr }}</td>
+ <td><pre style="margin:0;white-space:pre-wrap;min-width:14rem">{{ log.changes_pretty }}</pre></td>
+ <td><a href="{% url 'department_audit_detail' log.pk %}">View</a></td>
+</tr>{% empty %}<tr><td colspan="6">{% if query %}No audit records match this search.{% else %}No audit records for current department users.{% endif %}</td></tr>{% endfor %}
+</tbody></table></div>
+<p>{% if page_obj.has_previous %}<a href="?page={{ page_obj.previous_page_number }}&amp;q={{ query|urlencode }}&amp;col={{ col|urlencode }}&amp;sort={{ sort|urlencode }}">prev</a>{% endif %}
+page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
+{% if page_obj.has_next %}<a href="?page={{ page_obj.next_page_number }}&amp;q={{ query|urlencode }}&amp;col={{ col|urlencode }}&amp;sort={{ sort|urlencode }}">next</a>{% endif %}</p>
 {% endblock %}

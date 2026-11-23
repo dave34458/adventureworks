@@ -2,11 +2,6 @@
 {% load report_format %}
 {% block content %}
 <h2>{{ title }}</h2>
-{% if window_label %}
-<p class="muted d-sub" title="USD &middot; data through {{ through|date:'M j, Y' }}">{% if custom %}Selected{% else %}Last 12 months{% endif %}: {{ window_label }} &middot; vs {{ prev_label }}</p>
-{% else %}
-<p class="muted d-sub">{{ empty_message }}</p>
-{% endif %}
 {% include "reporting/_range.html" %}
 {% include "reporting/_dimensions.html" %}
 <div class="report">
@@ -20,48 +15,24 @@
   {% endfor %}
  </section>{% endif %}
 
+ {% if "rev_trend" in visible_panels or "mix" in visible_panels %}<div class="d-cols equal">
  {% if "rev_trend" in visible_panels %}<section class="d-panel">
   <h3>Revenue trend by month</h3>
   <p class="sub">Revenue in dollars · solid bars: {{ period }} · faded bars: {{ prev_label }}</p>
-  <div class="d-bars">
+  <div class="d-chart has-money-axis">
+   <div class="d-y-axis" aria-hidden="true">{% for tick in money_axis %}<span style="top:{{ tick.position }}%">{{ tick.label }}</span>{% endfor %}</div>
+   <div class="d-bars">
    {% for t in rev_trend %}
    <div class="d-bar" title="{{ t.full }} · {{ t.money|fmt_money_exact }}{% if t.prev_full %} · previous {{ t.prev_full }}: {{ t.prev_money|fmt_money_exact }}{% endif %}">
     <span class="bw"><i class="prev" style="height:{{ t.prev_h }}%"></i><i class="cur" style="height:{{ t.height }}%"></i></span>
-    <b>{{ t.label }}</b>
+    <b>{{ t.label }}<small>{{ t.year_label }}</small></b>
    </div>
    {% endfor %}
+   </div>
   </div>
   <div class="d-legend"><span class="sq blue"></span><span class="nm">Selected period</span></div>
   <div class="d-legend"><span class="sq pale"></span><span class="nm">Previous period</span></div>
  </section>{% endif %}
-
- {% if "profit_rows" in visible_panels %}<section class="d-panel d-line">
-  <h3>Gross profit · selected period</h3>
-  <p class="sub">Gross profit in dollars · {{ period }}</p>
-  <svg viewBox="0 0 960 260" role="img" aria-label="Monthly gross profit for the selected period">
-   {% for t in combo.lticks %}<line class="axis" x1="72" y1="{{ t.y }}" x2="920" y2="{{ t.y }}"/><text class="tick" x="46" y="{{ t.y }}" text-anchor="end" dominant-baseline="central">{{ t.lab }}</text>{% endfor %}
-   {% for b in combo.bars %}<rect class="profitbar" x="{{ b.x }}" y="{{ b.y }}" width="{{ b.w }}" height="{{ b.h }}" rx="3"><title>{{ b.t }}</title></rect>{% endfor %}
-   {% for t in combo.xticks %}<text class="tick" x="{{ t.x }}" y="252" text-anchor="middle">{{ t.lab }}</text>{% endfor %}
-  </svg>
-  <div class="d-legend"><span class="sq"></span><span class="nm">Gross profit</span><span class="mt">· dollars, left axis</span></div>
- </section>{% endif %}
-
- {% if "margin_rows" in visible_panels and combo.cur_pts or "margin_rows" in visible_panels and combo.prev_pts %}
- <section class="d-panel d-line">
-  <h3>Gross margin by month</h3>
-  <p class="sub">Gross margin percent · solid = {{ period }} · dashed = {{ prev_label }}</p>
-  <svg viewBox="0 0 960 260" role="img" aria-label="Monthly gross margin, selected period versus the previous period">
-   {% for t in combo.rticks %}<line class="axis" x1="72" y1="{{ t.y }}" x2="920" y2="{{ t.y }}"/><text class="tick" x="926" y="{{ t.y }}" text-anchor="start" dominant-baseline="central">{{ t.lab }}</text>{% endfor %}
-   <polyline class="prev" points="{{ combo.prev_pts }}"/>
-   <polyline class="cur" points="{{ combo.cur_pts }}"/>
-   {% for d in combo.dots %}<circle class="{{ d.cls }}" cx="{{ d.x }}" cy="{{ d.y }}" r="3"><title>{{ d.t }}</title></circle>{% endfor %}
-   {% for t in combo.xticks %}<text class="tick" x="{{ t.x }}" y="252" text-anchor="middle">{{ t.lab }}</text>{% endfor %}
-  </svg>
-  <div class="d-legend"><span class="sw solid"></span><span class="nm">Margin · selected period</span><span class="mt">· percent</span></div>
-  <div class="d-legend"><span class="sw"></span><span class="nm">Margin · previous period</span></div>
- </section>
- {% endif %}
-
  {% if "mix" in visible_panels %}<section class="d-panel">
   <h3>Revenue contribution by category</h3>
   <p class="sub">Share of revenue and gross margin by product category &middot; {{ period }}</p>
@@ -88,6 +59,39 @@
    </div>
   </div>
  </section>{% endif %}
+ </div>
+ {% endif %}
+
+ {% if "profit_rows" in visible_panels or "margin_rows" in visible_panels and combo.cur_pts or "margin_rows" in visible_panels and combo.prev_pts %}
+ <div class="d-cols equal">
+ {% if "profit_rows" in visible_panels %}<section class="d-panel d-line">
+  <h3>Gross profit · selected period</h3>
+  <p class="sub">Gross profit in dollars · {{ period }}</p>
+  <svg viewBox="0 0 960 280" role="img" aria-label="Monthly gross profit for the selected period">
+   {% for t in combo.lticks %}<line class="axis" x1="72" y1="{{ t.y }}" x2="920" y2="{{ t.y }}"/><text class="tick" x="46" y="{{ t.y }}" text-anchor="end" dominant-baseline="central">{{ t.lab }}</text>{% endfor %}
+   {% for b in combo.bars %}<rect class="profitbar" x="{{ b.x }}" y="{{ b.y }}" width="{{ b.w }}" height="{{ b.h }}" rx="3"><title>{{ b.t }}</title></rect>{% endfor %}
+   {% for t in combo.xticks %}<text class="tick" text-anchor="middle"><tspan x="{{ t.x }}" y="252">{{ t.lab }}</tspan><tspan class="year-tick" x="{{ t.x }}" y="270">{{ t.year_lab }}</tspan></text>{% endfor %}
+  </svg>
+  <div class="d-legend"><span class="sq"></span><span class="nm">Gross profit</span><span class="mt">· dollars, left axis</span></div>
+ </section>{% endif %}
+
+ {% if "margin_rows" in visible_panels and combo.cur_pts or "margin_rows" in visible_panels and combo.prev_pts %}
+ <section class="d-panel d-line">
+  <h3>Gross margin by month</h3>
+  <p class="sub">Gross margin percent · solid = {{ period }} · dashed = {{ prev_label }}</p>
+  <svg viewBox="0 0 960 280" role="img" aria-label="Monthly gross margin, selected period versus the previous period">
+   {% for t in combo.rticks %}<line class="axis" x1="72" y1="{{ t.y }}" x2="920" y2="{{ t.y }}"/><text class="tick" x="926" y="{{ t.y }}" text-anchor="start" dominant-baseline="central">{{ t.lab }}</text>{% endfor %}
+   <polyline class="prev" points="{{ combo.prev_pts }}"/>
+   <polyline class="cur" points="{{ combo.cur_pts }}"/>
+   {% for d in combo.dots %}<circle class="{{ d.cls }}" cx="{{ d.x }}" cy="{{ d.y }}" r="3"><title>{{ d.t }}</title></circle>{% endfor %}
+   {% for t in combo.xticks %}<text class="tick" text-anchor="middle"><tspan x="{{ t.x }}" y="252">{{ t.lab }}</tspan><tspan class="year-tick" x="{{ t.x }}" y="270">{{ t.year_lab }}</tspan></text>{% endfor %}
+  </svg>
+  <div class="d-legend"><span class="sw solid"></span><span class="nm">Margin · selected period</span><span class="mt">· percent</span></div>
+  <div class="d-legend"><span class="sw"></span><span class="nm">Margin · previous period</span></div>
+ </section>
+ {% endif %}
+ </div>
+ {% endif %}
 
  {% if "declining" in visible_panels or "leaks" in visible_panels %}<section class="d-cols">
   {% if "declining" in visible_panels %}

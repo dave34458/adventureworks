@@ -3,7 +3,7 @@
 META_KEYS = {
     "tab", "title", "through", "window_label", "prev_label", "custom", "period",
     "w_from", "w_to", "snapshot", "snapshots",
-    "manage_url", "can_manage",
+    "manage_url", "can_add", "can_change", "money_axis", "count_axis",
     "sales_metric", "cost_metric",
     "category_id", "category_ids",
     "country_code", "country_codes", "include_country",

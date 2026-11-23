@@ -1,0 +1,43 @@
+{% extends "reporting/base.html" %}{% block content %}
+<h2>{{ group.name }} permissions</h2>
+<form method="post">{% csrf_token %}
+<input id="permission-filter" type="search" placeholder="Search permissions" style="display:block;width:min(100%,28rem);box-sizing:border-box;margin:.35rem 0 1rem">
+<p id="permission-no-results" hidden>No permissions match that search.</p>
+<div id="permission-groups" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:.5rem;align-items:start">
+{% for section in permission_groups %}
+<details class="permission-group" style="min-width:0;border:1px solid #ccd3dc;padding:.45rem .65rem">
+ <summary style="cursor:pointer;overflow-wrap:anywhere">{{ section.label }} <span class="muted">({{ section.selected_count }}/{{ section.permissions|length }} selected)</span></summary>
+ {% for item in section.permissions %}
+ <label class="permission-option" data-filter="{{ item.permission.name }} {{ item.permission.codename }}" style="display:flex;align-items:flex-start;gap:.35rem;padding:.2rem 0;overflow-wrap:anywhere"><input style="flex:0 0 auto;margin-top:.2rem" type="checkbox" name="permissions" value="{{ item.permission.pk }}"{% if item.selected %} checked{% endif %}> <span>{{ item.permission.name }} <span class="muted">({{ item.permission.codename }})</span></span></label>
+ {% endfor %}
+ </details>
+{% empty %}<p>No permissions available.</p>{% endfor %}
+</div>
+{% if locked_permissions %}<p class="muted">Not editable here: {{ locked_permissions|join:", " }}</p>{% endif %}
+<p><button type="submit">Save permissions</button></p>
+</form>
+<script>
+(() => {
+ const filter = document.getElementById('permission-filter');
+ const groups = [...document.querySelectorAll('.permission-group')];
+ const empty = document.getElementById('permission-no-results');
+ filter.addEventListener('input', () => {
+  const query = filter.value.trim().toLowerCase();
+  let visibleGroups = 0;
+  groups.forEach(group => {
+   const groupMatches = group.querySelector('summary').textContent.toLowerCase().includes(query);
+   const options = [...group.querySelectorAll('.permission-option')];
+   let visibleOptions = 0;
+   options.forEach(option => {
+    const matches = !query || groupMatches || option.dataset.filter.toLowerCase().includes(query);
+    option.hidden = !matches;
+    if (matches) visibleOptions++;
+   });
+   group.hidden = visibleOptions === 0;
+   if (!group.hidden) visibleGroups++;
+  });
+  empty.hidden = visibleGroups !== 0 || !query;
+ });
+})();
+</script>
+{% endblock %}

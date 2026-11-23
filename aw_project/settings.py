@@ -40,7 +40,6 @@ else:
     }}
 
 INSTALLED_APPS = [
-    "django.contrib.admin",  # used only for the superadmin's Users and Groups pages
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",

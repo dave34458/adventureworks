@@ -3,11 +3,6 @@
 {% block extra_head %}<link rel="stylesheet" href="{% static 'reporting/leaflet/leaflet.css' %}">{% endblock %}
 {% block content %}
 <h2>{{ title }}</h2>
-{% if window_label %}
-<p class="muted d-sub" title="USD &middot; data through {{ through|date:'M j, Y' }}">{% if custom %}Selected{% else %}Last 12 months{% endif %}: {{ window_label }} &middot; vs {{ prev_label }}</p>
-{% else %}
-<p class="muted d-sub">{{ empty_message }}</p>
-{% endif %}
 {% include "reporting/_range.html" %}
 {% include "reporting/_dimensions.html" %}
 <div class="report">
@@ -26,13 +21,16 @@
   <div class="d-panel">
    <h3>Purchasing patterns and trends</h3>
    <p class="sub">New vs returning buyers per month · hover a bar for counts</p>
-   <div class="d-bars">
+   <div class="d-chart has-count-axis">
+    <div class="d-y-axis" aria-hidden="true">{% for tick in count_axis %}<span style="top:{{ tick.position }}%">{{ tick.label }}</span>{% endfor %}</div>
+    <div class="d-bars">
     {% for g in growth %}
     <div class="d-bar" title="{{ g.full }} · {{ g.act }} buyers · {{ g.nw }} new · {{ g.ret }} returning">
      <span class="bw"><span class="d-stack"><i class="new" style="height:{{ g.new_h }}%"></i><i class="ret" style="height:{{ g.ret_h }}%"></i></span></span>
-     <b>{{ g.label }}</b>
+     <b>{{ g.label }}<small>{{ g.year_label }}</small></b>
     </div>
     {% endfor %}
+    </div>
    </div>
    <div class="d-legend">
     <span class="dot ret"></span><span class="nm">Returning</span>
@@ -145,17 +143,29 @@
  var pts = JSON.parse(document.getElementById("cust-bubbles").textContent);
  if (!pts.length || !window.L || !window.AW_COUNTRIES) return;
  var mine = {USA: 1, CAN: 1, GBR: 1, FRA: 1, DEU: 1, AUS: 1};
+ function palette() { var s = getComputedStyle(document.documentElement); return {one:s.getPropertyValue('--cp1').trim(), two:s.getPropertyValue('--cp2').trim(), three:s.getPropertyValue('--cp3').trim(), four:s.getPropertyValue('--cp4').trim()}; }
  var map = L.map("cust-map", {scrollWheelZoom: false, attributionControl: false}).setView([30, 10], 1);
- L.geoJSON(window.AW_COUNTRIES, {
+ var countries = L.geoJSON(window.AW_COUNTRIES, {
   style: function (f) {
+   var colors = palette();
    return mine[f.id]
-    ? {color: "#8fa9c9", weight: 1.1, fillColor: "#c9dcf0", fillOpacity: 1}
+    ? {color: colors.two, weight: 1.1, fillColor: colors.one, fillOpacity: .22}
     : {color: "#ccd7e3", weight: .6, fillColor: "#eef3f8", fillOpacity: 1};
   }
  }).addTo(map);
+ var markers = [];
  pts.forEach(function (p) {
-  L.circleMarker([p.lat, p.lon], {radius: p.r, weight: 2, color: "#fff",
-   fillColor: "#2f5b8f", fillOpacity: .8}).addTo(map).bindTooltip(p.title);
+  var marker = L.circleMarker([p.lat, p.lon], {radius: p.r, weight: 2, color: "#fff",
+   fillColor: palette().one, fillOpacity: .8}).addTo(map).bindTooltip(p.title);
+  markers.push(marker);
+ });
+ window.addEventListener("aw-color-palette-change", function () {
+  var colors = palette();
+  countries.setStyle(function (f) { return mine[f.id]
+   ? {color: colors.two, weight: 1.1, fillColor: colors.one, fillOpacity: .22}
+   : {color: "#ccd7e3", weight: .6, fillColor: "#eef3f8", fillOpacity: 1};
+  });
+  markers.forEach(function (marker, i) { marker.setStyle({fillColor: [colors.one, colors.two, colors.three, colors.four][i % 4]}); });
  });
  map.fitBounds(pts.map(function (p) { return [p.lat, p.lon]; }), {padding: [30, 30], maxZoom: 4});
 })();

@@ -1,0 +1,9 @@
+{% extends "reporting/base.html" %}{% block content %}
+<h2>Manage Permissions</h2>
+<div class="scroll"><table><thead><tr><th>Group</th><th>Permissions</th></tr></thead><tbody>
+{% for group in groups %}<tr>
+ <td><a href="{% url 'group_permission_edit' group.pk %}">{{ group.name }}</a></td>
+ <td>{{ group.permission_count }}</td>
+</tr>{% empty %}<tr><td colspan="2">No groups available.</td></tr>{% endfor %}
+</tbody></table></div>
+{% endblock %}

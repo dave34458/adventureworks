@@ -4,7 +4,7 @@ import re
 from django.db import connection
 
 from core.models import SalesOrderHeader
-from ..utils import delta_pct, money, rank, shift_months, window_for
+from ..utils import delta_pct, money, percent, rank, shift_months, window_for
 from .common import (
     _empty_report,
     dimension_sql,
@@ -158,6 +158,7 @@ def customer_profile(request):
     growth = [
         {
             "label": m["month"].strftime("%b"), "full": m["month"].strftime("%b %Y"),
+            "year_label": m["month"].strftime("%Y"),
             "act": int(m["act"] or 0), "nw": int(new_per_month.get(m["month"], 0)),
             "ret": int((m["act"] or 0) - new_per_month.get(m["month"], 0)),
             "new_h": round(new_per_month.get(m["month"], 0) / top * 100, 2) if top else 0,
@@ -383,7 +384,7 @@ def customer_profile(request):
         ("Active customers", int(actives or 0), "count", delta_pct(actives, actives_prev),
          "distinct buyers in the window"),
         ("New customers", int(new_count or 0), "count", delta_pct(new_count, prev_new),
-         f"{money(new_rev)} \u00b7 {round(new_count / actives * 100) if actives else 0}% of buyers"),
+         f"{money(new_rev)} \u00b7 {percent(new_count / actives * 100 if actives else 0)} of buyers"),
         ("Repeat revenue share",
          round(float(repeat_rev) / float(rev) * 100) if rev else 0, "percent", (None, None),
          f"{money(repeat_rev)} from {repeat:,} returning buyers"),

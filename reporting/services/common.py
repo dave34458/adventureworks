@@ -10,8 +10,10 @@ from django.urls import reverse
 from django.utils import timezone
 
 from core.models import ProductionProductCategory
+
 from ..constants import CHART_FILTERS, META_KEYS, REPORT_COUNTRIES
 from ..models import AuditLog, Report
+from ..utils import count_axis_ticks, money_axis_ticks
 
 SHOW_OPTIONS = (3, 6, 8, 10, 25, 50, 100)
 SHOW_DEFAULTS = {
@@ -89,28 +91,28 @@ class ReportResult:
 
 
 def _chart_filter(request, module, context, saved_filters=None):
-    """Apply a report chart filter and expose its selected value."""
+    """Apply a report chart filter and expose chart axis ticks."""
     chart_filter = CHART_FILTERS.get(module)
-    if chart_filter is None:
-        return
-    name, label, default, options = chart_filter
-    allowed = {value for value, _ in options}
-    params = request.POST if getattr(request, "_capture_snapshot", None) else request.GET
-    selected = params.get(name)
-    if selected is None and saved_filters:
-        selected = saved_filters.get(name)
-    if selected not in allowed:
-        selected = default
-    context.update({
-        name: selected,
-        "chart_filter_name": name,
-        "chart_filter_label": label,
-        "chart_filter_value": selected,
-        "chart_filter_options": options,
-        "has_range_filter": "from" in request.GET or "to" in request.GET,
-        "filter_from": request.GET.get("from", ""),
-        "filter_to": request.GET.get("to", ""),
-    })
+    selected = None
+    if chart_filter is not None:
+        name, label, default, options = chart_filter
+        allowed = {value for value, _ in options}
+        params = request.POST if getattr(request, "_capture_snapshot", None) else request.GET
+        selected = params.get(name)
+        if selected is None and saved_filters:
+            selected = saved_filters.get(name)
+        if selected not in allowed:
+            selected = default
+        context.update({
+            name: selected,
+            "chart_filter_name": name,
+            "chart_filter_label": label,
+            "chart_filter_value": selected,
+            "chart_filter_options": options,
+            "has_range_filter": "from" in request.GET or "to" in request.GET,
+            "filter_from": request.GET.get("from", ""),
+            "filter_to": request.GET.get("to", ""),
+        })
 
     if module == "sales":
         rows = context.get("trend", [])
@@ -124,6 +126,17 @@ def _chart_filter(request, module, context, saved_filters=None):
             row["chart_h"] = round(abs(float(value)) / top * 100, 2) if top else 0
             row["prev_chart_h"] = (round(abs(float(previous)) / top * 100, 2)
                                    if previous is not None and top else 0)
+        if selected == "revenue":
+            context["money_axis"] = money_axis_ticks(top)
+    elif module == "revenue-and-loss":
+        rows = context.get("rev_trend", [])
+        top = max((float(row.get(key) or 0) for row in rows
+                   for key in ("money", "prev_money")), default=0)
+        context["money_axis"] = money_axis_ticks(top)
+    elif module == "customer-profile":
+        top = max((int(row.get("act") or 0)
+                   for row in context.get("growth", [])), default=0)
+        context["count_axis"] = count_axis_ticks(top)
     elif module == "cost":
         rows = context.get("trend", [])
         metric = "money" if selected == "cost" else "margin"
@@ -138,6 +151,8 @@ def _chart_filter(request, module, context, saved_filters=None):
                                    if previous is not None and top else 0)
         context["chart_has_previous"] = any(row.get("prev_chart_value") is not None
                                              for row in rows)
+        if selected == "cost":
+            context["money_axis"] = money_axis_ticks(top)
 
 
 def report_dimension_filters(request, module, include_country=True):
@@ -311,8 +326,8 @@ def _render_snapshot(request, module, template, snapshot):
         "filter_preview": False,
     })
     context["snapshots"] = list(Report.objects.filter(module=module))
-    can_manage = request.user.has_perm("reporting.change_report")
-    context["can_manage"] = can_manage
+    context["can_add"] = request.user.has_perm("reporting.add_report")
+    context["can_change"] = request.user.has_perm("reporting.change_report")
     context["manage_url"] = reverse("snapshot_list", args=[module])
     _chart_filter(request, module, context, saved_filters=filters)
     return ReportResult(template, context)
@@ -327,7 +342,8 @@ def _empty_report(request, module, template, title):
         "w_from": request.GET.get("from", ""),
         "w_to": request.GET.get("to", ""),
         "snapshots": list(Report.objects.filter(module=module)),
-        "can_manage": request.user.has_perm("reporting.change_report"),
+        "can_add": request.user.has_perm("reporting.add_report"),
+        "can_change": request.user.has_perm("reporting.change_report"),
         "manage_url": reverse("snapshot_list", args=[module]),
     }
     preview_snapshot = getattr(request, "_report_preview_snapshot", None)
@@ -442,7 +458,8 @@ def _report_response(request, module, template, context, window):
             "filter_preview": True,
         })
     context["snapshots"] = list(Report.objects.filter(module=module))
-    context["can_manage"] = request.user.has_perm("reporting.change_report")
+    context["can_add"] = request.user.has_perm("reporting.add_report")
+    context["can_change"] = request.user.has_perm("reporting.change_report")
     context["manage_url"] = reverse("snapshot_list", args=[module])
     _chart_filter(request, module, context)
     _add_dimension_context(request, context, module)

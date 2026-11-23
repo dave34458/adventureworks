@@ -1,7 +1,19 @@
 {% extends "reporting/base.html" %}{% block content %}
 <h2>Account</h2>
-<p>Signed in as <strong>{{ user.email }}</strong>.</p>
 <form method="post">{% csrf_token %}
+<section style="margin:1.5rem 0">
+ <div style="display:flex;align-items:center;flex-wrap:wrap;gap:.5rem 1rem">
+  <label for="color-palette">Palette</label>
+  <select id="color-palette">
+   <option value="standard">Standard</option>
+   <option value="protanopia">Protanopia-friendly</option>
+   <option value="deuteranopia">Deuteranopia-friendly</option>
+   <option value="tritanopia">Tritanopia-friendly</option>
+   <option value="grayscale">Grayscale</option>
+  </select>
+  <small class="muted">Saved on this device only.</small>
+ </div>
+</section>
  {{ form.as_p }}
  <button>Save changes</button> <a href="{% url 'home' %}">cancel</a>
 </form>

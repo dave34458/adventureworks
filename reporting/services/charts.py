@@ -60,13 +60,13 @@ def build_combo(profit_rows, margin_rows):
         if value is not None:
             dots.append({
                 "cls": "dotc", "x": x_at(index), "y": y_pct(value),
-                "t": f"{full[index]} \u00b7 {value}% margin",
+                "t": f"{full[index]} \u00b7 {float(value):.2f}% margin",
             })
     for index, value in enumerate(prev_vals):
         if value is not None:
             dots.append({
                 "cls": "dotp", "x": x_at(index), "y": y_pct(value),
-                "t": f"{prev_full[index] or full[index]} \u00b7 {value}% margin",
+                "t": f"{prev_full[index] or full[index]} \u00b7 {float(value):.2f}% margin",
             })
 
     tick_values = ((vmin, 0, vmax) if vmin < 0 < vmax
@@ -84,8 +84,12 @@ def build_combo(profit_rows, margin_rows):
                              for index, value in enumerate(prev_vals)
                              if value is not None),
         "dots": dots,
-        "xticks": [{"x": x_at(index), "lab": label}
-                   for index, label in enumerate(labels)],
+        "xticks": [{
+            "x": x_at(index), "lab": label,
+            "year_lab": (f"{prev_full[index][-4:]} vs {full[index][-4:]}"
+                         if prev_full[index] else full[index][-4:]),
+        } for index, label in enumerate(labels)],
         "lticks": [{"y": y_money(value), "lab": money(value)} for value in tick_values],
-        "rticks": [{"y": y_pct(value), "lab": f"{value:g}%"} for value in margin_ticks],
+        "rticks": [{"y": y_pct(value), "lab": f"{value:.2f}%"}
+                    for value in margin_ticks],
     }

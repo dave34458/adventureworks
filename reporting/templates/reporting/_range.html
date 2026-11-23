@@ -8,7 +8,7 @@
    {% endfor %}
   </select>
  </label>
- {% if can_manage %}<button type="button" id="save-report-button">{% if snapshot %}Edit report{% else %}Generate report{% endif %}</button>{% endif %}
+ {% if snapshot and can_change %}<button type="button" id="save-report-button">Edit report</button>{% elif not snapshot and can_add %}<button type="button" id="save-report-button">Generate report</button>{% endif %}
  <noscript><button type="submit">View</button></noscript>
  {% if manage_url %}<a class="d-btn" href="{{ manage_url }}">Manage saved reports</a>{% endif %}
  <details class="export-menu">
@@ -38,7 +38,7 @@
  {% if filter_preview and snapshot %}<a href="{% url tab %}?report={{ snapshot.pk }}">View saved report</a>{% endif %}
 </div>
 
-{% if can_manage and snapshot %}
+{% if can_change and snapshot %}
 <dialog class="report-edit-dialog" id="report-edit-dialog" aria-labelledby="report-edit-title">
  <form method="post" action="{% url 'report_generate' tab %}" id="report-edit-form">
   {% csrf_token %}
@@ -76,7 +76,7 @@
  });
 })();
 </script>
-{% elif can_manage %}
+{% elif can_add %}
 <form id="report-generate" method="post" action="{% url 'report_generate' tab %}" hidden>
  {% csrf_token %}
  <input type="hidden" name="from" value="{{ w_from }}">

@@ -2,12 +2,14 @@
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}{% if title %}{{ title }} · {% endif %}Adventureworks Reporting System{% endblock %}</title>
 <link rel="icon" type="image/svg+xml" href="{% static 'reporting/favicon.svg' %}">
+<script>(function(){try{var p=localStorage.getItem('aw-color-palette');if(['standard','protanopia','deuteranopia','tritanopia','grayscale'].indexOf(p)>-1)document.documentElement.dataset.colorPalette=p}catch(e){}})();</script>
 <style>
  body{font-family:system-ui,sans-serif;margin:0;color:#1d2733;min-height:100vh;display:flex;flex-direction:column}
- nav.top{background:#1f3a5f;padding:.55rem 1rem;display:flex;gap:.5rem 1rem;align-items:center;flex-wrap:wrap;color:#fff}
+ nav.top{position:sticky;top:0;z-index:11000;background:#1f3a5f;padding:.55rem 1rem;display:flex;gap:.5rem 1rem;align-items:center;flex-wrap:wrap;color:#fff}
  nav.top a{color:#fff;text-decoration:none;padding:.2rem 0}nav.top a.on{font-weight:600;border-bottom:2px solid #fff}
  nav.top .sp{flex:1}nav.top form{margin:0}nav.top button{background:none;border:0;color:#fff;cursor:pointer;font:inherit;padding:0}
- .sub{background:#e9eef5;padding:.4rem 1rem;font-size:.9rem;display:flex;flex-wrap:wrap;gap:.2rem .9rem}.sub a{color:#1f3a5f;text-decoration:none;border-bottom:2px solid transparent}.sub a:hover{border-bottom-color:#9fb3c8}.sub a.on{font-weight:650;border-bottom-color:#1f3a5f}
+ nav.sub{position:sticky;top:var(--top-nav-height,3rem);z-index:10999;box-shadow:0 2px 5px rgba(31,58,95,.12)}
+  nav.sub{background:#e9eef5;padding:.4rem 1rem;font-size:.9rem;display:flex;flex-wrap:wrap;gap:.2rem .9rem}nav.sub a{color:#1f3a5f;text-decoration:none;border-bottom:2px solid transparent}nav.sub a:hover{border-bottom-color:#9fb3c8}nav.sub a.on{font-weight:650;border-bottom-color:#1f3a5f}
  main{padding:.6rem 1.25rem 1rem;flex:1}main>h1:first-child,main>h2:first-child{margin-top:0}.scroll{overflow-x:auto}table{border-collapse:collapse}td,th{border:1px solid #ccd3dc;padding:.3rem .6rem;text-align:left}
  .lw{min-height:62vh;display:flex;align-items:center;justify-content:center}
  .lcard{width:min(400px,100%);background:#fff;border:1px solid #ccd3dc;border-radius:12px;padding:1.4rem 1.6rem;box-shadow:0 1px 3px rgba(31,58,95,.08)}
@@ -36,17 +38,26 @@
  .d-chip.flat{background:#e9eef5;color:#4a5866}
 .d-cols{display:grid;grid-template-columns:minmax(0,7fr) minmax(0,3fr);gap:1rem;align-items:start}
 .d-cols.d-main{grid-template-columns:minmax(0,5fr) minmax(0,3fr)}
-.d-cols.single{grid-template-columns:1fr}
+ .d-cols.single{grid-template-columns:1fr}
+ .d-cols.equal{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .d-cols.equal>:only-child{grid-column:1/-1}
  .d-tops{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:1rem}
  .d-panel{background:#fff;border:1px solid #ccd3dc;border-radius:10px;padding:.9rem 1rem;min-width:0}
  .d-panel h3{margin:0;font-size:.95rem;color:#1f3a5f}
  .d-panel .sub{margin:.1rem 0 .8rem;font-size:.78rem;color:#6b7785}
  .d-bars{display:flex;gap:4px;height:190px;align-items:stretch}
+ .d-chart.has-money-axis,.d-chart.has-count-axis{position:relative;box-sizing:border-box;padding-left:6rem;margin-top:.75rem}
+ .d-chart .d-y-axis{position:absolute;top:0;bottom:2rem;left:0;width:5.6rem}
+ .d-chart .d-y-axis span{position:absolute;right:.35rem;transform:translateY(-50%);text-align:right;font-size:.62rem;line-height:1;color:#6b7785;white-space:nowrap;font-variant-numeric:tabular-nums}
+ .d-chart .d-y-axis span:first-child{transform:none}
+ .d-chart .d-y-axis span:last-child{transform:translateY(-100%)}
+ .d-chart.has-money-axis .d-bar .bw,.d-chart.has-count-axis .d-bar .bw{border-bottom:1px solid #e4eaf1;background-image:linear-gradient(to bottom,#e4eaf1 1px,transparent 1px);background-size:100% 25%;background-repeat:repeat-y}
  .d-bar{flex:1;display:flex;flex-direction:column;min-width:0}
  .d-bar .bw{flex:1;display:flex;align-items:flex-end}
  .d-bar i{width:100%;background:#35659e;border-radius:3px 3px 0 0;min-height:2px;transition:background .12s}
  .d-bar:hover i{background:#1f3a5f}
  .d-bar b{font-weight:500;font-size:.7rem;color:#6b7785;text-align:center;margin-top:.3rem;overflow:hidden;white-space:nowrap}
+ .d-bar b small{display:block;font-size:.58rem;font-weight:400;line-height:1.1}
  .d-bar .bw{position:relative}
  .d-bar .bw>i{position:absolute;bottom:0;left:0;width:100%;background:#cbd9e8}
  .d-bar .bw>i.cur{left:18%;width:64%;background:#35659e}
@@ -113,6 +124,7 @@
  .d-donut svg{display:block;width:100%;height:auto}
  .d-donut .mid{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
  .d-donut .mid b{font-size:1.05rem;color:#1f3a5f;line-height:1.15}
+ .d-donut-cost .mid b{font-size:.82rem;white-space:nowrap}
  .d-donut .mid span{font-size:.68rem;color:#6b7785}
  .d-donut .c1{stroke:#2f5b8f}.d-donut .c2{stroke:#7fa3c8}.d-donut .c3{stroke:#e0a63c}.d-donut .c4{stroke:#aab7c6}
  .d-donut circle{cursor:default}
@@ -179,14 +191,15 @@
  .d-line svg{display:block;width:100%;height:auto}
  .d-line .axis{stroke:#e4eaf1;stroke-width:1}
  .d-line .tick{fill:#6b7785;font-size:10px}
+ .d-line .tick .year-tick{font-size:8px}
  .d-line .cur{fill:none;stroke:#2f5b8f;stroke-width:2.5}
  .d-line .prev{fill:none;stroke:#a9bfd6;stroke-width:2;stroke-dasharray:5 4}
  .d-line .dotc{fill:#2f5b8f;stroke:#fff;stroke-width:1.5}
  .d-line .dotp{fill:#a9bfd6;stroke:#fff;stroke-width:1.5}
  .d-legend .sw{width:1.1rem;height:0;border-top:2px solid #a9bfd6;align-self:center;flex:none}
  .d-legend .sw.solid{border-top-color:#2f5b8f}
-@media(max-width:820px){.d-cols,.d-cols.d-main,.d-mapgrid{grid-template-columns:1fr}}
-@media(max-width:640px){.d-hide-m{display:none}.d-flow .arrow{display:none}.d-donutrow{grid-template-columns:1fr}.d-table th,.d-table td{padding:.35rem .35rem;font-size:.78rem}.d-table .num{white-space:nowrap}.d-line .tick{font-size:24px}}
+@media(max-width:820px){.d-cols,.d-cols.d-main,.d-cols.equal,.d-mapgrid{grid-template-columns:1fr}}
+@media(max-width:640px){.d-hide-m{display:none}.d-flow .arrow{display:none}.d-donutrow{grid-template-columns:1fr}.d-table th,.d-table td{padding:.35rem .35rem;font-size:.78rem}.d-table .num{white-space:nowrap}.d-line .tick{font-size:24px}.d-line .tick .year-tick{font-size:18px}}
  @media(max-width:520px){.d-bars{gap:2px}.d-bar b{visibility:hidden}.d-bar:nth-child(odd) b{visibility:visible}}
  @media print{
   body{display:block;background:#fff;color:#111;font-family:Arial,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}
@@ -214,6 +227,16 @@
   .d-donut .c1{stroke:#2f5b8f!important}.d-donut .c2{stroke:#7fa3c8!important}
   .d-donut .c3{stroke:#e0a63c!important}.d-donut .c4{stroke:#aab7c6!important}
  }
+ :root{--cp1:#2f5b8f;--cp2:#7fa3c8;--cp3:#e0a63c;--cp4:#aab7c6;--cp-prev:#a9bfd6;--cp-pale:#cbd9e8;--cp-danger:#b42318;--cp-danger-pale:#e6a29a;--cp-positive:#1a7f37;--cp-track:#e9eef5}
+ html[data-color-palette="protanopia"]{--cp1:#0072b2;--cp2:#56b4e9;--cp3:#e69f00;--cp4:#cc79a7;--cp-prev:#9bcbe5;--cp-pale:#d5e9f4;--cp-danger:#d55e00;--cp-danger-pale:#f2c19f;--cp-positive:#009e73;--cp-track:#e9eef5}
+ html[data-color-palette="deuteranopia"]{--cp1:#0072b2;--cp2:#a6cee3;--cp3:#d55e00;--cp4:#cc79a7;--cp-prev:#9bcbe5;--cp-pale:#dcebf3;--cp-danger:#b2182b;--cp-danger-pale:#e6a6aa;--cp-positive:#008c6a;--cp-track:#e9eef5}
+ html[data-color-palette="tritanopia"]{--cp1:#b23a48;--cp2:#e07a5f;--cp3:#168c72;--cp4:#665191;--cp-prev:#d9a7aa;--cp-pale:#f0d9d9;--cp-danger:#a51c30;--cp-danger-pale:#e6a6aa;--cp-positive:#168c72;--cp-track:#eee9ef}
+ html[data-color-palette="grayscale"]{--cp1:#222;--cp2:#666;--cp3:#999;--cp4:#bbb;--cp-prev:#999;--cp-pale:#ddd;--cp-danger:#444;--cp-danger-pale:#aaa;--cp-positive:#555;--cp-track:#eee}
+ .d-bar i,.d-bar .bw>i.cur{background:var(--cp1)!important}.d-bar:hover i,.d-bar:hover .bw>i.cur{background:var(--cp1)!important}.d-bar .bw>i.prev{background:var(--cp-pale)!important}.d-bar .bw>i.cur.negative,.d-splitbar i.cost,.d-legend .dot.cost{background:var(--cp-danger)!important}.d-bar .bw>i.prev.negative{background:var(--cp-danger-pale)!important}
+ .d-splitbar,.d-rank .tbar{background:var(--cp-track)!important}.d-splitbar i.online,.d-legend .dot.online{background:var(--cp1)!important}.d-splitbar i.store,.d-legend .dot.store,.d-legend .dot.new,.d-legend .sq{background:var(--cp3)!important}.d-splitbar i.margin,.d-legend .dot.margin{background:var(--cp-positive)!important}.d-rank .tbar i{background:var(--cp2)!important}
+ .d-stack i.ret,.d-legend .dot.ret,.d-legend .sq.blue{background:var(--cp1)!important}.d-stack i.new,.d-legend .dot.new{background:var(--cp3)!important}.d-legend .sq.pale{background:var(--cp-pale)!important}.d-legend .dot.c1{background:var(--cp1)!important}.d-legend .dot.c2{background:var(--cp2)!important}.d-legend .dot.c3{background:var(--cp3)!important}.d-legend .dot.c4{background:var(--cp4)!important}
+ .d-donut .c1{stroke:var(--cp1)!important}.d-donut .c2{stroke:var(--cp2)!important}.d-donut .c3{stroke:var(--cp3)!important}.d-donut .c4{stroke:var(--cp4)!important}
+ .d-line .cur,.d-line .dotc{stroke:var(--cp1)!important}.d-line .prev,.d-line .dotp{stroke:var(--cp-prev)!important}.d-line .dotc{fill:var(--cp1)!important}.d-line .dotp{fill:var(--cp-prev)!important}.d-line .profitbar{fill:var(--cp3)!important}.d-legend .sw{border-top-color:var(--cp-prev)!important}.d-legend .sw.solid{border-top-color:var(--cp1)!important}
 </style>{% block extra_head %}{% endblock %}</head><body>
 <nav class="top">
  {% if user.is_authenticated %}<a href="{% url 'dashboard' %}" {% if tab == 'dashboard' %}class="on"{% endif %}>Dashboard</a>{% endif %}
@@ -223,12 +246,14 @@
  {% if perms.reporting.access_cost %}<a href="{% url 'cost' %}" {% if tab == 'cost' %}class="on"{% endif %}>Cost</a>{% endif %}
  <span class="sp"></span>
  {% if user.is_authenticated %}
- {% if perms.reporting.manage_department_users and not user.is_superuser %}<a href="{% url 'department_users' %}">Manage users</a>{% endif %}
- {% if user.is_superuser %}<a href="/manage/">Users and roles</a>{% endif %}
+ {% if perms.reporting.manage_department_users or user.is_superuser %}<a href="{% url 'department_users' %}" {% if request.resolver_match.url_name == 'department_users' or request.resolver_match.url_name == 'department_user_add' or request.resolver_match.url_name == 'department_user_edit' or request.resolver_match.url_name == 'department_user_deactivate' %}class="on"{% endif %}>Manage users</a>{% endif %}
+ {% if perms.reporting.manage_department_users or user.is_superuser %}<a href="{% url 'department_audit' %}" {% if request.resolver_match.url_name == 'department_audit' or request.resolver_match.url_name == 'department_audit_detail' %}class="on"{% endif %}>Audit Logs</a>{% endif %}
+ {% if user.is_superuser %}<a href="{% url 'group_permissions' %}" {% if request.resolver_match.url_name == 'group_permissions' or request.resolver_match.url_name == 'group_permission_edit' %}class="on"{% endif %}>Manage Permissions</a>{% endif %}
  <a href="{% url 'account' %}" title="Edit your account">{{ user.email }}{% if user.is_superuser %} (Administrator){% endif %}</a>
   <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button>Log out</button></form>
  {% endif %}
 </nav>
+<script>(function(){var n=document.querySelector('nav.top');if(!n)return;function setHeight(){document.documentElement.style.setProperty('--top-nav-height',n.getBoundingClientRect().height+'px')}setHeight();if(window.ResizeObserver)new ResizeObserver(setHeight).observe(n);else window.addEventListener('resize',setHeight)})();</script>
 {% if tab and tab != 'dashboard' %}<nav class="sub">
 {% if tab == 'sales' %}
  {% if perms.core.view_salesorderheader %}<a href="{% url 'table_list' 'sales' 'SalesOrderHeader' %}" {% if name == 'SalesOrderHeader' %}class="on"{% endif %}>Sales order header</a>{% endif %}
@@ -259,6 +284,7 @@
 <main>{% block content %}{% endblock %}</main>
 <footer class="foot">Personal data in this system is processed under the Data Privacy Act of 2012 (Republic Act No. 10173) &middot; Adventureworks Reporting System &middot; <a href="{% url 'privacy' %}">Data privacy notice</a></footer>
 <script>
+(function(){var s=document.getElementById('color-palette');if(!s)return;var key='aw-color-palette';try{s.value=localStorage.getItem(key)||'standard'}catch(e){s.value='standard'}var form=s.closest('form');if(!form)return;form.addEventListener('submit',function(){var p=s.value;document.documentElement.dataset.colorPalette=p;try{localStorage.setItem(key,p)}catch(e){}window.dispatchEvent(new Event('aw-color-palette-change'))})})();
 (function () {
  document.addEventListener("submit", function (event) {
   var form = event.target;

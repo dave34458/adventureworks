@@ -210,8 +210,10 @@ def cost(request):
         prev = prev_by_month.get(shift_months(m["month"], -month_offset))
         trend.append({
             "label": m["month"].strftime("%b"), "full": m["month"].strftime("%b %Y"),
+            "year_label": (f"{prev['month']:%Y} vs {m['month']:%Y}" if prev
+                           else m["month"].strftime("%Y")),
             "money": float(m["cogs"] or 0),
-            "margin": round((float(m["rev"]) - float(m["cogs"])) / float(m["rev"]) * 100, 1) if m["rev"] else 0,
+            "margin": round((float(m["rev"]) - float(m["cogs"])) / float(m["rev"]) * 100, 2) if m["rev"] else 0,
             "height": round(float(m["cogs"]) / top * 100, 2) if top else 0,
             "prev_full": prev["month"].strftime("%b %Y") if prev else "",
             "prev_money": float(prev["cogs"] or 0) if prev else None,
@@ -246,9 +248,9 @@ def cost(request):
         {
             "name": r["name"],
             "cls": f"c{i}",
-            "pct": round(float(r["cogs"]) / total_cogs * 100, 1),
+            "pct": round(float(r["cogs"]) / total_cogs * 100, 2),
             "money": float(r["cogs"] or 0),
-            "margin": round((float(r["rev"]) - float(r["cogs"])) / float(r["rev"]) * 100, 1) if r["rev"] else 0,
+            "margin": round((float(r["rev"]) - float(r["cogs"])) / float(r["rev"]) * 100, 2) if r["rev"] else 0,
         }
         for i, r in enumerate(cats, 1)
     ]
@@ -363,7 +365,7 @@ def cost(request):
             history_params,
         )
         hikes = [{"name": name, "old": old, "now": now,
-                  "pct": round((now - old) / old * 100, 1)}
+                  "pct": round((now - old) / old * 100, 2)}
                  for name, old, now in c.fetchall()]
     changes = [
         {
@@ -404,7 +406,7 @@ def cost(request):
 
     performance = None
     if ratio is not None:
-        margin_ratio = round(100 - ratio, 1)
+        margin_ratio = round(100 - ratio, 2)
         if ratio > 100:
             note = (f"Cost of goods exceeds revenue: every revenue dollar carries {ratio:.0f}\u00a2 of cost, "
                     "so gross margin is negative.")
@@ -414,8 +416,8 @@ def cost(request):
         if ratio_prev is not None:
             note += f" In {w.prev_label} cost was {ratio_prev:.0f}\u00a2 per revenue dollar."
         performance = {
-            "cost": round(float(ratio), 1),
-            "margin": round(float(margin_ratio), 1),
+            "cost": round(float(ratio), 2),
+            "margin": round(float(margin_ratio), 2),
             "note": note,
         }
 

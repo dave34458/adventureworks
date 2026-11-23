@@ -21,15 +21,7 @@ def shift_months(dt, months):
 
 
 def money(value):
-    if value is None or value == "":
-        return "—"
-    value = float(value)
-    sign = "-" if value < 0 else ""
-    value = abs(value)
-    for threshold, divisor, suffix in ((1e9, 1e9, "B"), (1e6, 1e6, "M"), (1e4, 1e3, "K")):
-        if value >= threshold:
-            return f"{sign}${value / divisor:,.1f}{suffix}"
-    return f"{sign}${value:,.0f}"
+    return money_exact(value)
 
 
 def money_exact(value):
@@ -38,6 +30,32 @@ def money_exact(value):
     value = float(value)
     sign = "-" if value < 0 else ""
     return f"{sign}${abs(value):,.2f}"
+
+
+def money_axis_ticks(maximum):
+    maximum = max(float(maximum or 0), 0)
+    if not maximum:
+        return [{"label": money_exact(0), "position": 100}]
+    ticks, seen = [], set()
+    for fraction in range(4, -1, -1):
+        label = money_exact(maximum * fraction / 4)
+        if label not in seen:
+            ticks.append({"label": label, "position": (4 - fraction) * 25})
+            seen.add(label)
+    return ticks
+
+
+def count_axis_ticks(maximum):
+    maximum = max(int(maximum or 0), 0)
+    if not maximum:
+        return [{"label": "0", "position": 100}]
+    ticks, seen = [], set()
+    for fraction in range(4, -1, -1):
+        label = f"{round(maximum * fraction / 4):,}"
+        if label not in seen:
+            ticks.append({"label": label, "position": (4 - fraction) * 25})
+            seen.add(label)
+    return ticks
 
 
 def count(value):
@@ -49,11 +67,7 @@ def count(value):
 def percent(value, digits=None):
     if value is None or value == "":
         return "—"
-    if digits is None:
-        text = f"{float(value):,.2f}".rstrip("0").rstrip(".")
-    else:
-        text = f"{float(value):,.{int(digits)}f}"
-    return f"{text}%"
+    return f"{float(value):,.2f}%"
 
 
 def units(value):
@@ -85,19 +99,19 @@ def delta_pct(cur, prev):
     """Percent change as a number and direction, or (None, None) without a baseline."""
     if cur is None or prev is None or float(prev) <= 0:
         return None, None
-    change = round((float(cur) - float(prev)) / float(prev) * 100, 1)
+    change = round((float(cur) - float(prev)) / float(prev) * 100, 2)
     return change, "up" if change > 0 else "down" if change < 0 else "flat"
 
 
 def delta(cur, prev):
     change, direction = delta_pct(cur, prev)
-    return (f"{change:+.1f}%" if change is not None else None), direction
+    return (f"{change:+.2f}%" if change is not None else None), direction
 
 
 def delta_text(value):
     if value is None:
         return ""
-    return f"{float(value):+.1f}%"
+    return f"{float(value):+.2f}%"
 
 
 def rank(rows, name_key, value_key):

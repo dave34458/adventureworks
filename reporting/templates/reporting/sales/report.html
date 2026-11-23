@@ -2,11 +2,6 @@
 {% load report_format %}
 {% block content %}
 <h2>{{ title }}</h2>
-{% if window_label %}
-<p class="muted d-sub" title="USD &middot; data through {{ through|date:'M j, Y' }}">{% if custom %}Selected{% else %}Last 12 months{% endif %}: {{ window_label }} &middot; vs {{ prev_label }}</p>
-{% else %}
-<p class="muted d-sub">{{ empty_message }}</p>
-{% endif %}
 {% include "reporting/_range.html" %}
 {% include "reporting/_dimensions.html" %}
 <div class="report">
@@ -24,13 +19,16 @@
   <h3>Total sales and sales trend</h3>
   <p class="sub">{% if sales_metric == "orders" %}Monthly order count{% else %}Monthly merchandise sales{% endif %} · solid bars: {{ period }} · faded bars: {{ prev_label }}</p>
   {% include "reporting/_chart_filter.html" %}
-  <div class="d-bars">
+  <div class="d-chart{% if sales_metric == 'revenue' %} has-money-axis{% endif %}">
+   {% if sales_metric == "revenue" %}<div class="d-y-axis" aria-hidden="true">{% for tick in money_axis %}<span style="top:{{ tick.position }}%">{{ tick.label }}</span>{% endfor %}</div>{% endif %}
+   <div class="d-bars">
    {% for t in trend %}
    <div class="d-bar" title="{{ t.full }} · {% if sales_metric == 'orders' %}{{ t.chart_value|fmt_count }} orders{% else %}{{ t.chart_value|fmt_money_exact }}{% endif %}{% if t.prev_full %} · previous {{ t.prev_full }}: {% if sales_metric == 'orders' %}{{ t.prev_chart_value|fmt_count }} orders{% else %}{{ t.prev_chart_value|fmt_money_exact }}{% endif %}{% endif %}">
     <span class="bw"><i class="prev" style="height:{{ t.prev_chart_h }}%"></i><i class="cur" style="height:{{ t.chart_h }}%"></i></span>
-    <b>{{ t.label }}</b>
+    <b>{{ t.label }}<small>{{ t.year_label }}</small></b>
    </div>
    {% endfor %}
+   </div>
   </div>
   <div class="d-legend"><span class="sq blue"></span><span class="nm">Selected period</span></div>
   <div class="d-legend"><span class="sq pale"></span><span class="nm">Previous period</span></div>

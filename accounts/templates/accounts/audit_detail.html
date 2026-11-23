@@ -1,0 +1,14 @@
+{% extends "reporting/base.html" %}{% block content %}
+<h2>{{ title }}</h2>
+<p><a href="{% url 'department_audit' %}">Back to Audit Logs</a></p>
+<div class="scroll"><table><tbody>
+<tr><th>When</th><td>{{ log.created_at|date:"Y-m-d H:i" }}</td></tr>
+<tr><th>User</th><td>{{ log.username }}</td></tr>
+<tr><th>Action</th><td>{{ log.action }}</td></tr>
+<tr><th>Model</th><td>{{ log.model }}</td></tr>
+<tr><th>Record ID</th><td>{{ log.object_pk }}</td></tr>
+<tr><th>Record</th><td>{{ log.object_repr }}</td></tr>
+<tr><th>Changes</th><td><pre style="margin:0;white-space:pre-wrap">{{ changes_pretty }}</pre></td></tr>
+<tr><th>IP address</th><td>{{ log.ip_address|default:"-" }}</td></tr>
+</tbody></table></div>
+{% endblock %}

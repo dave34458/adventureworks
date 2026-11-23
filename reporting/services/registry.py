@@ -20,8 +20,10 @@ def report_generate(request, tab):
     """Save or replace the snapshot for this report range."""
     if tab not in REPORT_VIEWS:
         raise Http404
+    overwrite_id = request.POST.get("overwrite_report")
+    required = "change_report" if overwrite_id else "add_report"
     if not (request.user.has_perm(f"reporting.access_{tab.replace('-', '_')}")
-            and request.user.has_perm("reporting.change_report")):
+            and request.user.has_perm(f"reporting.{required}")):
         raise PermissionDenied
     report_name = request.POST.get("report_name", "").strip()
     if request.POST.get("overwrite_report") and (not report_name or len(report_name) > 120):

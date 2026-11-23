@@ -14,13 +14,14 @@ for each of the four in-scope departments. Each department gets exactly one repo
 
 Apply the groups with:
     python manage.py shell -c "from accounts.roles import ROLES, apply_roles; apply_roles(ROLES, prune=True)"
-`prune=True` removes groups that are not in ROLES. Assign users to groups on the
-"Users and roles" page (/manage/), which only the Administrator can open. Department
-Admins manage non-admin accounts assigned to their own department roles.
+`prune=True` removes groups that are not in ROLES. Assign users to groups on the in-app
+"Manage users" page. The global Administrator can manage every account; Department
+Admins manage non-admin accounts assigned to their own department roles. Only the
+global Administrator can open the in-app "Group permissions" page and edit groups.
 
 Every role gets its tab's `access_<tab>` permission, read-only access to the tab's
 remaining source tables, and view access to the single `Report` table. Managers also get
-change/delete on `Report`; Supervisors and Employees are read-only. Only the global
+add/change/delete on `Report`; Supervisors and Employees are read-only. Only the global
 Administrator can edit or delete source-table rows.
 """
 from django.contrib.auth.models import Group, Permission
@@ -54,7 +55,7 @@ ROLE_KINDS = ("Manager", "Supervisor", "Employee", "Admin")
 def _scope(tab, kind):
     if kind == "Manager":
         return {"tabs": [tab], "view": TABLES[tab] + ["Report"],
-                "change": ["Report"], "delete": ["Report"]}
+                "add": ["Report"], "change": ["Report"], "delete": ["Report"]}
     if kind == "Supervisor":
         return {"tabs": [tab], "view": TABLES[tab] + ["Report"],
                 "change": [], "delete": []}
@@ -62,7 +63,8 @@ def _scope(tab, kind):
         return {"tabs": [tab], "view": ["Report"], "change": [], "delete": []}
     if kind == "Admin":
         return {"tabs": [tab], "view": TABLES[tab] + ["Report"],
-                "change": ["Report"], "delete": ["Report"], "manage_users": True}
+                "add": ["Report"], "change": ["Report"], "delete": ["Report"],
+                "manage_users": True}
     raise ValueError(f"unknown role kind: {kind}")
 
 
@@ -85,7 +87,7 @@ def apply_roles(roles, prune=False):
     done = []
     for role, spec in roles.items():
         codenames = [f"access_{tab.replace('-', '_')}" for tab in spec.get("tabs", [])]
-        for action in ("view", "change", "delete"):
+        for action in ("view", "add", "change", "delete"):
             codenames += [f"{action}_{name.lower()}" for name in spec.get(action, [])]
         if spec.get("manage_users"):
             codenames.append("manage_department_users")
