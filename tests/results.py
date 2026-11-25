@@ -53,12 +53,18 @@ def write_results(results, exit_status):
 
     output = []
     in_matrix = True
+    skip_header = False
     for line in source_lines:
         if line.startswith("# "):
             output.extend(header)
+            skip_header = True
             continue
         if line.startswith(("Generated:", "Command:", "pytest exit status:", "Summary:", "Source matrix:", "Status:")):
             continue
+        if skip_header:
+            if not line.strip():
+                continue
+            skip_header = False
         if line.startswith("## Playwright mapping"):
             in_matrix = False
         if line.startswith("3. `Actual Result` will be filled"):

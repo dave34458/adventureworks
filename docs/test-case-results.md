@@ -1,20 +1,10 @@
 # AdventureWorks Reporting System — Test Results
 
-Generated: 2026-11-23 09:38 UTC
+Generated: 2026-11-25 07:46 UTC
 Command: `python -m pytest tests -q`
 pytest exit status: 0
 Summary: Pass: 12 · Fail: 0 · Skipped: 0 · Not run: 0
-Status: generated from the last pytest run (2026-11-23 09:38 UTC).
-
-
-
-
-
-
-
-
-
-
+Status: generated from the last pytest run (2026-11-25 07:46 UTC).
 
 ## Scope
 
@@ -39,8 +29,8 @@ Not covered in this phase:
 
 ## Environment and prerequisites
 
-- Application URL: `http://127.0.0.1:8000`
-- Django dev server running (the Playwright suite should reuse a healthy server or start one with `python manage.py runserver 127.0.0.1:8000 --noreload`).
+- Application URL: temporary localhost server started by the Playwright suite (set `E2E_BASE_URL` to reuse an existing server).
+- Django dev server started automatically on a free port; no manual `runserver` is required for the E2E suite.
 - Database: `AdventureWorks2025`, reachable through the configured Django connection.
 - Demo accounts and role groups seeded: `python manage.py seed_users` (`--reset` if passwords or group assignments have drifted; `seed_users --if-empty` skips role creation when any user already exists)
 - Desktop viewport for layout assertions: 1440 x 900 (the two-column layouts collapse below 820 px).

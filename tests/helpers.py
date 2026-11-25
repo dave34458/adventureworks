@@ -108,11 +108,11 @@ def apply_chart_metric(page, form_id, name, value):
 
 
 def login(page, email, password):
-    page.goto(f"{BASE_URL}/login/")
+    page.goto(f"{BASE_URL}/login/", wait_until="domcontentloaded")
     page.locator('#login-form input[name="username"]').fill(email)
     page.locator('#login-form input[name="password"]').fill(password)
-    page.locator("#login-form button").click()
-    page.wait_for_url("**/dashboard/")
+    page.locator("#login-form button").click(no_wait_after=True)
+    page.wait_for_url("**/dashboard/", timeout=60000)
 
 
 def expect_login_redirect(page, path):

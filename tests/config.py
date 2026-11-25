@@ -1,8 +1,17 @@
 import os
+import socket
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-BASE_URL = os.getenv("E2E_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
+
+
+def _free_port():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+BASE_URL = os.getenv("E2E_BASE_URL", f"http://127.0.0.1:{_free_port()}").rstrip("/")
 RESULTS_FILE = Path(os.getenv("E2E_RESULTS_FILE", PROJECT_ROOT / "docs" / "test-case-results.md"))
 ARTIFACT_DIR = PROJECT_ROOT / "tests" / "artifacts"
 VIEWPORT = {"width": 1440, "height": 900}

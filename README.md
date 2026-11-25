@@ -49,6 +49,6 @@ python -m playwright install chromium
 python -m pytest tests -q
 ```
 
-The suite reuses a healthy server at `http://127.0.0.1:8000` or starts one temporarily. Each run overwrites `docs/test-case-results.md` with the populated test-case table and actual pass/fail results.
+The suite starts a temporary server on a free localhost port. Set `E2E_BASE_URL` to reuse an existing server instead. Each run overwrites `docs/test-case-results.md` with the populated test-case table and actual pass/fail results.
 
 To watch the browser while it runs, set `E2E_HEADLESS=0` (PowerShell: `$env:E2E_HEADLESS = "0"; python -m pytest tests -q`).

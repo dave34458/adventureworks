@@ -4,6 +4,7 @@ import time
 import urllib.error
 import urllib.request
 from contextlib import contextmanager
+from urllib.parse import urlparse
 
 import pytest
 from playwright.sync_api import expect, sync_playwright
@@ -18,7 +19,8 @@ REPORT_KEY = pytest.StashKey()
 def server_healthy():
     try:
         with urllib.request.urlopen(f"{BASE_URL}/login/", timeout=2) as response:
-            return response.status == 200
+            body = response.read().decode("utf-8", "replace")
+            return response.status == 200 and 'id="login-form"' in body
     except (OSError, urllib.error.URLError):
         return False
 
@@ -28,22 +30,29 @@ def server():
     if server_healthy():
         yield "existing"
         return
+    port = urlparse(BASE_URL).port or 8000
     process = subprocess.Popen(
-        [sys.executable, "manage.py", "runserver", "127.0.0.1:8000", "--noreload"],
+        [sys.executable, "manage.py", "runserver", f"127.0.0.1:{port}", "--noreload"],
         cwd=PROJECT_ROOT,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
-    for _ in range(60):
-        if server_healthy():
-            break
-        time.sleep(0.5)
-    else:
-        process.terminate()
-        raise RuntimeError("Django dev server did not become healthy")
-    yield "started"
-    process.terminate()
-    process.wait(timeout=10)
+    try:
+        for _ in range(60):
+            if server_healthy():
+                break
+            time.sleep(0.5)
+        else:
+            raise RuntimeError("Django dev server did not become healthy")
+        yield "started"
+    finally:
+        if process.poll() is None:
+            process.terminate()
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
 
 
 @pytest.fixture(scope="session")
