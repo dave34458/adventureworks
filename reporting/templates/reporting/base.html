@@ -30,7 +30,7 @@
  .d-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:.75rem}
  .d-kpi{background:#fff;border:1px solid #ccd3dc;border-radius:10px;padding:.8rem .95rem}
  .d-kpi .lab{font-size:.7rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:#6b7785}
- .d-kpi .val{font-size:1.5rem;font-weight:650;color:#1f3a5f;margin:.15rem 0 .1rem;white-space:nowrap}
+  .d-kpi .val{font-size:1.5rem;font-weight:650;color:#1f3a5f;margin:.15rem 0 .1rem;white-space:normal;overflow-wrap:anywhere}
  .d-kpi .cap{font-size:.75rem;color:#6b7785}
  .d-chip{display:inline-block;font-size:.72rem;font-weight:600;padding:.08rem .42rem;border-radius:999px;vertical-align:.18rem}
  .d-chip.up{background:#e3f3e5;color:#1a7f37}
@@ -56,8 +56,10 @@
  .d-bar .bw{flex:1;display:flex;align-items:flex-end}
  .d-bar i{width:100%;background:#35659e;border-radius:3px 3px 0 0;min-height:2px;transition:background .12s}
  .d-bar:hover i{background:#1f3a5f}
- .d-bar b{font-weight:500;font-size:.7rem;color:#6b7785;text-align:center;margin-top:.3rem;overflow:hidden;white-space:nowrap}
- .d-bar b small{display:block;font-size:.58rem;font-weight:400;line-height:1.1}
+ .d-bar b{font-weight:500;font-size:10px;color:#6b7785;text-align:center;margin-top:.3rem;overflow:hidden;white-space:nowrap}
+ .d-bar b small{display:block;font-size:9px;font-weight:400;line-height:1.1}
+  .d-bars:has(.d-bar:nth-child(13)) b small{display:none}
+  .report:has(.d-bar:nth-child(13)) .year-tick{display:none}
  .d-bar .bw{position:relative}
  .d-bar .bw>i{position:absolute;bottom:0;left:0;width:100%;background:#cbd9e8}
  .d-bar .bw>i.cur{left:18%;width:64%;background:#35659e}
@@ -82,9 +84,9 @@
  .d-legend .dot.store{background:#e0a63c}
  .d-legend .dot.cost{background:#b42318}
  .d-legend .dot.margin{background:#1a7f37}
- .d-legend .nm{font-weight:600;color:#1d2733}
- .d-legend .vl{color:#1f3a5f;font-weight:650;font-variant-numeric:tabular-nums}
- .d-legend .mt{color:#6b7785;font-size:.78rem}
+  .d-legend .nm{font-weight:600;color:#1d2733;overflow-wrap:anywhere}
+  .d-legend .vl{color:#1f3a5f;font-weight:650;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+  .d-legend .mt{color:#6b7785;font-size:.78rem;overflow-wrap:anywhere}
  .d-rank{list-style:none;margin:0;padding:0}
  .d-panel .d-rank{max-height:min(24rem,55vh);overflow:auto;overscroll-behavior:contain}
  .d-panel .scroll{max-height:min(24rem,55vh);overflow:auto;overscroll-behavior:contain}
@@ -191,13 +193,14 @@
  .d-line svg{display:block;width:100%;height:auto}
  .d-line .axis{stroke:#e4eaf1;stroke-width:1}
  .d-line .tick{fill:#6b7785;font-size:10px}
- .d-line .tick .year-tick{font-size:8px}
+ .d-line .tick .year-tick{font-size:9px}
  .d-line .cur{fill:none;stroke:#2f5b8f;stroke-width:2.5}
  .d-line .prev{fill:none;stroke:#a9bfd6;stroke-width:2;stroke-dasharray:5 4}
  .d-line .dotc{fill:#2f5b8f;stroke:#fff;stroke-width:1.5}
  .d-line .dotp{fill:#a9bfd6;stroke:#fff;stroke-width:1.5}
  .d-legend .sw{width:1.1rem;height:0;border-top:2px solid #a9bfd6;align-self:center;flex:none}
  .d-legend .sw.solid{border-top-color:#2f5b8f}
+@media(max-width:1100px){.d-kpi .val{font-size:1.15rem}.d-donutrow,.d-mapgrid{grid-template-columns:1fr}}
 @media(max-width:820px){.d-cols,.d-cols.d-main,.d-cols.equal,.d-mapgrid{grid-template-columns:1fr}}
 @media(max-width:640px){.d-hide-m{display:none}.d-flow .arrow{display:none}.d-donutrow{grid-template-columns:1fr}.d-table th,.d-table td{padding:.35rem .35rem;font-size:.78rem}.d-table .num{white-space:nowrap}.d-line .tick{font-size:24px}.d-line .tick .year-tick{font-size:18px}}
  @media(max-width:520px){.d-bars{gap:2px}.d-bar b{visibility:hidden}.d-bar:nth-child(odd) b{visibility:visible}}
