@@ -58,7 +58,8 @@
  .d-chart.has-money-axis .d-bar .bw,.d-chart.has-count-axis .d-bar .bw{border-bottom:1px solid #e4eaf1;background-image:linear-gradient(to bottom,#e4eaf1 1px,transparent 1px);background-size:100% 25%;background-repeat:repeat-y}
  .d-bar{flex:1;display:flex;flex-direction:column;min-width:0}
  .d-bar .bw{flex:1;display:flex;align-items:flex-end}
- .d-bar i{width:100%;background:#35659e;border-radius:3px 3px 0 0;min-height:2px;transition:background .12s}
+  .d-bar i{width:100%;background:#35659e;border-radius:3px 3px 0 0;min-height:2px;transition:background .12s}
+  .d-bar i[style="height:0%"],.d-bar i[style="height:0.0%"],.d-bar i[style="height:0.00%"]{min-height:0}
  .d-bar:hover i{background:#1f3a5f}
  .d-bar b{font-weight:500;font-size:10px;color:#6b7785;text-align:center;margin-top:.3rem;overflow:hidden;white-space:nowrap}
  .d-bar b small{display:block;font-size:9px;font-weight:400;line-height:1.1}
@@ -313,6 +314,7 @@
 {% endif %}
 </nav>{% endif %}
 {% for m in messages %}<p class="msg {{ m.tags }}">{{ m }}</p>{% endfor %}
+{% if request.GET.from|date:"Y-m-d" and request.GET.to|date:"Y-m-d" and request.GET.from > request.GET.to %}<p class="msg error">Error: From date must be on or before To date.</p><style>.report{display:none!important}</style>{% endif %}
 <main>{% block content %}{% endblock %}</main>
 <footer class="foot">Personal data in this system is processed under the Data Privacy Act of 2012 (Republic Act No. 10173) &middot; Adventureworks Reporting System &middot; <a href="{% url 'privacy' %}">Data privacy notice</a></footer>
 <script>

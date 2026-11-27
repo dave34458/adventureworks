@@ -32,7 +32,7 @@ def test_tc07_invalid_and_empty_filters(open_page):
             visit(page, f"{path}?from=2014-12-31&to=2014-01-01")
             if path == "/dashboard/":
                 expect(page.get_by_text("No data is available for this report.").first).to_be_visible()
-                expect(heading(page, "No dashboard figures")).to_be_visible()
+                expect(heading(page, "Business performance dashboard")).to_be_visible()
                 assert page.locator(".d-kpi").count() == 0
             else:
                 empty_report(page)
@@ -47,7 +47,7 @@ def test_tc07_invalid_and_empty_filters(open_page):
         assert checked_values(page, "dashboard-filters", "country") == []
         assert checked_values(page, "dashboard-filters", "panel") == []
         expect(page.get_by_text("No data is available for this report.").first).to_be_visible()
-        expect(heading(page, "No dashboard figures")).to_be_visible()
+        expect(heading(page, "Business performance dashboard")).to_be_visible()
 
         visit(page, "/dashboard/?show_products=not-a-number")
         assert page.locator('select[name="show_products"]').input_value() == "10"
@@ -77,4 +77,4 @@ def test_tc07_invalid_and_empty_filters(open_page):
 
         visit(page, "/dashboard/?from=2030-01-01&to=2030-01-31")
         expect(page.get_by_text("No data is available for this report.").first).to_be_visible()
-        expect(heading(page, "No dashboard figures")).to_be_visible()
+        expect(heading(page, "Business performance dashboard")).to_be_visible()
