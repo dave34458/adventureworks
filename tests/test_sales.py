@@ -63,7 +63,7 @@ def test_tc03_sales_default_and_filters(open_page):
         expect(heading(page, "Low-performing products")).to_have_count(0)
         assert rows_in_panel(page, "High-performing products") == 3
         expect(page.get_by_text("Monthly order count")).to_be_visible()
-        assert page.locator(".d-y-axis").count() == 0
+        assert money_ticks(page).count() == 5
 
         with page.expect_navigation():
             page.locator('#report-chart-filter select[name="sales_metric"]').select_option("revenue")

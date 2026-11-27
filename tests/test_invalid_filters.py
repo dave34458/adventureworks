@@ -3,7 +3,7 @@ import re
 from playwright.sync_api import expect
 
 from tests.config import ADMIN_EMAIL
-from tests.helpers import heading, money_ticks, rows_in_panel, visit
+from tests.helpers import checked_values, heading, money_ticks, rows_in_panel, visit
 
 PAGES = [
     "/dashboard/",
@@ -42,8 +42,14 @@ def test_tc07_invalid_and_empty_filters(open_page):
             date_inputs_are_valid(page)
             expect(page.locator(".d-kpi").first).to_be_visible()
 
-        visit(page, "/dashboard/?category=999999&show_products=not-a-number")
-        assert page.locator('select[name="category"]').input_value() == ""
+        visit(page, "/dashboard/?category=999999&category_filter=1&country=ZZZ&country_filter=1&panel=bogus&panel_filter=1")
+        assert checked_values(page, "dashboard-filters", "category") == []
+        assert checked_values(page, "dashboard-filters", "country") == []
+        assert checked_values(page, "dashboard-filters", "panel") == []
+        expect(page.get_by_text("No data is available for this report.").first).to_be_visible()
+        expect(heading(page, "No dashboard figures")).to_be_visible()
+
+        visit(page, "/dashboard/?show_products=not-a-number")
         assert page.locator('select[name="show_products"]').input_value() == "10"
         expect(page.locator(".d-kpi").first).to_be_visible()
 

@@ -1,6 +1,18 @@
 """Chart geometry builders used by live report generation."""
 from ..utils import money, money_exact, percent, ring
 
+
+def compact_money(value):
+    value = float(value or 0)
+    sign = "-" if value < 0 else ""
+    value = abs(value)
+    if value >= 1_000_000:
+        return f"{sign}${value / 1_000_000:.1f}M"
+    if value >= 1_000:
+        return f"{sign}${value / 1_000:.0f}K"
+    return f"{sign}${value:.0f}"
+
+
 def build_donut(tab, mix):
     label = "cost" if tab == "cost" else "revenue"
     return ring([
@@ -31,12 +43,15 @@ def build_combo(profit_rows, margin_rows):
     m_max = 60 if m_high <= 60 else (int(m_high / 10) + 1) * 10
     m_min = 0 if m_low >= 0 else (int(m_low / 10) - 1) * 10
     m_span = max(m_max - m_min, 1)
-    px_w, px_h, pad_l, pad_r, pad_t, pad_b = 960, 260, 72, 40, 10, 24
+    px_w, px_h, pad_l, pad_r, pad_t, pad_b = 960, 280, 100, 96, 10, 44
     plot_w, plot_h = px_w - pad_l - pad_r, px_h - pad_t - pad_b
-    barw = round(min(44, plot_w / max(len(profits) - 1, 1) * 0.65), 1)
+    barw = round(min(40, plot_w / max(len(profits) - 1, 1) * 0.65), 1)
+    inner_left = pad_l + barw / 2
+    inner_right = px_w - pad_r - barw / 2
 
     def x_at(index):
-        return round(pad_l + index * plot_w / max(len(profits) - 1, 1), 1)
+        return round(inner_left + index * (inner_right - inner_left)
+                     / max(len(profits) - 1, 1), 1)
 
     zero_y = round(pad_t + (vmax / span) * plot_h, 1)
 
@@ -89,7 +104,11 @@ def build_combo(profit_rows, margin_rows):
             "year_lab": (f"{prev_full[index][-4:]} vs {full[index][-4:]}"
                          if prev_full[index] else full[index][-4:]),
         } for index, label in enumerate(labels)],
-        "lticks": [{"y": y_money(value), "lab": money(value)} for value in tick_values],
-        "rticks": [{"y": y_pct(value), "lab": f"{value:.2f}%"}
+        "lticks": [{"y": y_money(value), "lab": compact_money(value)} for value in tick_values],
+        "rticks": [{"y": y_pct(value), "lab": f"{value:g}%"}
                     for value in margin_ticks],
+        "axis_x1": pad_l,
+        "axis_x2": px_w - pad_r,
+        "left_tick_x": pad_l - 24,
+        "right_tick_x": px_w - pad_r + 8,
     }

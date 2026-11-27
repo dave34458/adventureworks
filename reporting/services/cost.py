@@ -217,6 +217,9 @@ def cost(request):
             "height": round(float(m["cogs"]) / top * 100, 2) if top else 0,
             "prev_full": prev["month"].strftime("%b %Y") if prev else "",
             "prev_money": float(prev["cogs"] or 0) if prev else None,
+            "prev_margin": (round((float(prev["rev"]) - float(prev["cogs"]))
+                                  / float(prev["rev"]) * 100, 2)
+                            if prev and prev["rev"] else None),
             "prev_h": (max(round(float(prev["cogs"]) / top * 100), 2)
                        if prev and prev["cogs"] and top else 0),
         })

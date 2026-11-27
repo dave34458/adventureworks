@@ -32,13 +32,14 @@ def money_exact(value):
     return f"{sign}${abs(value):,.2f}"
 
 
-def money_axis_ticks(maximum):
+def money_axis_ticks(maximum, formatter=None):
     maximum = max(float(maximum or 0), 0)
+    format_label = formatter or money_exact
     if not maximum:
-        return [{"label": money_exact(0), "position": 100}]
+        return [{"label": format_label(0), "position": 100}]
     ticks, seen = [], set()
     for fraction in range(4, -1, -1):
-        label = money_exact(maximum * fraction / 4)
+        label = format_label(maximum * fraction / 4)
         if label not in seen:
             ticks.append({"label": label, "position": (4 - fraction) * 25})
             seen.add(label)
@@ -52,6 +53,19 @@ def count_axis_ticks(maximum):
     ticks, seen = [], set()
     for fraction in range(4, -1, -1):
         label = f"{round(maximum * fraction / 4):,}"
+        if label not in seen:
+            ticks.append({"label": label, "position": (4 - fraction) * 25})
+            seen.add(label)
+    return ticks
+
+
+def percent_axis_ticks(maximum):
+    maximum = max(float(maximum or 0), 0)
+    if not maximum:
+        return [{"label": "0%", "position": 100}]
+    ticks, seen = [], set()
+    for fraction in range(4, -1, -1):
+        label = f"{round(maximum * fraction / 4):g}%"
         if label not in seen:
             ticks.append({"label": label, "position": (4 - fraction) * 25})
             seen.add(label)

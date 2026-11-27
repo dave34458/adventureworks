@@ -3,8 +3,26 @@
 from django.db import connection
 
 from core.models import SalesOrderHeader
-from ..utils import delta, money, money_axis_ticks, money_exact, ring, shift_months, window_for
-from .common import SHOW_OPTIONS, ReportResult, show_amount
+
+from ..constants import REPORT_COUNTRIES
+from ..utils import (
+    delta,
+    money,
+    money_axis_ticks,
+    money_exact,
+    ring,
+    shift_months,
+    window_for,
+)
+from .charts import compact_money
+from .common import (
+    PANEL_OPTIONS,
+    SHOW_OPTIONS,
+    ReportResult,
+    dimension_sql,
+    show_amount,
+    visible_panels,
+)
 from .dialect import limit_clause, month_expr
 
 
@@ -12,24 +30,64 @@ def dashboard(request):
     """Central dashboard: one integrated view of the four reports.
 
     The figures use the same sales-line base and report window as the Revenue and
-    Cost reports; the category filter narrows every figure on the page so the
-    comparisons stay like-for-like.
+    Cost reports; the category and ship-to country filters narrow every figure on
+    the page so the comparisons stay like-for-like.
     """
-    # panel 1: category filter
+    # panel 1: category and country filters
     with connection.cursor() as c:
         c.execute("SELECT ProductCategoryID, Name FROM [Production].[ProductCategory] ORDER BY Name")
         categories = [{"id": row[0], "name": row[1]} for row in c.fetchall()]
 
-    try:
-        category_id = int(request.GET.get("category", ""))
-    except (TypeError, ValueError):
-        category_id = None
-    selected_category = next((c for c in categories if c["id"] == category_id), None)
-    if selected_category is None:
-        category_id = None
-    row_limit = show_amount(request.GET, "products", 10)
-    cat_sql = " AND pc.ProductCategoryID = %s" if category_id is not None else ""
-    cat_params = [category_id] if category_id is not None else []
+    params = request.GET
+    valid_category_ids = {c["id"] for c in categories}
+    category_ids = set()
+    for value in params.getlist("category"):
+        try:
+            category_id = int(value)
+        except (TypeError, ValueError):
+            continue
+        if category_id in valid_category_ids:
+            category_ids.add(category_id)
+    category_requested = "category_filter" in params or bool(params.getlist("category"))
+    if not category_requested:
+        category_ids = valid_category_ids.copy()
+    category_ids = sorted(category_ids)
+
+    countries = [{"code": code, "name": name} for code, name in REPORT_COUNTRIES]
+    valid_country_codes = {c["code"] for c in countries}
+    country_codes = {
+        value.strip().upper() for value in params.getlist("country")
+        if value.strip().upper() in valid_country_codes
+    }
+    country_requested = "country_filter" in params or bool(params.getlist("country"))
+    if not country_requested:
+        country_codes = valid_country_codes.copy()
+    country_codes = sorted(country_codes)
+
+    row_limit = show_amount(params, "products", 10)
+    panel_options = PANEL_OPTIONS["dashboard"]
+    selected_panels = visible_panels(params, "dashboard")
+    dimensions = {
+        "category_ids": category_ids,
+        "category_filter": category_requested,
+        "country_codes": country_codes,
+        "country_filter": country_requested,
+    }
+    dimension_clause, dimension_params = dimension_sql(
+        dimensions, product_ref="d.ProductID", header_ref="h")
+
+    show_ring = not category_requested or set(category_ids) == valid_category_ids
+    selected_categories = [c for c in categories if c["id"] in set(category_ids)]
+    if category_requested and not show_ring:
+        if len(selected_categories) == 1:
+            products_title = f"Top products in {selected_categories[0]['name']}"
+            category_caption = selected_categories[0]["name"]
+        else:
+            products_title = "Top products in selected categories"
+            category_caption = "selected categories"
+    else:
+        products_title = None
+        category_caption = None
 
     metric_name = "Sales"
     metric_lower = metric_name.lower()
@@ -38,10 +96,15 @@ def dashboard(request):
         "tab": "dashboard",
         "title": "Business performance dashboard",
         "categories": categories,
-        "category_id": category_id,
+        "category_ids": category_ids,
+        "countries": countries,
+        "country_codes": country_codes,
+        "products_title": products_title,
+        "category_caption": category_caption,
         "show_values": {"products": row_limit},
         "show_options": SHOW_OPTIONS,
-        "selected_category": selected_category,
+        "panel_options": panel_options,
+        "visible_panels": selected_panels,
         "has_data": False,
         "empty_message": "No data is available for this report.",
     }
@@ -71,7 +134,7 @@ def dashboard(request):
                  AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
                 LEFT JOIN [Production].[ProductSubcategory] sc ON sc.ProductSubcategoryID = p.ProductSubcategoryID
                 LEFT JOIN [Production].[ProductCategory] pc ON pc.ProductCategoryID = sc.ProductCategoryID
-                WHERE h.OrderDate >= %s AND h.OrderDate <= %s{cat_sql}
+                WHERE h.OrderDate >= %s AND h.OrderDate <= %s{dimension_clause}
             )
             SELECT
               COALESCE(SUM(CASE WHEN side = 'cur' THEN rev END), 0) AS rev,
@@ -86,7 +149,7 @@ def dashboard(request):
               COALESCE(SUM(CASE WHEN side = 'cur' AND below = 1 THEN cost - rev ELSE 0 END), 0) AS below_short
             FROM lines
             """,
-            [w.trend_start, w.window_start, w.last] + cat_params,
+            [w.trend_start, w.window_start, w.last] + dimension_params,
         )
         (rev, rev_prev, cogs, cogs_prev, orders, orders_prev,
          customers, customers_prev, below_n, below_short) = c.fetchone()
@@ -159,12 +222,12 @@ def dashboard(request):
                  AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
                 LEFT JOIN [Production].[ProductSubcategory] sc ON sc.ProductSubcategoryID = p.ProductSubcategoryID
                 LEFT JOIN [Production].[ProductCategory] pc ON pc.ProductCategoryID = sc.ProductCategoryID
-                WHERE h.OrderDate >= %s AND h.OrderDate <= %s{cat_sql}
+                WHERE h.OrderDate >= %s AND h.OrderDate <= %s{dimension_clause}
             ) base
             GROUP BY month, side
             ORDER BY month
             """,
-            [w.trend_start, w.window_start, w.last] + cat_params,
+            [w.trend_start, w.window_start, w.last] + dimension_params,
         )
         series = [
             {"month": month, "side": side,
@@ -187,7 +250,7 @@ def dashboard(request):
                     - (w.window_start.year * 12 + w.window_start.month))
     prev_by_month = {row["month"]: row for row in prev_series}
     top = max((row["rev"] for row in cur_series + prev_series), default=0)
-    context["money_axis"] = money_axis_ticks(top)
+    context["money_axis"] = money_axis_ticks(top, compact_money)
     for row in cur_series:
         prev = prev_by_month.get(shift_months(row["month"], -month_offset))
         value = row["rev"]
@@ -226,7 +289,7 @@ def dashboard(request):
         m_max = 60 if high <= 60 else (int(high / 10) + 1) * 10
         m_min = 0 if low >= 0 else (int(low / 10) - 1) * 10
         m_span = m_max - m_min
-        px_w, px_h, pad_l, pad_r, pad_t, pad_b = 960, 260, 52, 16, 12, 28
+        px_w, px_h, pad_l, pad_r, pad_t, pad_b = 960, 260, 96, 16, 12, 28
         plot_w, plot_h = px_w - pad_l - pad_r, px_h - pad_t - pad_b
         xs = [round(pad_l + i * plot_w / max(n - 1, 1), 1) for i in range(n)]
 
@@ -234,7 +297,7 @@ def dashboard(request):
             return round(pad_t + (m_max - value) / m_span * plot_h, 1)
 
         margin_ticks = ((m_min, 0, m_max) if m_min < 0 else (0, m_max / 2, m_max))
-        ticks = [{"y": y_at(value), "label": f"{value:.2f}%"}
+        ticks = [{"y": y_at(value), "label": f"{value:g}%"}
                  for value in margin_ticks]
         step = max(1, (n + 11) // 12)
         xticks = [{
@@ -286,12 +349,12 @@ def dashboard(request):
              AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
             LEFT JOIN [Production].[ProductSubcategory] sc ON sc.ProductSubcategoryID = p.ProductSubcategoryID
             LEFT JOIN [Production].[ProductCategory] pc ON pc.ProductCategoryID = sc.ProductCategoryID
-            WHERE h.OrderDate >= %s AND h.OrderDate <= %s{cat_sql}
+            WHERE h.OrderDate >= %s AND h.OrderDate <= %s{dimension_clause}
             GROUP BY p.ProductID, p.Name, pc.Name
             ORDER BY SUM(d.LineTotal) DESC
             {limit_clause(100)}
             """,
-            [w.trend_start, w.last] + cat_params,
+            [w.trend_start, w.last] + dimension_params,
         )
         raw_products = c.fetchall()
 
@@ -315,7 +378,7 @@ def dashboard(request):
     products_top = products[:6]
     products = products[:row_limit]
 
-    if category_id is None:
+    if show_ring:
         # panel 6: category ring
         with connection.cursor() as c:
             c.execute(
@@ -332,11 +395,11 @@ def dashboard(request):
                  AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
                 LEFT JOIN [Production].[ProductSubcategory] sc ON sc.ProductSubcategoryID = p.ProductSubcategoryID
                 LEFT JOIN [Production].[ProductCategory] pc ON pc.ProductCategoryID = sc.ProductCategoryID
-                WHERE h.OrderDate >= %s AND h.OrderDate <= %s
+                WHERE h.OrderDate >= %s AND h.OrderDate <= %s{dimension_clause}
                 GROUP BY pc.ProductCategoryID, pc.Name
                 ORDER BY SUM(d.LineTotal) DESC
                 """,
-                [w.trend_start, w.last],
+                [w.trend_start, w.last] + dimension_params,
             )
             raw_categories = c.fetchall()
 
@@ -376,10 +439,10 @@ def dashboard(request):
             JOIN [Production].[Product] p ON p.ProductID = d.ProductID
             LEFT JOIN [Production].[ProductSubcategory] sc ON sc.ProductSubcategoryID = p.ProductSubcategoryID
             LEFT JOIN [Production].[ProductCategory] pc ON pc.ProductCategoryID = sc.ProductCategoryID
-            WHERE h.OrderDate >= %s AND h.OrderDate <= %s{cat_sql}
+            WHERE h.OrderDate >= %s AND h.OrderDate <= %s{dimension_clause}
             GROUP BY CASE WHEN cu.StoreID IS NULL THEN 0 ELSE 1 END
             """,
-            [w.trend_start, w.last] + cat_params,
+            [w.trend_start, w.last] + dimension_params,
         )
         raw_mix = c.fetchall()
     if raw_mix:
@@ -406,6 +469,13 @@ def dashboard(request):
 
     context.update({
         "has_data": True,
+        "has_kpis": bool(kpis) and "kpis" in selected_panels,
+        "has_trend": bool(trend) and "trend" in selected_panels,
+        "has_products_panel": ("products" in selected_panels
+                               and bool(products_title or category_rows)),
+        "has_margin": bool(margin_chart) and "margin" in selected_panels,
+        "has_customers": bool(customer_mix) and "customers" in selected_panels,
+        "has_table": bool(products) and "table" in selected_panels,
         "kpis": kpis,
         "trend": trend,
         "trend_title": trend_title,

@@ -13,7 +13,8 @@ from core.models import ProductionProductCategory
 
 from ..constants import CHART_FILTERS, META_KEYS, REPORT_COUNTRIES
 from ..models import AuditLog, Report
-from ..utils import count_axis_ticks, money_axis_ticks
+from ..utils import count_axis_ticks, money_axis_ticks, percent_axis_ticks
+from .charts import compact_money
 
 SHOW_OPTIONS = (3, 6, 8, 10, 25, 50, 100)
 SHOW_DEFAULTS = {
@@ -23,6 +24,9 @@ SHOW_DEFAULTS = {
     "cost": {"vendors": 8, "products": 8, "reasons": 8, "changes": 6, "biggest": 8},
 }
 PANEL_OPTIONS = {
+    "dashboard": (("kpis", "Key figures"), ("trend", "Sales trend"),
+                  ("products", "Product performance"), ("margin", "Gross margin"),
+                  ("customers", "Customer mix"), ("table", "Top products")),
     "sales": (("kpis", "Key figures"), ("trend", "Sales trend"),
                ("products", "High-performing products"), ("low_products", "Low-performing products")),
     "customer-profile": (("kpis", "Key figures"), ("growth", "Purchasing patterns"),
@@ -127,12 +131,14 @@ def _chart_filter(request, module, context, saved_filters=None):
             row["prev_chart_h"] = (round(abs(float(previous)) / top * 100, 2)
                                    if previous is not None and top else 0)
         if selected == "revenue":
-            context["money_axis"] = money_axis_ticks(top)
+            context["money_axis"] = money_axis_ticks(top, compact_money)
+        else:
+            context["count_axis"] = count_axis_ticks(top)
     elif module == "revenue-and-loss":
         rows = context.get("rev_trend", [])
         top = max((float(row.get(key) or 0) for row in rows
                    for key in ("money", "prev_money")), default=0)
-        context["money_axis"] = money_axis_ticks(top)
+        context["money_axis"] = money_axis_ticks(top, compact_money)
     elif module == "customer-profile":
         top = max((int(row.get("act") or 0)
                    for row in context.get("growth", [])), default=0)
@@ -152,7 +158,9 @@ def _chart_filter(request, module, context, saved_filters=None):
         context["chart_has_previous"] = any(row.get("prev_chart_value") is not None
                                              for row in rows)
         if selected == "cost":
-            context["money_axis"] = money_axis_ticks(top)
+            context["money_axis"] = money_axis_ticks(top, compact_money)
+        else:
+            context["percent_axis"] = percent_axis_ticks(top)
 
 
 def report_dimension_filters(request, module, include_country=True):
@@ -254,11 +262,11 @@ def purchase_category_sql(filters, product_ref="pod.ProductID"):
         return " AND 1=0", []
     placeholders = ", ".join(["%s"] * len(category_ids))
     return (
-        " AND EXISTS (SELECT 1 FROM [Production].[Product] filter_product "
-        "JOIN [Production].[ProductSubcategory] filter_subcategory "
-        "ON filter_subcategory.ProductSubcategoryID = filter_product.ProductSubcategoryID "
-        f"WHERE filter_product.ProductID = {product_ref} "
-        f"AND filter_subcategory.ProductCategoryID IN ({placeholders}))",
+        (" AND EXISTS (SELECT 1 FROM [Production].[Product] filter_product "
+         "JOIN [Production].[ProductSubcategory] filter_subcategory "
+         "ON filter_subcategory.ProductSubcategoryID = filter_product.ProductSubcategoryID "
+         f"WHERE filter_product.ProductID = {product_ref} "
+         f"AND filter_subcategory.ProductCategoryID IN ({placeholders}))"),
         category_ids,
     )
 
@@ -301,6 +309,9 @@ def _render_snapshot(request, module, template, snapshot):
     values = show_values(filters, module)
     panels = visible_panels(filters, module)
     _display_rows(context, module, values)
+    if module == "revenue-and-loss" and context.get("profit_rows") and context.get("margin_rows"):
+        from .charts import build_combo
+        context["combo"] = build_combo(context["profit_rows"], context["margin_rows"])
     context.update({
         "tab": module,
         "title": title,

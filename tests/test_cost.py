@@ -84,7 +84,7 @@ def test_tc06_cost_default_and_filters(open_page):
             expect(heading(page, name)).to_have_count(0)
         expect(heading(page, "Gross margin trend")).to_be_visible()
         expect(page.get_by_text("Monthly gross margin", exact=False)).to_be_visible()
-        assert page.locator(".d-y-axis").count() == 0
+        assert money_ticks(page).count() >= 1
         assert page.locator("legend", has_text="Ship-to country").count() == 0
 
         vendor_rows = rows_in_panel(page, "Significant cost contributors: vendors")

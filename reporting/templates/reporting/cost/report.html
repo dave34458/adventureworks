@@ -15,14 +15,14 @@
   {% endfor %}
  </section>{% endif %}
 
- {% if "trend" in visible_panels or "mix" in visible_panels %}<section class="d-cols">
+  {% if "trend" in visible_panels or "mix" in visible_panels %}<section class="d-cols">
   {% if "trend" in visible_panels %}
   <div class="d-panel">
    <h3>{% if cost_metric == "margin" %}Gross margin trend{% else %}Cost trends and comparisons{% endif %}</h3>
    <p class="sub">{% if cost_metric == "margin" %}Monthly gross margin · solid bars: {{ period }}{% if chart_has_previous %} · faded bars: {{ prev_label }}{% endif %}{% else %}Monthly cost of goods sold · solid bars: {{ period }} · faded bars: {{ prev_label }}{% endif %}</p>
    {% include "reporting/_chart_filter.html" %}
-   <div class="d-chart{% if cost_metric == 'cost' %} has-money-axis{% endif %}">
-    {% if cost_metric == "cost" %}<div class="d-y-axis" aria-hidden="true">{% for tick in money_axis %}<span style="top:{{ tick.position }}%">{{ tick.label }}</span>{% endfor %}</div>{% endif %}
+    <div class="d-chart d-axis-compact{% if cost_metric == 'cost' %} has-money-axis{% else %} has-count-axis{% endif %}">
+     {% if cost_metric == "cost" %}<div class="d-y-axis" aria-hidden="true">{% for tick in money_axis %}<span style="top:{{ tick.position }}%">{{ tick.label }}</span>{% endfor %}</div>{% else %}<div class="d-y-axis" aria-hidden="true">{% for tick in percent_axis %}<span style="top:{{ tick.position }}%">{{ tick.label }}</span>{% endfor %}</div>{% endif %}
     <div class="d-bars">
     {% for t in trend %}
     <div class="d-bar" title="{{ t.full }} · {% if cost_metric == 'margin' %}{{ t.chart_value|fmt_percent }} margin{% else %}{{ t.chart_value|fmt_money_exact }} cost{% endif %}{% if t.prev_full and t.prev_chart_value is not None %} · previous {{ t.prev_full }}: {% if cost_metric == 'margin' %}{{ t.prev_chart_value|fmt_percent }} margin{% else %}{{ t.prev_chart_value|fmt_money_exact }} cost{% endif %}{% endif %}">

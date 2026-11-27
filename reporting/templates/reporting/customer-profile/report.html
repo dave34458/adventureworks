@@ -21,7 +21,7 @@
   <div class="d-panel">
    <h3>Purchasing patterns and trends</h3>
    <p class="sub">New vs returning buyers per month · hover a bar for counts</p>
-   <div class="d-chart has-count-axis">
+    <div class="d-chart has-count-axis d-axis-compact">
     <div class="d-y-axis" aria-hidden="true">{% for tick in count_axis %}<span style="top:{{ tick.position }}%">{{ tick.label }}</span>{% endfor %}</div>
     <div class="d-bars">
     {% for g in growth %}

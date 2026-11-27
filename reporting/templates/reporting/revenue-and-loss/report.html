@@ -19,7 +19,7 @@
  {% if "rev_trend" in visible_panels %}<section class="d-panel">
   <h3>Revenue trend by month</h3>
   <p class="sub">Revenue in dollars · solid bars: {{ period }} · faded bars: {{ prev_label }}</p>
-  <div class="d-chart has-money-axis">
+   <div class="d-chart has-money-axis d-axis-compact">
    <div class="d-y-axis" aria-hidden="true">{% for tick in money_axis %}<span style="top:{{ tick.position }}%">{{ tick.label }}</span>{% endfor %}</div>
    <div class="d-bars">
    {% for t in rev_trend %}
@@ -68,9 +68,9 @@
   <h3>Gross profit · selected period</h3>
   <p class="sub">Gross profit in dollars · {{ period }}</p>
   <svg viewBox="0 0 960 280" role="img" aria-label="Monthly gross profit for the selected period">
-   {% for t in combo.lticks %}<line class="axis" x1="72" y1="{{ t.y }}" x2="920" y2="{{ t.y }}"/><text class="tick" x="46" y="{{ t.y }}" text-anchor="end" dominant-baseline="central">{{ t.lab }}</text>{% endfor %}
+   {% for t in combo.lticks %}<line class="axis" x1="{{ combo.axis_x1 }}" y1="{{ t.y }}" x2="{{ combo.axis_x2 }}" y2="{{ t.y }}"/><text class="tick" x="{{ combo.left_tick_x }}" y="{{ t.y }}" text-anchor="end" dominant-baseline="central">{{ t.lab }}</text>{% endfor %}
    {% for b in combo.bars %}<rect class="profitbar" x="{{ b.x }}" y="{{ b.y }}" width="{{ b.w }}" height="{{ b.h }}" rx="3"><title>{{ b.t }}</title></rect>{% endfor %}
-   {% for t in combo.xticks %}<text class="tick" text-anchor="middle"><tspan x="{{ t.x }}" y="252">{{ t.lab }}</tspan><tspan class="year-tick" x="{{ t.x }}" y="270">{{ t.year_lab }}</tspan></text>{% endfor %}
+   {% for t in combo.xticks %}<text class="tick xtick{% if forloop.counter0 == 1 or forloop.counter0 and forloop.counter0|divisibleby:2 %} xtick-even{% endif %}" text-anchor="middle"><tspan x="{{ t.x }}" y="252">{{ t.lab }}</tspan><tspan class="year-tick" x="{{ t.x }}" y="270">{{ t.year_lab }}</tspan></text>{% endfor %}
   </svg>
   <div class="d-legend"><span class="sq"></span><span class="nm">Gross profit</span><span class="mt">· dollars, left axis</span></div>
  </section>{% endif %}
@@ -80,11 +80,11 @@
   <h3>Gross margin by month</h3>
   <p class="sub">Gross margin percent · solid = {{ period }} · dashed = {{ prev_label }}</p>
   <svg viewBox="0 0 960 280" role="img" aria-label="Monthly gross margin, selected period versus the previous period">
-   {% for t in combo.rticks %}<line class="axis" x1="72" y1="{{ t.y }}" x2="920" y2="{{ t.y }}"/><text class="tick" x="926" y="{{ t.y }}" text-anchor="start" dominant-baseline="central">{{ t.lab }}</text>{% endfor %}
+   {% for t in combo.rticks %}<line class="axis" x1="{{ combo.axis_x1 }}" y1="{{ t.y }}" x2="{{ combo.axis_x2 }}" y2="{{ t.y }}"/><text class="tick" x="{{ combo.right_tick_x }}" y="{{ t.y }}" text-anchor="start" dominant-baseline="central">{{ t.lab }}</text>{% endfor %}
    <polyline class="prev" points="{{ combo.prev_pts }}"/>
    <polyline class="cur" points="{{ combo.cur_pts }}"/>
    {% for d in combo.dots %}<circle class="{{ d.cls }}" cx="{{ d.x }}" cy="{{ d.y }}" r="3"><title>{{ d.t }}</title></circle>{% endfor %}
-   {% for t in combo.xticks %}<text class="tick" text-anchor="middle"><tspan x="{{ t.x }}" y="252">{{ t.lab }}</tspan><tspan class="year-tick" x="{{ t.x }}" y="270">{{ t.year_lab }}</tspan></text>{% endfor %}
+   {% for t in combo.xticks %}<text class="tick xtick{% if forloop.counter0 == 1 or forloop.counter0 and forloop.counter0|divisibleby:2 %} xtick-even{% endif %}" text-anchor="middle"><tspan x="{{ t.x }}" y="252">{{ t.lab }}</tspan><tspan class="year-tick" x="{{ t.x }}" y="270">{{ t.year_lab }}</tspan></text>{% endfor %}
   </svg>
   <div class="d-legend"><span class="sw solid"></span><span class="nm">Margin · selected period</span><span class="mt">· percent</span></div>
   <div class="d-legend"><span class="sw"></span><span class="nm">Margin · previous period</span></div>

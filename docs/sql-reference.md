@@ -14,14 +14,14 @@
 ## Dashboard
 
 ### D1
-Categories dropdown — `reporting/services/dashboard.py:20`
+Category filter options — `reporting/services/dashboard.py:38`
 
 ```sql
 SELECT ProductCategoryID, Name FROM [Production].[ProductCategory] ORDER BY Name
 ```
 
 ### D2
-KPI totals: revenue, cost, orders, customers, below-cost, current vs previous — `reporting/services/dashboard.py:54`
+KPI totals: revenue, cost, orders, customers, below-cost, current vs previous — `reporting/services/dashboard.py:117`
 
 ```sql
 WITH lines AS (
@@ -42,7 +42,7 @@ WITH lines AS (
      AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
     LEFT JOIN [Production].[ProductSubcategory] sc ON sc.ProductSubcategoryID = p.ProductSubcategoryID
     LEFT JOIN [Production].[ProductCategory] pc ON pc.ProductCategoryID = sc.ProductCategoryID
-    WHERE h.OrderDate >= %s AND h.OrderDate <= %s{cat_sql}
+    WHERE h.OrderDate >= %s AND h.OrderDate <= %s{dimension_clause}
 )
 SELECT
   COALESCE(SUM(CASE WHEN side = 'cur' THEN rev END), 0) AS rev,
@@ -59,7 +59,7 @@ FROM lines
 ```
 
 ### D3
-Monthly trend: revenue, cost, orders by month, current vs previous — `reporting/services/dashboard.py:143`
+Monthly trend: revenue, cost, orders by month, current vs previous — `reporting/services/dashboard.py:206`
 
 ```sql
 SELECT month, side, SUM(rev) AS rev, SUM(cogs) AS cogs,
@@ -79,14 +79,14 @@ FROM (
      AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
     LEFT JOIN [Production].[ProductSubcategory] sc ON sc.ProductSubcategoryID = p.ProductSubcategoryID
     LEFT JOIN [Production].[ProductCategory] pc ON pc.ProductCategoryID = sc.ProductCategoryID
-    WHERE h.OrderDate >= %s AND h.OrderDate <= %s{cat_sql}
+    WHERE h.OrderDate >= %s AND h.OrderDate <= %s{dimension_clause}
 ) base
 GROUP BY month, side
 ORDER BY month
 ```
 
 ### D4
-Product rankings by units, revenue, cost and margin — `reporting/services/dashboard.py:274`
+Product rankings by units, revenue, cost and margin — `reporting/services/dashboard.py:337`
 
 ```sql
 SELECT p.ProductID, p.Name, pc.Name,
@@ -102,14 +102,14 @@ LEFT JOIN [Production].[ProductCostHistory] ch
  AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
 LEFT JOIN [Production].[ProductSubcategory] sc ON sc.ProductSubcategoryID = p.ProductSubcategoryID
 LEFT JOIN [Production].[ProductCategory] pc ON pc.ProductCategoryID = sc.ProductCategoryID
-WHERE h.OrderDate >= %s AND h.OrderDate <= %s{cat_sql}
+WHERE h.OrderDate >= %s AND h.OrderDate <= %s{dimension_clause}
 GROUP BY p.ProductID, p.Name, pc.Name
 ORDER BY SUM(d.LineTotal) DESC
 {limit_clause(100)}
 ```
 
 ### D5
-Category mix: revenue and cost per category when no category is selected — `reporting/services/dashboard.py:321`
+Category mix: revenue and cost per category when no category is selected — `reporting/services/dashboard.py:384`
 
 ```sql
 SELECT pc.ProductCategoryID, pc.Name,
@@ -124,13 +124,13 @@ JOIN [Production].[Product] p ON p.ProductID = d.ProductID
  AND (ch.EndDate IS NULL OR h.OrderDate <= ch.EndDate)
 LEFT JOIN [Production].[ProductSubcategory] sc ON sc.ProductSubcategoryID = p.ProductSubcategoryID
 LEFT JOIN [Production].[ProductCategory] pc ON pc.ProductCategoryID = sc.ProductCategoryID
-WHERE h.OrderDate >= %s AND h.OrderDate <= %s
+WHERE h.OrderDate >= %s AND h.OrderDate <= %s{dimension_clause}
 GROUP BY pc.ProductCategoryID, pc.Name
 ORDER BY SUM(d.LineTotal) DESC
 ```
 
 ### D6
-Customer mix: individuals vs stores — `reporting/services/dashboard.py:367`
+Customer mix: individuals vs stores — `reporting/services/dashboard.py:430`
 
 ```sql
 SELECT CASE WHEN cu.StoreID IS NULL THEN 0 ELSE 1 END AS is_store,
@@ -143,7 +143,7 @@ JOIN [Sales].[Customer] cu ON cu.CustomerID = h.CustomerID
 JOIN [Production].[Product] p ON p.ProductID = d.ProductID
 LEFT JOIN [Production].[ProductSubcategory] sc ON sc.ProductSubcategoryID = p.ProductSubcategoryID
 LEFT JOIN [Production].[ProductCategory] pc ON pc.ProductCategoryID = sc.ProductCategoryID
-WHERE h.OrderDate >= %s AND h.OrderDate <= %s{cat_sql}
+WHERE h.OrderDate >= %s AND h.OrderDate <= %s{dimension_clause}
 GROUP BY CASE WHEN cu.StoreID IS NULL THEN 0 ELSE 1 END
 ```
 
@@ -699,7 +699,7 @@ ORDER BY month
 ```
 
 ### C6
-Category mix: cost of goods and revenue by category — `reporting/services/cost.py:225`
+Category mix: cost of goods and revenue by category — `reporting/services/cost.py:228`
 
 ```sql
 SELECT cat.Name, SUM(d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost)) AS cogs,
@@ -719,7 +719,7 @@ ORDER BY cogs DESC
 ```
 
 ### C7
-Top vendors by procurement spend — `reporting/services/cost.py:260`
+Top vendors by procurement spend — `reporting/services/cost.py:263`
 
 ```sql
 SELECT v.Name, SUM({purchase_total}) AS spend,
@@ -734,7 +734,7 @@ ORDER BY spend DESC
 ```
 
 ### C8
-Products with the highest cost of goods — `reporting/services/cost.py:284`
+Products with the highest cost of goods — `reporting/services/cost.py:287`
 
 ```sql
 SELECT p.Name, SUM(d.OrderQty * COALESCE(ch.StandardCost, p.StandardCost)) AS cogs,
@@ -753,7 +753,7 @@ ORDER BY cogs DESC
 ```
 
 ### C9
-Scrap reasons by cost, units and work orders — `reporting/services/cost.py:309`
+Scrap reasons by cost, units and work orders — `reporting/services/cost.py:312`
 
 ```sql
 SELECT sr.Name,
@@ -774,7 +774,7 @@ ORDER BY cost DESC
 ```
 
 ### C10
-Standard cost changes and repricing — `reporting/services/cost.py:336`
+Standard cost changes and repricing — `reporting/services/cost.py:339`
 
 ```sql
 WITH product_costs AS (
@@ -806,7 +806,7 @@ ORDER BY (new_cost - old_cost) / NULLIF(old_cost, 0) DESC
 ```
 
 ### C11
-Largest purchase orders — `reporting/services/cost.py:383`
+Largest purchase orders — `reporting/services/cost.py:386`
 
 ```sql
 SELECT po.PurchaseOrderID, v.Name, po.OrderDate, {biggest_po_total}, po.Status,

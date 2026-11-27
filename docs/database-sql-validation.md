@@ -9,6 +9,7 @@ Purpose: evidence that the figures shown in the app are the figures actually sto
 - Database values: independent read-only `SELECT` statements run directly against `AdventureWorks2025`.
 - Report window used by both: current `2024-07-01` to `2025-06-30`; previous `2023-07-01` to `2024-06-30`. The window is anchored to the data's own `MAX(OrderDate)`, not the current date.
 - Comparison: at the precision shown by the app — dollars to 2 decimals, counts as whole numbers, percentages rounded as documented below, cost per dollar as whole cents.
+- Dashboard category and ship-to country filters default to all values, so the reconciled KPI figures are unchanged by the multi-select filter update.
 
 ## Validation summary
 
