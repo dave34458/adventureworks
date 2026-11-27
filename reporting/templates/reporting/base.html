@@ -314,7 +314,7 @@
 {% endif %}
 </nav>{% endif %}
 {% for m in messages %}<p class="msg {{ m.tags }}">{{ m }}</p>{% endfor %}
-{% if request.GET.from|date:"Y-m-d" and request.GET.to|date:"Y-m-d" and request.GET.from > request.GET.to %}<p class="msg error">Error: From date must be on or before To date.</p><style>.report{display:none!important}</style>{% endif %}
+{% if request.GET.from|length == 10 and request.GET.to|length == 10 and request.GET.from|slice:"4:5" == "-" and request.GET.to|slice:"4:5" == "-" and request.GET.from|slice:"7:8" == "-" and request.GET.to|slice:"7:8" == "-" and request.GET.from > request.GET.to %}<p class="msg error">Error: From date must be on or before To date.</p><style>.report{display:none!important}</style>{% endif %}
 <main>{% block content %}{% endblock %}</main>
 <footer class="foot">Personal data in this system is processed under the Data Privacy Act of 2012 (Republic Act No. 10173) &middot; Adventureworks Reporting System &middot; <a href="{% url 'privacy' %}">Data privacy notice</a></footer>
 <script>
