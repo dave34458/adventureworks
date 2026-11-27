@@ -15,7 +15,8 @@ BASE_URL = os.getenv("E2E_BASE_URL", f"http://127.0.0.1:{_free_port()}").rstrip(
 RESULTS_FILE = Path(os.getenv("E2E_RESULTS_FILE", PROJECT_ROOT / "docs" / "test-case-results.md"))
 ARTIFACT_DIR = PROJECT_ROOT / "tests" / "artifacts"
 VIEWPORT = {"width": 1440, "height": 900}
-HEADLESS = os.getenv("E2E_HEADLESS", "1").strip().lower() not in {"0", "false", "no"}
+# Visible browser by default; set E2E_HEADLESS=1 (or "true"/"yes") to hide it.
+HEADLESS = os.getenv("E2E_HEADLESS", "0").strip().lower() not in {"0", "false", "no"}
 KINDS = ("Admin", "Manager", "Supervisor", "Employee")
 
 DEPARTMENTS = {

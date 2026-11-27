@@ -51,4 +51,4 @@ python -m pytest tests -q
 
 The suite starts a temporary server on a free localhost port. Set `E2E_BASE_URL` to reuse an existing server instead. Each run overwrites `docs/test-case-results.md` with the populated test-case table and actual pass/fail results.
 
-To watch the browser while it runs, set `E2E_HEADLESS=0` (PowerShell: `$env:E2E_HEADLESS = "0"; python -m pytest tests -q`).
+The browser is **visible by default** so you can watch the tests interact with the page. To run headless instead, set `E2E_HEADLESS=1` (PowerShell: `$env:E2E_HEADLESS = "1"; python -m pytest tests -q`).

@@ -34,7 +34,7 @@ def test_tc08_report_tab_access(open_page):
             with open_page(email) as page:
                 visit(page, "/dashboard/")
                 assert_department_nav(page, department, kind, email)
-                visit(page, info["path"])
+                visit(page, f"{info['path']}?report=")
                 expect(heading(page, info["title"])).to_be_visible()
                 for other in DEPARTMENTS.values():
                     if other["path"] != info["path"]:
@@ -46,7 +46,7 @@ def test_tc09_source_table_access(open_page):
         for kind in KINDS:
             email = email_for(department, kind)
             with open_page(email) as page:
-                visit(page, info["path"])
+                visit(page, f"{info['path']}?report=")
                 links = [text.strip() for text in page.locator("nav.sub a").all_text_contents()]
                 if kind == "Employee":
                     assert links == []
@@ -71,7 +71,7 @@ def test_tc10_report_generation_and_saved_reports(open_page):
         for kind in KINDS:
             email = email_for(department, kind)
             with open_page(email) as page:
-                visit(page, info["path"])
+                visit(page, f"{info['path']}?report=")
                 button = page.locator("#save-report-button")
                 if kind in ("Admin", "Manager"):
                     expect(button).to_be_visible()
@@ -151,7 +151,7 @@ def test_tc12_global_administrator(open_page):
             assert label in labels, f"missing nav label {label}: {labels}"
 
         for info in DEPARTMENTS.values():
-            visit(page, info["path"])
+            visit(page, f"{info['path']}?report=")
             expect(heading(page, info["title"])).to_be_visible()
 
         visit(page, "/users/")
